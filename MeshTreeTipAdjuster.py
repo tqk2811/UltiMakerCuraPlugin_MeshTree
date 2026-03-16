@@ -22,8 +22,8 @@ class MeshTreeTipAdjuster(Script):
     của Tree Support trong UltiMaker Cura.
 
     Cách hoạt động:
-    - Phát hiện các lớp ngọn (SUPPORT-INTERFACE) và N lớp phía trên support bên dưới
-    - Chèn lệnh M221 để thay đổi lượng nhựa khi in phần ngọn
+    - Phát hiện các nhóm lớp SUPPORT-INTERFACE liên tiếp
+    - Chỉ áp dụng M221 cho top N lớp trên cùng của mỗi nhóm (gần model nhất)
     - Khôi phục lượng nhựa bình thường sau khi kết thúc phần ngọn
     """
 
@@ -44,12 +44,12 @@ class MeshTreeTipAdjuster(Script):
                     "maximum_value": 200
                 },
                 "tip_layer_count": {
-                    "label": "Tip Layer Count (Số lớp ngọn)",
-                    "description": "Số lớp phần ngọn cần điều chỉnh. 0 = chỉ áp dụng cho lớp SUPPORT-INTERFACE. Tăng lên để áp dụng thêm N lớp support bên dưới interface.",
+                    "label": "Số lớp ngọn áp dụng",
+                    "description": "Số lớp trên cùng của mỗi vùng support-interface sẽ được áp dụng flow rate. Ví dụ: 3 = chỉ 3 lớp trên cùng nhận flow thấp. 0 = áp dụng tất cả lớp SUPPORT-INTERFACE.",
                     "type": "int",
-                    "default_value": 2,
+                    "default_value": 3,
                     "minimum_value": 0,
-                    "maximum_value": 20
+                    "maximum_value": 50
                 },
                 "restore_flow": {
                     "label": "Restore Flow After Tips",
@@ -90,18 +90,27 @@ class MeshTreeTipAdjuster(Script):
             layer_has_support.append(";TYPE:SUPPORT" in layer)
 
         # ── Phase 2: Xác định tập hợp chỉ số lớp là "ngọn" (tip layers) ────────
-        # Tip = lớp SUPPORT-INTERFACE + tip_layer_count lớp support bên dưới
+        # Gom các lớp SUPPORT-INTERFACE liên tiếp thành từng nhóm (mỗi nhóm = 1 vùng tip)
+        # Trong mỗi nhóm chỉ lấy top N lớp trên cùng (index cao nhất = gần model nhất)
+        # tip_layer_count = 0 → áp dụng toàn bộ nhóm
         tip_layer_indices: set[int] = set()
 
+        groups: list[list[int]] = []
+        current_group: list[int] = []
         for i, has_interface in enumerate(layer_has_interface):
-            if not has_interface:
-                continue
-            tip_layer_indices.add(i)
-            # Mở rộng thêm tip_layer_count lớp phía dưới (index nhỏ hơn = in trước)
-            for offset in range(1, tip_layer_count + 1):
-                prev = i - offset
-                if prev >= 0 and layer_has_support[prev]:
-                    tip_layer_indices.add(prev)
+            if has_interface:
+                current_group.append(i)
+            else:
+                if current_group:
+                    groups.append(current_group)
+                    current_group = []
+        if current_group:
+            groups.append(current_group)
+
+        for group in groups:
+            # group đã sorted tăng dần; top N = cuối group (index lớn = gần model)
+            selected = group if tip_layer_count == 0 else group[-tip_layer_count:]
+            tip_layer_indices.update(selected)
 
         if not tip_layer_indices:
             # Không tìm thấy support interface → trả về nguyên
