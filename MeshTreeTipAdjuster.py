@@ -4,7 +4,7 @@
 #
 # Cách cài đặt:
 #   Sao chép file này vào thư mục:
-#   Windows: C:\Program Files\UltiMaker Cura <version>\plugins\PostProcessingPlugin\scripts\
+#   Windows: %appdata%\cura\<version>\scripts\MeshTreeTipAdjuster.py
 #   macOS:   /Applications/UltiMaker Cura.app/Contents/MacOS/plugins/PostProcessingPlugin/scripts/
 #   Linux:   ~/.local/share/cura/<version>/scripts/   hoặc   /usr/share/cura/plugins/PostProcessingPlugin/scripts/
 #
