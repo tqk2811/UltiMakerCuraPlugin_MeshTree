@@ -120,17 +120,17 @@ class MeshTreeSupportExtension(Extension):
 
         return total_area
 
-    def apply_settings(self, area_per_column: float, tip_branch_ratio: float = 0.45) -> dict:
+    def apply_settings(self, column_section_area: float, tip_branch_ratio: float = 0.45) -> dict:
         """
-        Tính tip_diameter từ area_per_column rồi áp dụng vào GlobalStack của Cura.
+        Tính tip_diameter từ diện tích tiết diện cột rồi áp dụng vào GlobalStack của Cura.
 
-        area_per_column   : mm² mà mỗi cột phải đỡ
-        tip_branch_ratio  : tip_d / branch_d  (mặc định 0.45, nhỏ hơn = đầu nhọn hơn)
+        column_section_area : mm² tiết diện của chính cột chống
+        tip_branch_ratio    : tip_d / branch_d  (mặc định 0.45, nhỏ hơn = đầu nhọn hơn)
 
         Trả về dict các setting đã được apply thành công.
         """
-        # Diện tích tiết diện đầu tip = π * (tip_d/2)²  →  tip_d = 2√(A/π)
-        tip_d = 2.0 * math.sqrt(area_per_column / math.pi)
+        # Diện tích tiết diện cột = π * (tip_d/2)²  →  tip_d = 2√(A/π)
+        tip_d = 2.0 * math.sqrt(column_section_area / math.pi)
         tip_d = round(max(0.2, min(tip_d, 5.0)), 3)
 
         branch_d = round(max(tip_d / tip_branch_ratio, 1.0), 3)
@@ -206,19 +206,36 @@ class ColumnDensityDialog(QDialog):
         grp_input = QGroupBox("Thông số đầu vào")
         form = QFormLayout(grp_input)
 
-        self._spin_area_per_col = QDoubleSpinBox()
-        self._spin_area_per_col.setRange(1.0, 1000.0)
-        self._spin_area_per_col.setValue(25.0)
-        self._spin_area_per_col.setSuffix(" mm²")
-        self._spin_area_per_col.setDecimals(1)
-        self._spin_area_per_col.setToolTip(
-            "Diện tích mà mỗi cột cần đỡ.\n"
-            "Nhỏ hơn → nhiều cột hơn, đầu nhỏ hơn.\n"
-            "Lớn hơn → ít cột hơn, đầu lớn hơn."
+        # --- Diện tích vùng bao phủ (để tính SỐ CỘT) ---
+        self._spin_coverage = QDoubleSpinBox()
+        self._spin_coverage.setRange(1.0, 10000.0)
+        self._spin_coverage.setValue(80.0)
+        self._spin_coverage.setSuffix(" mm²")
+        self._spin_coverage.setDecimals(1)
+        self._spin_coverage.setToolTip(
+            "Mỗi cột chống sẽ hỗ trợ cho vùng diện tích này.\n"
+            "Ví dụ: 80 mm² = 1 cột đỡ vùng ~10×8mm.\n"
+            "Nhỏ hơn → cần nhiều cột hơn.\n"
+            "Dùng để tính: số cột = diện tích overhang / giá trị này."
         )
-        self._spin_area_per_col.valueChanged.connect(self._update_preview)
-        form.addRow("Diện tích mỗi cột:", self._spin_area_per_col)
+        self._spin_coverage.valueChanged.connect(self._update_preview)
+        form.addRow("Vùng bao phủ mỗi cột:", self._spin_coverage)
 
+        # --- Diện tích tiết diện CỘT (để tính KÍCH THƯỚC cột) ---
+        self._spin_col_section = QDoubleSpinBox()
+        self._spin_col_section.setRange(0.5, 500.0)
+        self._spin_col_section.setValue(10.0)
+        self._spin_col_section.setSuffix(" mm²")
+        self._spin_col_section.setDecimals(1)
+        self._spin_col_section.setToolTip(
+            "Diện tích tiết diện ngang của chính cột chống.\n"
+            "Ví dụ: 10 mm² ≈ cột tròn đường kính ~3.57mm.\n"
+            "Dùng để tính tip_diameter và branch_diameter."
+        )
+        self._spin_col_section.valueChanged.connect(self._update_preview)
+        form.addRow("Tiết diện cột chống:", self._spin_col_section)
+
+        # --- Góc overhang ---
         self._spin_overhang_angle = QDoubleSpinBox()
         self._spin_overhang_angle.setRange(0.0, 89.0)
         self._spin_overhang_angle.setValue(45.0)
@@ -230,6 +247,7 @@ class ColumnDensityDialog(QDialog):
         )
         form.addRow("Góc overhang:", self._spin_overhang_angle)
 
+        # --- Tip/Branch ratio ---
         self._spin_ratio = QDoubleSpinBox()
         self._spin_ratio.setRange(0.1, 0.9)
         self._spin_ratio.setValue(0.45)
@@ -237,7 +255,7 @@ class ColumnDensityDialog(QDialog):
         self._spin_ratio.setSingleStep(0.05)
         self._spin_ratio.setToolTip(
             "Tỷ lệ đường kính đầu tip / đường kính thân cột.\n"
-            "Nhỏ hơn → đầu nhọn hơn, dễ tách hơn."
+            "Nhỏ hơn → đầu nhọn hơn, dễ tách khỏi model hơn."
         )
         self._spin_ratio.valueChanged.connect(self._update_preview)
         form.addRow("Tip / Branch ratio:", self._spin_ratio)
@@ -249,14 +267,14 @@ class ColumnDensityDialog(QDialog):
         info = QFormLayout(grp_result)
 
         self._lbl_overhang  = QLabel("—")
+        self._lbl_count     = QLabel("—")
         self._lbl_tip       = QLabel("—")
         self._lbl_branch    = QLabel("—")
-        self._lbl_count     = QLabel("—")
 
-        info.addRow("Diện tích overhang:", self._lbl_overhang)
-        info.addRow("Tip diameter:",       self._lbl_tip)
-        info.addRow("Branch diameter:",    self._lbl_branch)
-        info.addRow("Số cột ước tính:",    self._lbl_count)
+        info.addRow("Diện tích overhang:",  self._lbl_overhang)
+        info.addRow("Số cột ước tính:",     self._lbl_count)
+        info.addRow("Tip diameter:",        self._lbl_tip)
+        info.addRow("Branch diameter:",     self._lbl_branch)
 
         root.addWidget(grp_result)
 
@@ -303,29 +321,32 @@ class ColumnDensityDialog(QDialog):
 
     def _update_preview(self) -> None:
         """Cập nhật các nhãn kết quả mà không thay đổi Cura settings."""
-        area_col = self._spin_area_per_col.value()
-        ratio    = self._spin_ratio.value()
+        coverage    = self._spin_coverage.value()      # vùng bao phủ → tính số cột
+        col_section = self._spin_col_section.value()   # tiết diện cột → tính tip_d
+        ratio       = self._spin_ratio.value()
 
-        tip_d    = 2.0 * math.sqrt(area_col / math.pi)
+        # Số cột = diện tích overhang / diện tích vùng bao phủ mỗi cột
+        count = (
+            math.ceil(self._overhang_area / coverage)
+            if coverage > 0 and self._overhang_area > 0
+            else 0
+        )
+
+        # Kích thước cột từ diện tích tiết diện
+        tip_d    = 2.0 * math.sqrt(col_section / math.pi)
         tip_d    = max(0.2, min(tip_d, 5.0))
         branch_d = max(tip_d / ratio, 1.0)
         branch_d = min(branch_d, 20.0)
 
-        count = (
-            math.ceil(self._overhang_area / area_col)
-            if area_col > 0 and self._overhang_area > 0
-            else 0
-        )
-
         self._lbl_overhang.setText(f"{self._overhang_area:.1f} mm²")
+        self._lbl_count.setText(   f"~{count} cột")
         self._lbl_tip.setText(     f"{tip_d:.3f} mm")
         self._lbl_branch.setText(  f"{branch_d:.3f} mm")
-        self._lbl_count.setText(   f"~{count} cột")
 
     def _on_apply(self) -> None:
-        area_col = self._spin_area_per_col.value()
-        ratio    = self._spin_ratio.value()
-        applied  = self._ext.apply_settings(area_col, ratio)
+        col_section = self._spin_col_section.value()
+        ratio       = self._spin_ratio.value()
+        applied     = self._ext.apply_settings(col_section, ratio)
 
         if applied:
             tip    = applied.get(KEY_TIP_DIAMETER,    "?")
