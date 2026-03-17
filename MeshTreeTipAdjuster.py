@@ -39,7 +39,7 @@ class MeshTreeTipAdjuster(Script):
                     "description": "Lượng nhựa phun ra cho phần ngọn (tips). 100 = bình thường, nhỏ hơn = ít nhựa hơn, lớn hơn = nhiều nhựa hơn.",
                     "type": "int",
                     "unit": "%",
-                    "default_value": 85,
+                    "default_value": 100,
                     "minimum_value": 10,
                     "maximum_value": 200
                 },
