@@ -1,7 +1,0 @@
-{
-    "name": "Mesh Tree Support Controller",
-    "author": "tqk2811",
-    "version": "1.0.0",
-    "api": "8",
-    "description": "Tự động tính và đặt mật độ cột tree support dựa trên diện tích overhang. Công thức: số cột = diện tích overhang / diện tích mỗi cột."
-}
