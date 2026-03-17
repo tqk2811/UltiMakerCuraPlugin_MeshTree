@@ -1,0 +1,8 @@
+{
+    "name": "MeshTree Support Plugin",
+    "author": "tqk2811",
+    "version": "0.1.0",
+    "description": "Generates tree support structures with overhang detection and branch merging.",
+    "api": "8",
+    "i18n-catalog": "cura"
+}
