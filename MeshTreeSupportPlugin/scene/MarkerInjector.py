@@ -31,18 +31,25 @@ from ..core.ContactPointFinder import ContactPair
 NAME_A = "MeshTree_MarkerA"
 NAME_B = "MeshTree_MarkerB"
 
-WALL_MM         = 1.2    # hollow-cylinder wall thickness
-MIN_OUTER_R     = 1.5    # minimum outer radius for any B hollow cylinder
-B_CLUSTER_DIST  = 5.0    # mm – B points closer than this are merged into one hollow cylinder
-B_HEIGHT_LAYERS = 10     # layers tall for all B markers
-MAX_BASE_AREA   = 150.0  # mm² – max footprint area (π·r²) of any B hollow cylinder
-
-
 class MarkerInjector:
 
-    def __init__(self, layer_height: float = 0.2, sides: int = 12):
-        self.layer_height = layer_height
-        self.sides        = sides
+    def __init__(
+        self,
+        layer_height:    float = 0.2,
+        sides:           int   = 12,
+        b_cluster_dist:  float = 5.0,
+        b_height_layers: int   = 10,
+        max_base_area:   float = 150.0,
+        wall_mm:         float = 1.2,
+        min_outer_r:     float = 1.5,
+    ):
+        self.layer_height    = layer_height
+        self.sides           = sides
+        self.b_cluster_dist  = b_cluster_dist
+        self.b_height_layers = b_height_layers
+        self.max_base_area   = max_base_area
+        self.wall_mm         = wall_mm
+        self.min_outer_r     = min_outer_r
 
     # ------------------------------------------------------------------ #
     #  Public API                                                          #
@@ -55,7 +62,7 @@ class MarkerInjector:
 
         self.clear()
 
-        b_height = B_HEIGHT_LAYERS * self.layer_height
+        b_height = self.b_height_layers * self.layer_height
 
         # ── A markers: one small solid cylinder per contact point ─────── #
         A_verts, A_idx = self._build_solid_cylinders(
@@ -66,7 +73,7 @@ class MarkerInjector:
 
         # ── B markers: cluster nearby B points, hollow cylinder per cluster #
         b_points  = [p.B for p in pairs]
-        b_clusters = self._cluster_points(b_points, B_CLUSTER_DIST)
+        b_clusters = self._cluster_points(b_points, self.b_cluster_dist)
         Logger.log("d", "[MarkerInjector] %d B points → %d clusters", len(b_points), len(b_clusters))
 
         B_verts_list: List[np.ndarray] = []
@@ -81,16 +88,16 @@ class MarkerInjector:
 
             # outer radius = spread of cluster + 1 mm margin, min MIN_OUTER_R
             if len(pts) == 1:
-                outer_r = MIN_OUTER_R
+                outer_r = self.min_outer_r
             else:
                 dists   = np.sqrt((pts[:, 0] - cx) ** 2 + (pts[:, 2] - cz) ** 2)
-                outer_r = max(float(dists.max()) + WALL_MM + 1.0, MIN_OUTER_R)
+                outer_r = max(float(dists.max()) + self.wall_mm + 1.0, self.min_outer_r)
 
-            # Cap so footprint area π·outer_r² ≤ MAX_BASE_AREA
-            max_r   = float(np.sqrt(MAX_BASE_AREA / np.pi))
+            # Cap so footprint area π·outer_r² ≤ max_base_area
+            max_r   = float(np.sqrt(self.max_base_area / np.pi))
             outer_r = min(outer_r, max_r)
 
-            inner_r = max(outer_r - WALL_MM, 0.3)
+            inner_r = max(outer_r - self.wall_mm, 0.3)
 
             v, idx = self._hollow_cylinder(center, outer_r, inner_r, b_height)
             B_verts_list.append(v)

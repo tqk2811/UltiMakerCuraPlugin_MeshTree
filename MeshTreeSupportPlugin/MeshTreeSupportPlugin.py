@@ -35,6 +35,12 @@ class MeshTreeSupportPlugin(Extension, QObject):
             "base_diameter":          7.0,
             "layer_height":           0.2,
             "merge_threshold":        2.0,
+            # Marker visualisation
+            "b_cluster_dist":         5.0,
+            "b_height_layers":       10.0,
+            "max_base_area":        150.0,
+            "wall_mm":                1.2,
+            "min_outer_r":            1.5,
         }
 
         self.setMenuName(i18n_catalog.i18nc("@item:inmenu", "MeshTree Support"))
@@ -117,6 +123,56 @@ class MeshTreeSupportPlugin(Extension, QObject):
             self._settings["merge_threshold"] = value
             self.settingsChanged.emit()
 
+    @pyqtProperty(float, notify=settingsChanged)
+    def bClusterDist(self):
+        return self._settings["b_cluster_dist"]
+
+    @bClusterDist.setter
+    def bClusterDist(self, value):
+        if self._settings["b_cluster_dist"] != value:
+            self._settings["b_cluster_dist"] = value
+            self.settingsChanged.emit()
+
+    @pyqtProperty(float, notify=settingsChanged)
+    def bHeightLayers(self):
+        return self._settings["b_height_layers"]
+
+    @bHeightLayers.setter
+    def bHeightLayers(self, value):
+        if self._settings["b_height_layers"] != value:
+            self._settings["b_height_layers"] = value
+            self.settingsChanged.emit()
+
+    @pyqtProperty(float, notify=settingsChanged)
+    def maxBaseArea(self):
+        return self._settings["max_base_area"]
+
+    @maxBaseArea.setter
+    def maxBaseArea(self, value):
+        if self._settings["max_base_area"] != value:
+            self._settings["max_base_area"] = value
+            self.settingsChanged.emit()
+
+    @pyqtProperty(float, notify=settingsChanged)
+    def wallMm(self):
+        return self._settings["wall_mm"]
+
+    @wallMm.setter
+    def wallMm(self, value):
+        if self._settings["wall_mm"] != value:
+            self._settings["wall_mm"] = value
+            self.settingsChanged.emit()
+
+    @pyqtProperty(float, notify=settingsChanged)
+    def minOuterR(self):
+        return self._settings["min_outer_r"]
+
+    @minOuterR.setter
+    def minOuterR(self, value):
+        if self._settings["min_outer_r"] != value:
+            self._settings["min_outer_r"] = value
+            self.settingsChanged.emit()
+
     # ------------------------------------------------------------------ #
     #  QML slots                                                           #
     # ------------------------------------------------------------------ #
@@ -152,7 +208,12 @@ class MeshTreeSupportPlugin(Extension, QObject):
             merge_threshold =self._settings["merge_threshold"],
         )
         injector = MarkerInjector(
-            layer_height=self._settings["layer_height"]
+            layer_height   = self._settings["layer_height"],
+            b_cluster_dist = self._settings["b_cluster_dist"],
+            b_height_layers= int(round(self._settings["b_height_layers"])),
+            max_base_area  = self._settings["max_base_area"],
+            wall_mm        = self._settings["wall_mm"],
+            min_outer_r    = self._settings["min_outer_r"],
         )
 
         all_faces = []

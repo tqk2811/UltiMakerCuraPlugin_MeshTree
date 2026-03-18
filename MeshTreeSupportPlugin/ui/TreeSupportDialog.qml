@@ -230,6 +230,83 @@ Window {
 
             Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 4; Layout.bottomMargin: 4 }
 
+            // ══ Marker Visualisation ══════════════════════════════════ //
+            Label {
+                text: "Marker Visualisation  (hiển thị điểm B)"
+                font.bold: true; color: "#8e44ad"
+                Layout.topMargin: 2
+            }
+            Label {
+                text: "Thông số hình trụ rỗng minh hoạ các điểm neo B trên bàn in."
+                color: "#888"; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 11
+            }
+
+            SettingRow {
+                label:   "B Cluster Distance (bán kính gộp cụm B)"
+                value:   Math.round(manager.bClusterDist * 10)
+                from:    5; to: 500; stepSize: 5
+                unit:    "mm"
+                tooltip: "Các điểm B trong phạm vi này sẽ được gộp thành một hình trụ rỗng chung.\n" +
+                         "Giúp tránh vẽ quá nhiều hình trụ chồng chéo lên nhau.\n\n" +
+                         "• 2–3 mm → gộp rất ít, mỗi điểm B hầu như có trụ riêng\n" +
+                         "• 5 mm – mặc định, gộp các điểm gần nhau thành nhóm hợp lý\n" +
+                         "• 15+ mm → gộp mạnh, ít trụ hơn nhưng kích thước trụ lớn hơn"
+                onValueEdited: manager.bClusterDist = v
+                Layout.fillWidth: true
+            }
+            SettingRow {
+                label:   "B Height Layers (chiều cao trụ B theo lớp)"
+                value:   Math.round(manager.bHeightLayers * 10)
+                from:    10; to: 500; stepSize: 10
+                unit:    "layers"
+                tooltip: "Chiều cao của hình trụ rỗng B, tính bằng số lớp in.\n" +
+                         "Chiều cao thực = số lớp × layer height.\n\n" +
+                         "• 5 lớp → trụ thấp (1 mm với lh=0.2), chỉ đủ thấy\n" +
+                         "• 10 lớp – mặc định (2 mm), dễ nhận biết trong viewport\n" +
+                         "• 20+ lớp → trụ cao, nổi bật hơn nhưng có thể che khuất model"
+                onValueEdited: manager.bHeightLayers = v
+                Layout.fillWidth: true
+            }
+            SettingRow {
+                label:   "Max Base Area (diện tích đáy tối đa)"
+                value:   Math.round(manager.maxBaseArea * 10)
+                from:    100; to: 5000; stepSize: 50
+                unit:    "mm²"
+                tooltip: "Giới hạn diện tích đáy (π × r²) của hình trụ rỗng B.\n" +
+                         "Khi cụm B rất rộng, bán kính ngoài bị cắt để không vượt giới hạn này.\n\n" +
+                         "• 50 mm² → r_max ≈ 4.0 mm, trụ nhỏ gọn\n" +
+                         "• 150 mm² – mặc định, r_max ≈ 6.9 mm\n" +
+                         "• 300 mm² → r_max ≈ 9.8 mm, cho phép trụ rất rộng"
+                onValueEdited: manager.maxBaseArea = v
+                Layout.fillWidth: true
+            }
+            SettingRow {
+                label:   "Wall Thickness (độ dày thành trụ rỗng)"
+                value:   Math.round(manager.wallMm * 10)
+                from:    5; to: 50; stepSize: 1
+                unit:    "mm"
+                tooltip: "Độ dày thành của hình trụ rỗng B (outer_r − inner_r).\n\n" +
+                         "• 0.5–0.8 mm → thành mỏng, tiết kiệm, nhưng khó thấy màu\n" +
+                         "• 1.2 mm – mặc định, đủ dày để nhìn rõ trong viewport\n" +
+                         "• 2–3 mm → thành dày, trụ trông rắn chắc hơn"
+                onValueEdited: manager.wallMm = v
+                Layout.fillWidth: true
+            }
+            SettingRow {
+                label:   "Min Outer Radius (bán kính ngoài tối thiểu)"
+                value:   Math.round(manager.minOuterR * 10)
+                from:    5; to: 100; stepSize: 5
+                unit:    "mm"
+                tooltip: "Bán kính ngoài tối thiểu của hình trụ rỗng B, kể cả khi chỉ có một điểm.\n\n" +
+                         "• 0.8–1.0 mm → trụ rất nhỏ, khó thấy\n" +
+                         "• 1.5 mm – mặc định, vừa đủ nhìn thấy ở zoom bình thường\n" +
+                         "• 3–5 mm → trụ to, dễ thấy nhưng có thể chồng lên model nhỏ"
+                onValueEdited: manager.minOuterR = v
+                Layout.fillWidth: true
+            }
+
+            Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+
             // ── Module status ──────────────────────────────────────── //
             Label { text: "Module Status"; font.bold: true; color: "#555" }
 
