@@ -44,6 +44,10 @@ class MeshTreeSupportPlugin(Extension, QObject):
             # Marker visualisation – branches
             "tip_arm_length":         2.0,   # mm – arm from A along face normal
             "branch_merge_dist":      5.0,   # mm – merge branches closer than this
+            "branch_radius":          0.4,   # mm – radius at A (thin tip)
+            "branch_base_radius":     1.2,   # mm – radius at cylinder (thick base)
+            "min_branch_length":      1.0,   # mm – drop shorter sub-segments
+            "min_branch_angle_deg":  20.0,   # °  – min angle from horizontal
         }
 
         self.setMenuName(i18n_catalog.i18nc("@item:inmenu", "MeshTree Support"))
@@ -196,6 +200,46 @@ class MeshTreeSupportPlugin(Extension, QObject):
             self._settings["branch_merge_dist"] = value
             self.settingsChanged.emit()
 
+    @pyqtProperty(float, notify=settingsChanged)
+    def branchRadiusTip(self):
+        return self._settings["branch_radius"]
+
+    @branchRadiusTip.setter
+    def branchRadiusTip(self, value):
+        if self._settings["branch_radius"] != value:
+            self._settings["branch_radius"] = value
+            self.settingsChanged.emit()
+
+    @pyqtProperty(float, notify=settingsChanged)
+    def branchRadiusBase(self):
+        return self._settings["branch_base_radius"]
+
+    @branchRadiusBase.setter
+    def branchRadiusBase(self, value):
+        if self._settings["branch_base_radius"] != value:
+            self._settings["branch_base_radius"] = value
+            self.settingsChanged.emit()
+
+    @pyqtProperty(float, notify=settingsChanged)
+    def minBranchLength(self):
+        return self._settings["min_branch_length"]
+
+    @minBranchLength.setter
+    def minBranchLength(self, value):
+        if self._settings["min_branch_length"] != value:
+            self._settings["min_branch_length"] = value
+            self.settingsChanged.emit()
+
+    @pyqtProperty(float, notify=settingsChanged)
+    def minBranchAngleDeg(self):
+        return self._settings["min_branch_angle_deg"]
+
+    @minBranchAngleDeg.setter
+    def minBranchAngleDeg(self, value):
+        if self._settings["min_branch_angle_deg"] != value:
+            self._settings["min_branch_angle_deg"] = value
+            self.settingsChanged.emit()
+
     # ------------------------------------------------------------------ #
     #  QML slots                                                           #
     # ------------------------------------------------------------------ #
@@ -240,15 +284,19 @@ class MeshTreeSupportPlugin(Extension, QObject):
                 pass
 
         injector = MarkerInjector(
-            layer_height      = self._settings["layer_height"],
-            b_cluster_dist    = self._settings["b_cluster_dist"],
-            b_gap_to_a        = self._settings["b_gap_to_a"],
-            max_base_area     = self._settings["max_base_area"],
-            wall_mm           = self._settings["wall_mm"],
-            min_wall_mm       = min_wall,
-            min_outer_r       = self._settings["min_outer_r"],
-            tip_arm_length    = self._settings["tip_arm_length"],
-            branch_merge_dist = self._settings["branch_merge_dist"],
+            layer_height         = self._settings["layer_height"],
+            b_cluster_dist       = self._settings["b_cluster_dist"],
+            b_gap_to_a           = self._settings["b_gap_to_a"],
+            max_base_area        = self._settings["max_base_area"],
+            wall_mm              = self._settings["wall_mm"],
+            min_wall_mm          = min_wall,
+            min_outer_r          = self._settings["min_outer_r"],
+            tip_arm_length       = self._settings["tip_arm_length"],
+            branch_merge_dist    = self._settings["branch_merge_dist"],
+            branch_radius        = self._settings["branch_radius"],
+            branch_base_radius   = self._settings["branch_base_radius"],
+            min_branch_length    = self._settings["min_branch_length"],
+            min_branch_angle_deg = self._settings["min_branch_angle_deg"],
         )
 
         all_faces = []

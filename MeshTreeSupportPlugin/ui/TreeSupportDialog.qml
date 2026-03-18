@@ -225,6 +225,57 @@ Window {
                 onValueEdited: manager.branchMergeDist = v
                 Layout.fillWidth: true
             }
+            SettingRow {
+                label:   "Branch Radius Tip (bán kính đầu cành – tại A)"
+                value:   Math.round(manager.branchRadiusTip * 10)
+                from:    1; to: 50; stepSize: 1
+                unit:    "mm"
+                tooltip: "Bán kính ống cành tại điểm A – đầu mỏng nhất.\n" +
+                         "Cành nhỏ dần từ đây lên điểm tiếp xúc model.\n\n" +
+                         "• 0.3–0.4 mm – mặc định, mảnh, dễ bẻ sau in\n" +
+                         "• 0.8–1.0 mm → cành to hơn, bền hơn nhưng khó tách"
+                onValueEdited: manager.branchRadiusTip = v
+                Layout.fillWidth: true
+            }
+            SettingRow {
+                label:   "Branch Radius Base (bán kính chân cành – tại trụ)"
+                value:   Math.round(manager.branchRadiusBase * 10)
+                from:    1; to: 100; stepSize: 1
+                unit:    "mm"
+                tooltip: "Bán kính ống cành tại điểm nối với trụ B – đầu to nhất.\n" +
+                         "Cành to dần từ A xuống đây, tạo hình nón cụt (frustum).\n\n" +
+                         "• 0.8–1.2 mm – mặc định, phình vừa phải\n" +
+                         "• 2+ mm → chân cành rất to, cứng nhưng tốn vật liệu"
+                onValueEdited: manager.branchRadiusBase = v
+                Layout.fillWidth: true
+            }
+            SettingRow {
+                label:   "Min Branch Length (độ dài tối thiểu cành phụ)"
+                value:   Math.round(manager.minBranchLength * 10)
+                from:    1; to: 100; stepSize: 1
+                unit:    "mm"
+                tooltip: "Cành phụ ngắn hơn giá trị này sẽ bị bỏ qua, không vẽ.\n" +
+                         "Giúp tránh sinh ra các đoạn quá ngắn không có ý nghĩa.\n\n" +
+                         "• 0.5 mm → giữ hầu hết cành, kể cả rất ngắn\n" +
+                         "• 1.0 mm – mặc định, loại bỏ các đoạn dưới 1 mm\n" +
+                         "• 3+ mm → chỉ giữ cành dài, cây support trông gọn hơn"
+                onValueEdited: manager.minBranchLength = v
+                Layout.fillWidth: true
+            }
+            SettingRow {
+                label:   "Min Branch Angle (góc tối thiểu cành phụ)"
+                value:   Math.round(manager.minBranchAngleDeg * 10)
+                from:    0; to: 800; stepSize: 5
+                unit:    "deg"
+                tooltip: "Góc tối thiểu của cành so với mặt phẳng nằm ngang.\n" +
+                         "Cành quá nằm ngang (< góc này) sẽ bị điều chỉnh xuống thấp hơn,\n" +
+                         "hoặc bỏ qua nếu không thể đạt góc yêu cầu.\n\n" +
+                         "• 0° → không giới hạn, cành có thể nằm ngang hoàn toàn\n" +
+                         "• 20° – mặc định, đủ dốc để tự in không cần support thêm\n" +
+                         "• 45° → chỉ giữ cành khá dốc, cây support chắc hơn"
+                onValueEdited: manager.minBranchAngleDeg = v
+                Layout.fillWidth: true
+            }
 
             Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 4; Layout.bottomMargin: 4 }
 

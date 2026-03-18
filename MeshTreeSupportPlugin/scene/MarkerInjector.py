@@ -30,7 +30,7 @@ from cura.Scene.SliceableObjectDecorator import SliceableObjectDecorator
 from cura.Scene.BuildPlateDecorator import BuildPlateDecorator
 
 from ..core.ContactPointFinder import ContactPair
-from ..core.BranchBuilder import BranchBuilder, BranchSegment
+from ..core.BranchBuilder import BranchBuilder, BranchSegment, CylinderInfo
 
 NAME_A       = "MeshTree_MarkerA"
 NAME_B       = "MeshTree_MarkerB"
@@ -48,20 +48,28 @@ class MarkerInjector:
         max_base_area:     float = 150.0,
         wall_mm:           float = 1.2,
         min_wall_mm:       float = 0.4,     # minimum printable wall (≥ 1 line width)
-        min_outer_r:       float = 1.5,
-        tip_arm_length:    float = 2.0,     # mm – perpendicular arm from A along normal
-        branch_merge_dist: float = 5.0,     # mm – merge branch lines closer than this
+        min_outer_r:          float = 1.5,
+        tip_arm_length:       float = 2.0,
+        branch_merge_dist:    float = 5.0,
+        branch_radius:        float = 0.4,   # mm – radius at A (tip end)
+        branch_base_radius:   float = 1.2,   # mm – radius at cylinder (base end)
+        min_branch_length:    float = 1.0,   # mm – drop shorter segments
+        min_branch_angle_deg: float = 20.0,  # °  – min angle from horizontal
     ):
-        self.layer_height      = layer_height
-        self.sides             = sides
-        self.b_cluster_dist    = b_cluster_dist
-        self.b_gap_to_a        = b_gap_to_a
-        self.max_base_area     = max_base_area
-        self.wall_mm           = wall_mm
-        self.min_wall_mm       = min_wall_mm
-        self.min_outer_r       = min_outer_r
-        self.tip_arm_length    = tip_arm_length
-        self.branch_merge_dist = branch_merge_dist
+        self.layer_height         = layer_height
+        self.sides                = sides
+        self.b_cluster_dist       = b_cluster_dist
+        self.b_gap_to_a           = b_gap_to_a
+        self.max_base_area        = max_base_area
+        self.wall_mm              = wall_mm
+        self.min_wall_mm          = min_wall_mm
+        self.min_outer_r          = min_outer_r
+        self.tip_arm_length       = tip_arm_length
+        self.branch_merge_dist    = branch_merge_dist
+        self.branch_radius        = branch_radius
+        self.branch_base_radius   = branch_base_radius
+        self.min_branch_length    = min_branch_length
+        self.min_branch_angle_deg = min_branch_angle_deg
 
     # ------------------------------------------------------------------ #
     #  Public API                                                          #
@@ -91,9 +99,9 @@ class MarkerInjector:
         pair_clusters = self._cluster_pairs(pairs, self.b_cluster_dist)
         Logger.log("d", "[MarkerInjector] %d B points → %d clusters", len(pairs), len(pair_clusters))
 
-        B_verts_list: List[np.ndarray] = []
-        B_idx_list:   List[np.ndarray] = []
-        cluster_tops: List[np.ndarray] = []
+        B_verts_list:  List[np.ndarray]   = []
+        B_idx_list:    List[np.ndarray]   = []
+        cluster_cyls:  List[CylinderInfo] = []
         b_offset = 0
 
         for cluster_pairs in pair_clusters:
@@ -129,17 +137,21 @@ class MarkerInjector:
             B_verts_list.append(v)
             B_idx_list.append(idx + b_offset)
             b_offset += len(v)
-            cluster_tops.append(np.array([cx, b_height, cz], dtype=np.float32))
+            cluster_cyls.append(CylinderInfo(cx=cx, cz=cz, outer_r=outer_r, height=b_height))
 
         B_verts = np.vstack(B_verts_list).astype(np.float32)
         B_idx   = np.vstack(B_idx_list).astype(np.int32)
 
-        # ── Branch lines: A → cylinder tops ──────────────────────────── #
-        builder   = BranchBuilder(
-            tip_arm_length    = self.tip_arm_length,
-            branch_merge_dist = self.branch_merge_dist,
+        # ── Branch lines: A → cylinder connection points ─────────────── #
+        builder = BranchBuilder(
+            tip_arm_length       = self.tip_arm_length,
+            branch_merge_dist    = self.branch_merge_dist,
+            branch_radius        = self.branch_radius,
+            branch_base_radius   = self.branch_base_radius,
+            min_branch_length    = self.min_branch_length,
+            min_branch_angle_deg = self.min_branch_angle_deg,
         )
-        branch_segs = builder.build_segments(pair_clusters, cluster_tops)
+        branch_segs = builder.build_segments(pair_clusters, cluster_cyls)
         Br_verts, Br_idx = self._build_tubes(branch_segs)
 
         # ── Inject into scene ─────────────────────────────────────────── #
@@ -150,7 +162,7 @@ class MarkerInjector:
         for name, verts, idx, sliceable in [
             (NAME_A,      A_verts,    A_idx,    False),
             (NAME_B_DOT,  Bdot_verts, Bdot_idx, False),
-            (NAME_BRANCH, Br_verts,   Br_idx,   False),
+            (NAME_BRANCH, Br_verts,   Br_idx,   True),
             (NAME_B,      B_verts,    B_idx,    True),
         ]:
             node = self._make_node(name, verts, idx, sliceable=sliceable)
@@ -212,36 +224,34 @@ class MarkerInjector:
         self,
         segments: "List[BranchSegment]",
     ) -> "Tuple[np.ndarray, np.ndarray]":
-        """Build one merged mesh from a list of BranchSegments."""
+        """Build one merged mesh from a list of BranchSegments (tapered frustums)."""
+        _empty = (np.zeros((3, 3), dtype=np.float32), np.array([[0, 1, 2]], dtype=np.int32))
         if not segments:
-            # Return minimal valid mesh (degenerate single triangle)
-            v = np.zeros((3, 3), dtype=np.float32)
-            i = np.array([[0, 1, 2]], dtype=np.int32)
-            return v, i
+            return _empty
         all_v, all_i = [], []
         offset = 0
         for seg in segments:
-            v, idx = self._tube_segment(seg.start, seg.end, seg.radius)
+            v, idx = self._frustum_segment(seg.start, seg.end,
+                                           seg.radius_start, seg.radius_end)
             if len(v) == 0:
                 continue
             all_v.append(v)
             all_i.append(idx + offset)
             offset += len(v)
         if not all_v:
-            v = np.zeros((3, 3), dtype=np.float32)
-            i = np.array([[0, 1, 2]], dtype=np.int32)
-            return v, i
+            return _empty
         return np.vstack(all_v).astype(np.float32), np.vstack(all_i).astype(np.int32)
 
-    def _tube_segment(
+    def _frustum_segment(
         self,
-        start:  np.ndarray,
-        end:    np.ndarray,
-        radius: float,
+        start:        np.ndarray,
+        end:          np.ndarray,
+        radius_start: float,
+        radius_end:   float,
     ) -> "Tuple[np.ndarray, np.ndarray]":
         """
-        Open tube (no caps) between two arbitrary 3D points.
-        Uses an orthonormal frame perpendicular to the direction vector.
+        Open frustum (truncated cone) between two arbitrary 3D points.
+        radius_start at start, radius_end at end.  No end caps.
         """
         s = self.sides
         d = (end - start).astype(np.float64)
@@ -251,19 +261,21 @@ class MarkerInjector:
 
         d_hat = d / length
 
-        # Build orthonormal frame (u, v) perpendicular to d_hat
+        # Orthonormal frame perpendicular to d_hat
         ref = np.array([0.0, 1.0, 0.0])
         if abs(float(np.dot(d_hat, ref))) > 0.99:
             ref = np.array([1.0, 0.0, 0.0])
-        u = np.cross(d_hat, ref)
-        u /= np.linalg.norm(u)
+        u = np.cross(d_hat, ref);  u /= np.linalg.norm(u)
         v = np.cross(d_hat, u)
 
         angles = np.linspace(0, 2 * np.pi, s, endpoint=False)
-        ring   = radius * (np.outer(np.cos(angles), u) + np.outer(np.sin(angles), v))
+        cos_a  = np.cos(angles)
+        sin_a  = np.sin(angles)
+        dir_u  = np.outer(cos_a, u)   # (s, 3)
+        dir_v  = np.outer(sin_a, v)   # (s, 3)
 
-        bot = (start.astype(np.float64) + ring).astype(np.float32)
-        top = (end.astype(np.float64)   + ring).astype(np.float32)
+        bot = (start.astype(np.float64) + radius_start * (dir_u + dir_v)).astype(np.float32)
+        top = (end.astype(np.float64)   + radius_end   * (dir_u + dir_v)).astype(np.float32)
         verts = np.vstack([bot, top])   # (2s, 3)
 
         faces = []
