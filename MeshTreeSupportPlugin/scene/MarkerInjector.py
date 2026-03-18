@@ -120,7 +120,7 @@ class MarkerInjector:
 
         scene.sceneChanged.emit(scene.getRoot())
         Logger.log("i", "[MarkerInjector] A=%d pts  B=%d clusters  (layer_h=%.2f)",
-                   len(pairs), len(b_clusters), self.layer_height)
+                   len(pairs), len(pair_clusters), self.layer_height)
 
     def clear(self) -> None:
         app   = CuraApplication.getInstance()
