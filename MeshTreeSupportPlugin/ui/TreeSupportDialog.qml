@@ -12,7 +12,7 @@ Window {
     minimumWidth: 400
     height: 600
     minimumHeight: 500
-    flags: Qt.Window | Qt.WindowCloseButtonHint | Qt.WindowMinimizeButtonHint
+    modality: Qt.NonModal
 
     // ------------------------------------------------------------------ //
     //  Helper component: one labeled row with a SpinBox                   //
