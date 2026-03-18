@@ -62,51 +62,51 @@ class OverhangDetector:
         if len(indices) == 0:
             return []
 
-        # ── Compute per-face normals ──────────────────────────────────── #
+        # ── Compute per-face normals & edge lengths ───────────────────── #
         v0 = verts[indices[:, 0]]
         v1 = verts[indices[:, 1]]
         v2 = verts[indices[:, 2]]
 
         cross   = np.cross(v1 - v0, v2 - v0)          # (M, 3)
-        lengths = np.linalg.norm(cross, axis=1)        # (M,)
+        lengths = np.linalg.norm(cross, axis=1)        # (M,) – 2× face area
         valid   = lengths > 1e-10
         normals = np.zeros_like(cross)
         normals[valid] = cross[valid] / lengths[valid, np.newaxis]
 
-        # ── Robust bounding box: 1st–99th percentile of vertices + 5 mm  #
-        # Using percentiles ignores stray/artifact vertices that would    #
-        # otherwise extend min/max and let bad centroids slip through.    #
-        bb_min = np.percentile(verts, 1,  axis=0) - 5.0
-        bb_max = np.percentile(verts, 99, axis=0) + 5.0
+        # Max edge length per face (vectorised) ─────────────────────── #
+        e01 = np.linalg.norm(v1 - v0, axis=1)
+        e12 = np.linalg.norm(v2 - v1, axis=1)
+        e20 = np.linalg.norm(v0 - v2, axis=1)
+        max_edge = np.maximum(np.maximum(e01, e12), e20)
 
-        # ── Filter: normal.y < -sin(support_angle) ───────────────────── #
+        # Max allowed edge = 10 % of model diagonal, min 5 mm, max 30 mm #
+        diag = float(np.linalg.norm(
+            np.percentile(verts, 99, axis=0) - np.percentile(verts, 1, axis=0)
+        ))
+        max_edge_limit = float(np.clip(diag * 0.10, 5.0, 30.0))
+
+        # ── Overhang angle filter ─────────────────────────────────────── #
         threshold = -np.sin(np.deg2rad(self.support_angle_deg))
-        mask = (normals[:, 1] < threshold) & valid
+        mask = (normals[:, 1] < threshold) & valid & (max_edge <= max_edge_limit)
 
-        # ── Vectorised: all 3 vertices must be inside robust bbox ─────── #
-        # Checking vertices (not centroid) catches faces whose centroid    #
-        # appears valid but one vertex is a garbage point far from model.  #
-        v0_ok = np.all((v0 >= bb_min) & (v0 <= bb_max), axis=1)
-        v1_ok = np.all((v1 >= bb_min) & (v1 <= bb_max), axis=1)
-        v2_ok = np.all((v2 >= bb_min) & (v2 <= bb_max), axis=1)
-        bbox_ok = v0_ok & v1_ok & v2_ok
-
-        MIN_AREA = 0.01   # mm² – skip degenerate faces
-        area_ok  = (0.5 * lengths) >= MIN_AREA
-
-        final_mask = mask & bbox_ok & area_ok
-
+        # ── Collect results ───────────────────────────────────────────── #
+        MIN_AREA = 0.01   # mm²
         results: List[OverhangFace] = []
-        skipped = int((mask & ~(bbox_ok & area_ok)).sum())
-        for i in np.where(final_mask)[0]:
-            center = (v0[i] + v1[i] + v2[i]) / 3.0
+        skipped = 0
+        for i in np.where(mask)[0]:
+            area = 0.5 * lengths[i]
+            if area < MIN_AREA:
+                skipped += 1
+                continue
             results.append(OverhangFace(
-                center=center.astype(np.float32),
+                center=((v0[i] + v1[i] + v2[i]) / 3.0).astype(np.float32),
                 normal=normals[i].astype(np.float32),
-                area=float(0.5 * lengths[i]),
+                area=float(area),
             ))
 
-        Logger.log("d", "[OverhangDetector] %d overhang faces kept, %d skipped (bbox/area) – angle=%.1f°",
-                   len(results), skipped, self.support_angle_deg)
+        Logger.log("d",
+            "[OverhangDetector] kept=%d skipped=%d  max_edge_limit=%.1f mm  angle=%.1f°",
+            len(results), skipped + int((~mask & valid).sum()),
+            max_edge_limit, self.support_angle_deg)
 
         return results
