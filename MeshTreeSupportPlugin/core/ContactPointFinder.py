@@ -73,6 +73,63 @@ class ContactPointFinder:
 
     # ------------------------------------------------------------------ #
     @staticmethod
+    def exclude_near_footprint(
+        pairs:            "List[ContactPair]",
+        mesh_nodes:       list,
+        exclusion_radius: float = 30.0,
+    ) -> "List[ContactPair]":
+        """
+        Remove pairs whose B point (XZ) lies within `exclusion_radius` mm
+        of any vertex that is on (or near) the build plate of a mesh node.
+
+        "On the build plate" = vertex Y ≤ min_Y_of_node + 0.5 mm after
+        world transform.  Only the XZ plane is considered for distance.
+        """
+        if not pairs or not mesh_nodes:
+            return pairs
+
+        # ── Collect footprint vertices (world XZ) across all nodes ─── #
+        foot_xz_list = []
+        for node in mesh_nodes:
+            mesh_data = node.getMeshData()
+            if mesh_data is None:
+                continue
+            verts_raw = mesh_data.getVertices()
+            if verts_raw is None or len(verts_raw) == 0:
+                continue
+
+            matrix = node.getWorldTransformation().getData()
+            ones   = np.ones((len(verts_raw), 1), dtype=np.float64)
+            verts  = (matrix @ np.hstack([verts_raw.astype(np.float64), ones]).T).T[:, :3]
+
+            min_y  = float(verts[:, 1].min())
+            ground = verts[verts[:, 1] <= min_y + 0.5]   # Y within 0.5 mm of bottom
+            if len(ground) > 0:
+                foot_xz_list.append(ground[:, [0, 2]])    # keep only X, Z
+
+        if not foot_xz_list:
+            return pairs
+
+        foot_xz = np.vstack(foot_xz_list).astype(np.float32)   # (N, 2)
+        r2 = exclusion_radius ** 2
+
+        kept = []
+        excluded = 0
+        for pair in pairs:
+            bx, bz  = float(pair.B[0]), float(pair.B[2])
+            dx      = foot_xz[:, 0] - bx
+            dz      = foot_xz[:, 1] - bz
+            min_d2  = float(np.min(dx * dx + dz * dz))
+            if min_d2 < r2:
+                excluded += 1
+            else:
+                kept.append(pair)
+
+        Logger.log("d", "[ContactPointFinder] footprint exclusion (r=%.1f mm): "
+                   "%d kept, %d excluded", exclusion_radius, len(kept), excluded)
+        return kept
+
+    @staticmethod
     def _cluster(points: np.ndarray, cell_size: float) -> np.ndarray:
         """Keep one representative point per grid cell (first encountered)."""
         if len(points) == 0:
