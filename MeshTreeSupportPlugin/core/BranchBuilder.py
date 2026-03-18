@@ -111,12 +111,14 @@ class BranchBuilder:
 
     def __init__(
         self,
-        tip_arm_length:       float = 2.0,    # mm – arm from A along face normal
+        tip_arm_length:       float = 2.0,    # mm – arm from A straight down (-Y)
         branch_merge_dist:    float = 5.0,    # mm – merge branches closer than this
         branch_radius:        float = 0.4,    # mm – radius at A (tip, thin end)
         branch_base_radius:   float = 1.2,    # mm – radius at cylinder connection (thick end)
         min_branch_length:    float = 1.0,    # mm – drop shorter segments
         min_branch_angle_deg: float = 20.0,   # °  – min angle from horizontal
+        min_levels:           int   = 4,      # minimum merge iterations (force merge even if far)
+        max_levels:           int   = 10,     # maximum merge iterations
         # Legacy params kept for backward compatibility
         trunk_radius:          float = 0.6,
         tip_radius:            float = 0.5,
@@ -130,6 +132,8 @@ class BranchBuilder:
         self.branch_base_radius   = branch_base_radius
         self.min_branch_length    = min_branch_length
         self.min_branch_angle_deg = min_branch_angle_deg
+        self.min_levels           = int(min_levels)
+        self.max_levels           = int(max_levels)
 
     # ------------------------------------------------------------------ #
     #  Public API                                                          #
@@ -175,15 +179,14 @@ class BranchBuilder:
         arm_ends: List[np.ndarray]    = []
 
         for p in pairs:
-            n     = p.normal if p.normal is not None else np.array([0.0, -1.0, 0.0], dtype=np.float32)
-            n_len = float(np.linalg.norm(n))
-            if n_len > 1e-6:
-                n = n / n_len
-
-            arm_end = (p.A + n * self.tip_arm_length).astype(np.float32)
+            # Arm goes straight down (-Y) so branch XZ stays aligned with A
+            arm_end = np.array(
+                [p.A[0], float(p.A[1]) - self.tip_arm_length, p.A[2]],
+                dtype=np.float32,
+            )
             arm_ends.append(arm_end)
 
-            # Tip arm: A → arm_end (constant radius, thin)
+            # Tip arm: A → arm_end, straight down (constant radius, thin)
             segments.append(BranchSegment(
                 start=p.A.copy(), end=arm_end,
                 radius_start=self.branch_radius,
@@ -218,9 +221,9 @@ class BranchBuilder:
             t = float(np.clip((top_y - y) / dy_ref, 0.0, 1.0))
             return self.branch_radius + t * (self.branch_base_radius - self.branch_radius)
 
-        changed = True
-        while changed and len(nodes) > 1:
-            changed = False
+        level = 0
+        while len(nodes) > 1:
+            # Find closest pair
             min_d, mi, mj = float("inf"), 0, 1
             for i in range(len(nodes)):
                 for j in range(i + 1, len(nodes)):
@@ -228,21 +231,26 @@ class BranchBuilder:
                     if d < min_d:
                         min_d, mi, mj = d, i, j
 
-            if min_d <= self.branch_merge_dist:
-                merge_pt = ((nodes[mi] + nodes[mj]) / 2.0).astype(np.float32)
-                merge_pt[1] = min(float(nodes[mi][1]), float(nodes[mj][1]))
-                merge_pt    = self._enforce_angle(nodes[mi], merge_pt)
-                merge_pt    = self._enforce_angle(nodes[mj], merge_pt)
+            # Stop if: max levels reached, OR distance too far AND already have min levels
+            if level >= self.max_levels:
+                break
+            if min_d > self.branch_merge_dist and level >= self.min_levels:
+                break
 
-                for n in (nodes[mi], nodes[mj]):
-                    segs.append(BranchSegment(
-                        start=n.copy(), end=merge_pt,
-                        radius_start=_r(float(n[1])),
-                        radius_end=_r(float(merge_pt[1])),
-                    ))
-                nodes[mi] = merge_pt
-                nodes.pop(mj)
-                changed = True
+            merge_pt = ((nodes[mi] + nodes[mj]) / 2.0).astype(np.float32)
+            merge_pt[1] = min(float(nodes[mi][1]), float(nodes[mj][1]))
+            merge_pt    = self._enforce_angle(nodes[mi], merge_pt)
+            merge_pt    = self._enforce_angle(nodes[mj], merge_pt)
+
+            for n in (nodes[mi], nodes[mj]):
+                segs.append(BranchSegment(
+                    start=n.copy(), end=merge_pt,
+                    radius_start=_r(float(n[1])),
+                    radius_end=_r(float(merge_pt[1])),
+                ))
+            nodes[mi] = merge_pt
+            nodes.pop(mj)
+            level += 1
 
         # Remaining nodes → cylinder connection point
         for n in nodes:

@@ -55,6 +55,8 @@ class MarkerInjector:
         branch_base_radius:   float = 1.2,   # mm – radius at cylinder (base end)
         min_branch_length:    float = 1.0,   # mm – drop shorter segments
         min_branch_angle_deg: float = 20.0,  # °  – min angle from horizontal
+        min_levels:           int   = 4,     # minimum merge iterations
+        max_levels:           int   = 10,    # maximum merge iterations
     ):
         self.layer_height         = layer_height
         self.sides                = sides
@@ -70,6 +72,8 @@ class MarkerInjector:
         self.branch_base_radius   = branch_base_radius
         self.min_branch_length    = min_branch_length
         self.min_branch_angle_deg = min_branch_angle_deg
+        self.min_levels           = int(min_levels)
+        self.max_levels           = int(max_levels)
 
     # ------------------------------------------------------------------ #
     #  Public API                                                          #
@@ -150,6 +154,8 @@ class MarkerInjector:
             branch_base_radius   = self.branch_base_radius,
             min_branch_length    = self.min_branch_length,
             min_branch_angle_deg = self.min_branch_angle_deg,
+            min_levels           = self.min_levels,
+            max_levels           = self.max_levels,
         )
         branch_segs = builder.build_segments(pair_clusters, cluster_cyls)
         Br_verts, Br_idx = self._build_tubes(branch_segs)

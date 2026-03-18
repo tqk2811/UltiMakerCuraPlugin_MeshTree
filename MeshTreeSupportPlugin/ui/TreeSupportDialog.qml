@@ -276,6 +276,32 @@ Window {
                 onValueEdited: manager.minBranchAngleDeg = v
                 Layout.fillWidth: true
             }
+            SettingRow {
+                label:   "Min Merge Levels (số tầng gộp tối thiểu)"
+                value:   Math.round(manager.minLevels * 10)
+                from:    10; to: 200; stepSize: 10
+                unit:    "tầng"
+                tooltip: "Số lần gộp cành tối thiểu trong cây phân nhánh.\n" +
+                         "Dù khoảng cách lớn hơn Branch Merge Distance, vẫn bắt buộc gộp tới số tầng này.\n\n" +
+                         "• 1–2 → ít tầng, cành thường đi thẳng xuống trụ\n" +
+                         "• 4 – mặc định, cây đủ nhiều nhánh hợp nhất\n" +
+                         "• 8+ → cây sâu nhiều tầng, hình dáng phức tạp hơn"
+                onValueEdited: manager.minLevels = v
+                Layout.fillWidth: true
+            }
+            SettingRow {
+                label:   "Max Merge Levels (số tầng gộp tối đa)"
+                value:   Math.round(manager.maxLevels * 10)
+                from:    10; to: 500; stepSize: 10
+                unit:    "tầng"
+                tooltip: "Số lần gộp cành tối đa trong cây phân nhánh.\n" +
+                         "Sau số tầng này thuật toán dừng gộp, dù các cành còn gần nhau.\n\n" +
+                         "• 3–5 → cây nông, ít tầng, đơn giản\n" +
+                         "• 10 – mặc định, cân bằng giữa hình dáng và hiệu năng\n" +
+                         "• 20+ → cho phép cây rất sâu, hữu ích khi có nhiều điểm A"
+                onValueEdited: manager.maxLevels = v
+                Layout.fillWidth: true
+            }
 
             Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 4; Layout.bottomMargin: 4 }
 

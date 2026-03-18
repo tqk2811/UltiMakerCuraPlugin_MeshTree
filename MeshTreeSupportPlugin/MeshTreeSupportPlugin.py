@@ -48,6 +48,8 @@ class MeshTreeSupportPlugin(Extension, QObject):
             "branch_base_radius":     1.2,   # mm – radius at cylinder (thick base)
             "min_branch_length":      1.0,   # mm – drop shorter sub-segments
             "min_branch_angle_deg":  20.0,   # °  – min angle from horizontal
+            "min_levels":             4.0,   # minimum merge iterations
+            "max_levels":            10.0,   # maximum merge iterations
         }
 
         self.setMenuName(i18n_catalog.i18nc("@item:inmenu", "MeshTree Support"))
@@ -240,6 +242,26 @@ class MeshTreeSupportPlugin(Extension, QObject):
             self._settings["min_branch_angle_deg"] = value
             self.settingsChanged.emit()
 
+    @pyqtProperty(float, notify=settingsChanged)
+    def minLevels(self):
+        return self._settings["min_levels"]
+
+    @minLevels.setter
+    def minLevels(self, value):
+        if self._settings["min_levels"] != value:
+            self._settings["min_levels"] = value
+            self.settingsChanged.emit()
+
+    @pyqtProperty(float, notify=settingsChanged)
+    def maxLevels(self):
+        return self._settings["max_levels"]
+
+    @maxLevels.setter
+    def maxLevels(self, value):
+        if self._settings["max_levels"] != value:
+            self._settings["max_levels"] = value
+            self.settingsChanged.emit()
+
     # ------------------------------------------------------------------ #
     #  QML slots                                                           #
     # ------------------------------------------------------------------ #
@@ -297,6 +319,8 @@ class MeshTreeSupportPlugin(Extension, QObject):
             branch_base_radius   = self._settings["branch_base_radius"],
             min_branch_length    = self._settings["min_branch_length"],
             min_branch_angle_deg = self._settings["min_branch_angle_deg"],
+            min_levels           = int(self._settings["min_levels"]),
+            max_levels           = int(self._settings["max_levels"]),
         )
 
         all_faces = []
