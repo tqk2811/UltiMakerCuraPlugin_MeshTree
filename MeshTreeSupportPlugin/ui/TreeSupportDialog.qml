@@ -92,9 +92,9 @@ Window {
                 Layout.bottomMargin: 4
             }
 
-            // ══ Contact Points (A) ════════════════════════════════════ //
+            // ══ 1. Điểm A – Contact Points (overhang, trên cao) ══════ //
             Label {
-                text: "Contact Points  (A – tiếp xúc overhang)"
+                text: "① Điểm A  – Contact Points (tiếp xúc overhang)"
                 font.bold: true; color: "#c0392b"
                 Layout.topMargin: 2
             }
@@ -146,14 +146,14 @@ Window {
 
             Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 6; Layout.bottomMargin: 6 }
 
-            // ══ Anchor Points (B) ═════════════════════════════════════ //
+            // ══ 2. Phân nhánh – Branch (từ A xuống) ══════════════════ //
             Label {
-                text: "Anchor Points  (B – neo trên bàn in)"
-                font.bold: true; color: "#2980b9"
+                text: "② Phân nhánh  – Branch (thân cành từ A xuống B)"
+                font.bold: true; color: "#27ae60"
                 Layout.topMargin: 2
             }
             Label {
-                text: "Điểm gốc của support trên bàn in (Y=0), nơi cành cây mọc lên."
+                text: "Hình dạng thân cành nối từ điểm A (overhang) xuống điểm B (sàn)."
                 color: "#888"; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 11
             }
 
@@ -171,34 +171,6 @@ Window {
                 onValueEdited: manager.branchAngle = v
                 Layout.fillWidth: true
             }
-            SettingRow {
-                label:   "Base Plate Diameter (đường kính đế neo)"
-                value:   Math.round(manager.baseDiameter * 10)
-                from:    10; to: 500; stepSize: 5
-                unit:    "mm"
-                tooltip: "Đường kính đĩa đế (base plate) tại điểm B trên bàn in.\n" +
-                         "Đế rộng giúp support bám sàn tốt hơn, ít bị lật khi in.\n\n" +
-                         "• 5–8 mm → đế nhỏ, tiết kiệm vật liệu, phù hợp support đơn lẻ\n" +
-                         "• 10–15 mm – cân bằng độ bám và vật liệu, dùng cho hầu hết model\n" +
-                         "• 20+ mm → đế lớn, bám rất chắc, phù hợp model cao hoặc nặng\n\n" +
-                         "Lưu ý: giá trị này chỉ dùng khi tạo mesh support thực tế (generate)."
-                onValueEdited: manager.baseDiameter = v
-                Layout.fillWidth: true
-            }
-
-            Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 6; Layout.bottomMargin: 6 }
-
-            // ══ Branch / Trunk ════════════════════════════════════════ //
-            Label {
-                text: "Branch / Trunk  (thân cành)"
-                font.bold: true; color: "#27ae60"
-                Layout.topMargin: 2
-            }
-            Label {
-                text: "Hình dạng thân cành nối từ B lên A."
-                color: "#888"; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 11
-            }
-
             SettingRow {
                 label:   "Branch Diameter (đường kính thân)"
                 value:   Math.round(manager.branchDiameter * 10)
@@ -230,14 +202,14 @@ Window {
 
             Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 4; Layout.bottomMargin: 4 }
 
-            // ══ Marker Visualisation ══════════════════════════════════ //
+            // ══ 3. Trụ – Cylinder (object in được) ═══════════════════ //
             Label {
-                text: "Marker Visualisation  (hiển thị điểm B)"
+                text: "③ Trụ  – Hollow Cylinder (object in được)"
                 font.bold: true; color: "#8e44ad"
                 Layout.topMargin: 2
             }
             Label {
-                text: "Thông số hình trụ rỗng minh hoạ các điểm neo B trên bàn in."
+                text: "Hình trụ rỗng in được, bao quanh các điểm B, vươn từ sàn lên gần điểm A."
                 color: "#888"; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 11
             }
 
@@ -259,12 +231,11 @@ Window {
                 value:   Math.round(manager.bGapToA * 10)
                 from:    0; to: 5000; stepSize: 50
                 unit:    "mm"
-                tooltip: "Khoảng trống tối thiểu giữa đỉnh trụ rỗng B và điểm A thấp nhất trong cụm.\n" +
-                         "Chiều cao trụ = min(A.y trong cụm) − giá trị này.\n\n" +
-                         "• 0 mm → trụ cao tới tận điểm A (chạm nhau)\n" +
-                         "• 200 mm – mặc định (20 cm), trụ dừng cách A 20 cm\n" +
-                         "• 500+ mm → trụ ngắn, chỉ nổi lên khỏi bàn in một chút\n\n" +
-                         "Nếu A.y < gap, trụ vẫn cao tối thiểu 1 layer_height."
+                tooltip: "Khoảng trống giữa đỉnh trụ và điểm A gần nhất theo chiều ngang.\n" +
+                         "Chiều cao trụ = A.y(gần nhất) − giá trị này.\n\n" +
+                         "• 0 mm → trụ cao tới tận điểm A\n" +
+                         "• 20 mm – ví dụ: A ở 80 mm → trụ cao 60 mm\n" +
+                         "• 200 mm – mặc định: A ở 250 mm → trụ cao 50 mm"
                 onValueEdited: manager.bGapToA = v
                 Layout.fillWidth: true
             }
@@ -304,6 +275,34 @@ Window {
                          "• 1.5 mm – mặc định, vừa đủ nhìn thấy ở zoom bình thường\n" +
                          "• 3–5 mm → trụ to, dễ thấy nhưng có thể chồng lên model nhỏ"
                 onValueEdited: manager.minOuterR = v
+                Layout.fillWidth: true
+            }
+
+            Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 6; Layout.bottomMargin: 6 }
+
+            // ══ 4. Điểm B – Anchor Points (bàn in, dưới cùng) ═══════ //
+            Label {
+                text: "④ Điểm B  – Anchor Points (neo trên bàn in)"
+                font.bold: true; color: "#2980b9"
+                Layout.topMargin: 2
+            }
+            Label {
+                text: "Điểm gốc của support trên bàn in (Y=0), nơi cành cây mọc lên từ trụ."
+                color: "#888"; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 11
+            }
+
+            SettingRow {
+                label:   "Base Plate Diameter (đường kính đế neo)"
+                value:   Math.round(manager.baseDiameter * 10)
+                from:    10; to: 500; stepSize: 5
+                unit:    "mm"
+                tooltip: "Đường kính đĩa đế (base plate) tại điểm B trên bàn in.\n" +
+                         "Đế rộng giúp support bám sàn tốt hơn, ít bị lật khi in.\n\n" +
+                         "• 5–8 mm → đế nhỏ, tiết kiệm vật liệu, phù hợp support đơn lẻ\n" +
+                         "• 10–15 mm – cân bằng độ bám và vật liệu, dùng cho hầu hết model\n" +
+                         "• 20+ mm → đế lớn, bám rất chắc, phù hợp model cao hoặc nặng\n\n" +
+                         "Lưu ý: giá trị này chỉ dùng khi tạo mesh support thực tế (generate)."
+                onValueEdited: manager.baseDiameter = v
                 Layout.fillWidth: true
             }
 
