@@ -207,12 +207,22 @@ class MeshTreeSupportPlugin(Extension, QObject):
             branch_angle_deg=self._settings["branch_angle"],
             merge_threshold =self._settings["merge_threshold"],
         )
+        # Read minimum printable wall from Cura (line_width), fallback 0.4 mm
+        min_wall = 0.4
+        stack = self._app.getGlobalContainerStack()
+        if stack:
+            try:
+                min_wall = float(stack.getProperty("line_width", "value") or 0.4)
+            except Exception:
+                pass
+
         injector = MarkerInjector(
             layer_height   = self._settings["layer_height"],
             b_cluster_dist = self._settings["b_cluster_dist"],
             b_gap_to_a     = self._settings["b_gap_to_a"],
             max_base_area  = self._settings["max_base_area"],
             wall_mm        = self._settings["wall_mm"],
+            min_wall_mm    = min_wall,
             min_outer_r    = self._settings["min_outer_r"],
         )
 

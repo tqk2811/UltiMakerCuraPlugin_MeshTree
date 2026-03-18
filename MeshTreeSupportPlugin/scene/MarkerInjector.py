@@ -41,9 +41,10 @@ class MarkerInjector:
         layer_height:  float = 0.2,
         sides:         int   = 12,
         b_cluster_dist: float = 5.0,
-        b_gap_to_a:    float = 200.0,   # mm – cylinder top stays this far below min A in cluster
+        b_gap_to_a:    float = 200.0,   # mm – cylinder top stays this far below nearest A
         max_base_area: float = 150.0,
         wall_mm:       float = 1.2,
+        min_wall_mm:   float = 0.4,     # minimum printable wall (≥ 1 line width)
         min_outer_r:   float = 1.5,
     ):
         self.layer_height  = layer_height
@@ -52,6 +53,7 @@ class MarkerInjector:
         self.b_gap_to_a    = b_gap_to_a
         self.max_base_area = max_base_area
         self.wall_mm       = wall_mm
+        self.min_wall_mm   = min_wall_mm
         self.min_outer_r   = min_outer_r
 
     # ------------------------------------------------------------------ #
@@ -97,14 +99,20 @@ class MarkerInjector:
             max_r   = float(np.sqrt(self.max_base_area / np.pi))
             outer_r = min(outer_r, max_r)
 
-            inner_r = max(outer_r - self.wall_mm, 0.3)
+            # Wall thickness: respect minimum printable wall (≥ line_width)
+            actual_wall = max(self.wall_mm, self.min_wall_mm)
+            inner_r = max(outer_r - actual_wall, self.min_wall_mm)
 
-            # Height: reach up to min(A.y) minus gap; if gap > A.y, go to 90% of A.y
-            min_a_y  = float(min(p.A[1] for p in cluster_pairs))
-            if min_a_y > self.b_gap_to_a:
-                b_height = min_a_y - self.b_gap_to_a
+            # Height: find nearest A point to cylinder center (XZ), use its Y minus gap
+            a_pts  = np.array([p.A for p in cluster_pairs], dtype=np.float32)
+            dx     = a_pts[:, 0] - cx
+            dz     = a_pts[:, 2] - cz
+            nearest_idx = int(np.argmin(dx * dx + dz * dz))
+            nearest_a_y = float(a_pts[nearest_idx, 1])
+            if nearest_a_y > self.b_gap_to_a:
+                b_height = nearest_a_y - self.b_gap_to_a
             else:
-                b_height = min_a_y * 0.9
+                b_height = nearest_a_y * 0.9
             b_height = max(b_height, self.layer_height)
 
             v, idx = self._hollow_cylinder(center, outer_r, inner_r, b_height)
