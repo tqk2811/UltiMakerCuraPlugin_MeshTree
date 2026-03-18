@@ -35,21 +35,21 @@ class MarkerInjector:
 
     def __init__(
         self,
-        layer_height:    float = 0.2,
-        sides:           int   = 12,
-        b_cluster_dist:  float = 5.0,
-        b_height_layers: int   = 10,
-        max_base_area:   float = 150.0,
-        wall_mm:         float = 1.2,
-        min_outer_r:     float = 1.5,
+        layer_height:  float = 0.2,
+        sides:         int   = 12,
+        b_cluster_dist: float = 5.0,
+        b_gap_to_a:    float = 200.0,   # mm – cylinder top stays this far below min A in cluster
+        max_base_area: float = 150.0,
+        wall_mm:       float = 1.2,
+        min_outer_r:   float = 1.5,
     ):
-        self.layer_height    = layer_height
-        self.sides           = sides
-        self.b_cluster_dist  = b_cluster_dist
-        self.b_height_layers = b_height_layers
-        self.max_base_area   = max_base_area
-        self.wall_mm         = wall_mm
-        self.min_outer_r     = min_outer_r
+        self.layer_height  = layer_height
+        self.sides         = sides
+        self.b_cluster_dist = b_cluster_dist
+        self.b_gap_to_a    = b_gap_to_a
+        self.max_base_area = max_base_area
+        self.wall_mm       = wall_mm
+        self.min_outer_r   = min_outer_r
 
     # ------------------------------------------------------------------ #
     #  Public API                                                          #
@@ -62,8 +62,6 @@ class MarkerInjector:
 
         self.clear()
 
-        b_height = self.b_height_layers * self.layer_height
-
         # ── A markers: one small solid cylinder per contact point ─────── #
         A_verts, A_idx = self._build_solid_cylinders(
             centers=[p.A for p in pairs],
@@ -71,26 +69,25 @@ class MarkerInjector:
             height=3 * self.layer_height,
         )
 
-        # ── B markers: cluster nearby B points, hollow cylinder per cluster #
-        b_points  = [p.B for p in pairs]
-        b_clusters = self._cluster_points(b_points, self.b_cluster_dist)
-        Logger.log("d", "[MarkerInjector] %d B points → %d clusters", len(b_points), len(b_clusters))
+        # ── B markers: cluster pairs by proximity of B (XZ), keep A links #
+        pair_clusters = self._cluster_pairs(pairs, self.b_cluster_dist)
+        Logger.log("d", "[MarkerInjector] %d B points → %d clusters", len(pairs), len(pair_clusters))
 
         B_verts_list: List[np.ndarray] = []
         B_idx_list:   List[np.ndarray] = []
         b_offset = 0
 
-        for cluster in b_clusters:
-            pts    = np.array(cluster, dtype=np.float32)
-            cx     = float(pts[:, 0].mean())
-            cz     = float(pts[:, 2].mean())
+        for cluster_pairs in pair_clusters:
+            b_pts  = np.array([p.B for p in cluster_pairs], dtype=np.float32)
+            cx     = float(b_pts[:, 0].mean())
+            cz     = float(b_pts[:, 2].mean())
             center = np.array([cx, 0.0, cz], dtype=np.float32)
 
-            # outer radius = spread of cluster + 1 mm margin, min MIN_OUTER_R
-            if len(pts) == 1:
+            # outer radius = spread of cluster + 1 mm margin, min min_outer_r
+            if len(b_pts) == 1:
                 outer_r = self.min_outer_r
             else:
-                dists   = np.sqrt((pts[:, 0] - cx) ** 2 + (pts[:, 2] - cz) ** 2)
+                dists   = np.sqrt((b_pts[:, 0] - cx) ** 2 + (b_pts[:, 2] - cz) ** 2)
                 outer_r = max(float(dists.max()) + self.wall_mm + 1.0, self.min_outer_r)
 
             # Cap so footprint area π·outer_r² ≤ max_base_area
@@ -98,6 +95,10 @@ class MarkerInjector:
             outer_r = min(outer_r, max_r)
 
             inner_r = max(outer_r - self.wall_mm, 0.3)
+
+            # Height: reach up to min(A.y) in this cluster, leaving b_gap_to_a clearance
+            min_a_y   = float(min(p.A[1] for p in cluster_pairs))
+            b_height  = max(min_a_y - self.b_gap_to_a, self.layer_height)
 
             v, idx = self._hollow_cylinder(center, outer_r, inner_r, b_height)
             B_verts_list.append(v)
@@ -162,12 +163,12 @@ class MarkerInjector:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _cluster_points(points: List[np.ndarray], max_dist: float) -> List[List[np.ndarray]]:
+    def _cluster_pairs(pairs: "List[ContactPair]", max_dist: float) -> "List[List[ContactPair]]":
         """
-        Union-Find clustering: merge B points whose XZ distance < max_dist.
-        Returns list of clusters, each cluster is a list of points.
+        Union-Find clustering of ContactPairs by B-point XZ distance.
+        Returns list of clusters, each cluster is a list of ContactPair.
         """
-        n = len(points)
+        n = len(pairs)
         parent = list(range(n))
 
         def find(i):
@@ -176,7 +177,7 @@ class MarkerInjector:
                 i = parent[i]
             return i
 
-        pts = np.array(points, dtype=np.float32)
+        pts = np.array([p.B for p in pairs], dtype=np.float32)
         for i in range(n):
             for j in range(i + 1, n):
                 dx = pts[i, 0] - pts[j, 0]
@@ -189,7 +190,7 @@ class MarkerInjector:
         groups: dict = {}
         for i in range(n):
             r = find(i)
-            groups.setdefault(r, []).append(points[i])
+            groups.setdefault(r, []).append(pairs[i])
         return list(groups.values())
 
     # ------------------------------------------------------------------ #

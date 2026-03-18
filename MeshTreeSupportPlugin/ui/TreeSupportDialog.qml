@@ -255,16 +255,17 @@ Window {
                 Layout.fillWidth: true
             }
             SettingRow {
-                label:   "B Height Layers (chiều cao trụ B theo lớp)"
-                value:   Math.round(manager.bHeightLayers * 10)
-                from:    10; to: 500; stepSize: 10
-                unit:    "layers"
-                tooltip: "Chiều cao của hình trụ rỗng B, tính bằng số lớp in.\n" +
-                         "Chiều cao thực = số lớp × layer height.\n\n" +
-                         "• 5 lớp → trụ thấp (1 mm với lh=0.2), chỉ đủ thấy\n" +
-                         "• 10 lớp – mặc định (2 mm), dễ nhận biết trong viewport\n" +
-                         "• 20+ lớp → trụ cao, nổi bật hơn nhưng có thể che khuất model"
-                onValueEdited: manager.bHeightLayers = v
+                label:   "B Gap to A (khoảng cách đỉnh trụ đến điểm A)"
+                value:   Math.round(manager.bGapToA * 10)
+                from:    0; to: 5000; stepSize: 50
+                unit:    "mm"
+                tooltip: "Khoảng trống tối thiểu giữa đỉnh trụ rỗng B và điểm A thấp nhất trong cụm.\n" +
+                         "Chiều cao trụ = min(A.y trong cụm) − giá trị này.\n\n" +
+                         "• 0 mm → trụ cao tới tận điểm A (chạm nhau)\n" +
+                         "• 200 mm – mặc định (20 cm), trụ dừng cách A 20 cm\n" +
+                         "• 500+ mm → trụ ngắn, chỉ nổi lên khỏi bàn in một chút\n\n" +
+                         "Nếu A.y < gap, trụ vẫn cao tối thiểu 1 layer_height."
+                onValueEdited: manager.bGapToA = v
                 Layout.fillWidth: true
             }
             SettingRow {

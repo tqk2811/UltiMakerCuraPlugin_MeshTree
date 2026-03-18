@@ -37,7 +37,7 @@ class MeshTreeSupportPlugin(Extension, QObject):
             "merge_threshold":        2.0,
             # Marker visualisation
             "b_cluster_dist":         5.0,
-            "b_height_layers":       10.0,
+            "b_gap_to_a":           200.0,   # mm – cylinder top stops this far below A
             "max_base_area":        150.0,
             "wall_mm":                1.2,
             "min_outer_r":            1.5,
@@ -134,13 +134,13 @@ class MeshTreeSupportPlugin(Extension, QObject):
             self.settingsChanged.emit()
 
     @pyqtProperty(float, notify=settingsChanged)
-    def bHeightLayers(self):
-        return self._settings["b_height_layers"]
+    def bGapToA(self):
+        return self._settings["b_gap_to_a"]
 
-    @bHeightLayers.setter
-    def bHeightLayers(self, value):
-        if self._settings["b_height_layers"] != value:
-            self._settings["b_height_layers"] = value
+    @bGapToA.setter
+    def bGapToA(self, value):
+        if self._settings["b_gap_to_a"] != value:
+            self._settings["b_gap_to_a"] = value
             self.settingsChanged.emit()
 
     @pyqtProperty(float, notify=settingsChanged)
@@ -210,7 +210,7 @@ class MeshTreeSupportPlugin(Extension, QObject):
         injector = MarkerInjector(
             layer_height   = self._settings["layer_height"],
             b_cluster_dist = self._settings["b_cluster_dist"],
-            b_height_layers= int(round(self._settings["b_height_layers"])),
+            b_gap_to_a     = self._settings["b_gap_to_a"],
             max_base_area  = self._settings["max_base_area"],
             wall_mm        = self._settings["wall_mm"],
             min_outer_r    = self._settings["min_outer_r"],
