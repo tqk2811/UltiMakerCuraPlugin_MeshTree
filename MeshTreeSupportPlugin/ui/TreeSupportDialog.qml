@@ -86,8 +86,16 @@ Window {
                 Layout.bottomMargin: 4
             }
 
-            // ── Overhang ───────────────────────────────────────────── //
-            Label { text: "Overhang"; font.bold: true; color: "#555" }
+            // ══ Contact Points (A) ════════════════════════════════════ //
+            Label {
+                text: "Contact Points  (A – tiếp xúc overhang)"
+                font.bold: true; color: "#c0392b"
+                Layout.topMargin: 2
+            }
+            Label {
+                text: "Điểm nằm trên bề mặt overhang của vật thể, nơi support chạm vào model."
+                color: "#888"; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 11
+            }
 
             SettingRow {
                 label:   "Support Angle (ngưỡng overhang)"
@@ -98,32 +106,72 @@ Window {
                 onValueEdited: manager.supportAngle = v
                 Layout.fillWidth: true
             }
+            SettingRow {
+                label:   "Tip Diameter (đường kính đầu tiếp xúc)"
+                value:   Math.round(manager.tipDiameter * 10)
+                from:    1; to: 100; stepSize: 1
+                unit:    "mm"
+                tooltip: "Đường kính phần đầu nhọn của cành tại điểm A trên bề mặt overhang.\nNhỏ hơn → dễ bẻ gãy support sau khi in xong."
+                onValueEdited: manager.tipDiameter = v
+                Layout.fillWidth: true
+            }
+            SettingRow {
+                label:   "Merge Threshold (ngưỡng gộp điểm A)"
+                value:   Math.round(manager.mergeThreshold * 10)
+                from:    1; to: 200; stepSize: 5
+                unit:    "mm"
+                tooltip: "Nếu hai điểm A cách nhau dưới khoảng cách này, chúng được gộp thành một.\nGiá trị lớn hơn → ít điểm A hơn, support thô hơn nhưng nhanh hơn."
+                onValueEdited: manager.mergeThreshold = v
+                Layout.fillWidth: true
+            }
 
-            Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+            Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 6; Layout.bottomMargin: 6 }
 
-            // ── Branches ───────────────────────────────────────────── //
-            Label { text: "Branches"; font.bold: true; color: "#555" }
+            // ══ Anchor Points (B) ═════════════════════════════════════ //
+            Label {
+                text: "Anchor Points  (B – neo trên bàn in)"
+                font.bold: true; color: "#2980b9"
+                Layout.topMargin: 2
+            }
+            Label {
+                text: "Điểm gốc của support trên bàn in (Y=0), nơi cành cây mọc lên."
+                color: "#888"; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 11
+            }
 
             SettingRow {
                 label:   "Branch Angle (góc cành tối đa)"
                 value:   Math.round(manager.branchAngle * 10)
                 from:    0; to: 800; stepSize: 5
                 unit:    "deg"
-                tooltip: "Góc tối đa của cành so với phương thẳng đứng.\nCành không được nghiêng quá góc này khi vươn từ điểm neo B lên điểm tiếp xúc A.\nGóc càng lớn → cành càng thoải, ít bị đổ hơn."
+                tooltip: "Góc tối đa của cành so với phương thẳng đứng.\nCành vươn từ B lên A không được nghiêng quá góc này.\nGóc càng lớn → B được phép lệch xa khỏi vị trí ngay dưới A hơn."
                 onValueEdited: manager.branchAngle = v
                 Layout.fillWidth: true
             }
             SettingRow {
-                label:   "Tip Diameter (đường kính đầu cành)"
-                value:   Math.round(manager.tipDiameter * 10)
-                from:    1; to: 100; stepSize: 1
+                label:   "Base Plate Diameter (đường kính đế neo)"
+                value:   Math.round(manager.baseDiameter * 10)
+                from:    10; to: 500; stepSize: 5
                 unit:    "mm"
-                tooltip: "Đường kính phần đầu nhọn của cành tại điểm tiếp xúc A trên bề mặt overhang.\nNhỏ hơn → dễ bẻ gãy support sau khi in xong."
-                onValueEdited: manager.tipDiameter = v
+                tooltip: "Đường kính đĩa đế tại điểm B trên bàn in.\nĐế rộng hơn → bám sàn tốt hơn, ít bị lật hơn."
+                onValueEdited: manager.baseDiameter = v
                 Layout.fillWidth: true
             }
+
+            Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 6; Layout.bottomMargin: 6 }
+
+            // ══ Branch / Trunk ════════════════════════════════════════ //
+            Label {
+                text: "Branch / Trunk  (thân cành)"
+                font.bold: true; color: "#27ae60"
+                Layout.topMargin: 2
+            }
+            Label {
+                text: "Hình dạng thân cành nối từ B lên A."
+                color: "#888"; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 11
+            }
+
             SettingRow {
-                label:   "Branch Diameter (đường kính cành)"
+                label:   "Branch Diameter (đường kính thân)"
                 value:   Math.round(manager.branchDiameter * 10)
                 from:    1; to: 200; stepSize: 5
                 unit:    "mm"
@@ -132,36 +180,12 @@ Window {
                 Layout.fillWidth: true
             }
             SettingRow {
-                label:   "Branch Diameter Angle (độ phình cành)"
+                label:   "Branch Diameter Angle (độ phình thân)"
                 value:   Math.round(manager.branchDiameterAngle * 10)
                 from:    0; to: 300; stepSize: 5
                 unit:    "deg"
-                tooltip: "Tốc độ mở rộng đường kính cành theo chiều cao (mỗi lớp).\nGiá trị lớn hơn → cành phình rộng nhanh hơn từ đỉnh xuống đáy, tạo hình nón."
+                tooltip: "Tốc độ mở rộng đường kính thân theo chiều cao (mỗi lớp).\nGiá trị lớn hơn → thân phình rộng nhanh hơn từ đỉnh xuống đáy, tạo hình nón."
                 onValueEdited: manager.branchDiameterAngle = v
-                Layout.fillWidth: true
-            }
-            SettingRow {
-                label:   "Base Plate Diameter (đường kính đế)"
-                value:   Math.round(manager.baseDiameter * 10)
-                from:    10; to: 500; stepSize: 5
-                unit:    "mm"
-                tooltip: "Đường kính của đĩa đế tại điểm neo B trên bàn in.\nĐế rộng hơn → bám sàn tốt hơn, ít bị lật hơn."
-                onValueEdited: manager.baseDiameter = v
-                Layout.fillWidth: true
-            }
-
-            Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 4; Layout.bottomMargin: 4 }
-
-            // ── Merging ────────────────────────────────────────────── //
-            Label { text: "Merging"; font.bold: true; color: "#555" }
-
-            SettingRow {
-                label:   "Merge Threshold (ngưỡng gộp cành)"
-                value:   Math.round(manager.mergeThreshold * 10)
-                from:    1; to: 200; stepSize: 5
-                unit:    "mm"
-                tooltip: "Nếu hai điểm overhang cách nhau dưới khoảng cách này, chúng sẽ được gộp thành một điểm tiếp xúc duy nhất.\nGiá trị lớn hơn → ít cành hơn, support thô hơn nhưng nhanh hơn."
-                onValueEdited: manager.mergeThreshold = v
                 Layout.fillWidth: true
             }
 
