@@ -24,13 +24,27 @@ Window {
         property alias to:       spin.to
         property alias stepSize: spin.stepSize
         property alias unit:     unitLbl.text
+        property alias tooltip:  tipArea.text
         signal valueEdited(real v)
 
         spacing: 8
+
+        ToolTip.visible: false   // placeholder so child can trigger parent tip
+
         Label {
             id: lbl
             Layout.preferredWidth: 200
             wrapMode: Text.WordWrap
+
+            MouseArea {
+                id: tipArea
+                property string text: ""
+                anchors.fill: parent
+                hoverEnabled: true
+                ToolTip.visible: containsMouse && tipArea.text !== ""
+                ToolTip.text:    tipArea.text
+                ToolTip.delay:   400
+            }
         }
         SpinBox {
             id: spin
@@ -76,18 +90,13 @@ Window {
             Label { text: "Overhang"; font.bold: true; color: "#555" }
 
             SettingRow {
-                label:    "Support Angle (overhang threshold)"
-                value:    Math.round(manager.supportAngle * 10)
-                from:     0; to: 890; stepSize: 5
-                unit:     "deg"
+                label:   "Support Angle (ngưỡng overhang)"
+                value:   Math.round(manager.supportAngle * 10)
+                from:    0; to: 890; stepSize: 5
+                unit:    "deg"
+                tooltip: "Góc tính từ mặt phẳng nằm ngang.\nMặt nào nghiêng hơn góc này sẽ được coi là overhang và cần support.\nVí dụ: 50° → mặt dốc hơn 50° so với nằm ngang cần support."
                 onValueEdited: manager.supportAngle = v
                 Layout.fillWidth: true
-            }
-
-            Label {
-                text: "Faces tilted more than this angle from horizontal are considered overhanging."
-                color: "#888"; wrapMode: Text.WordWrap; Layout.fillWidth: true
-                font.pixelSize: 11
             }
 
             Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 4; Layout.bottomMargin: 4 }
@@ -96,42 +105,47 @@ Window {
             Label { text: "Branches"; font.bold: true; color: "#555" }
 
             SettingRow {
-                label:    "Branch Angle (max from vertical)"
-                value:    Math.round(manager.branchAngle * 10)
-                from:     0; to: 800; stepSize: 5
-                unit:     "deg"
+                label:   "Branch Angle (góc cành tối đa)"
+                value:   Math.round(manager.branchAngle * 10)
+                from:    0; to: 800; stepSize: 5
+                unit:    "deg"
+                tooltip: "Góc tối đa của cành so với phương thẳng đứng.\nCành không được nghiêng quá góc này khi vươn từ điểm neo B lên điểm tiếp xúc A.\nGóc càng lớn → cành càng thoải, ít bị đổ hơn."
                 onValueEdited: manager.branchAngle = v
                 Layout.fillWidth: true
             }
             SettingRow {
-                label:    "Tip Diameter"
-                value:    Math.round(manager.tipDiameter * 10)
-                from:     1; to: 100; stepSize: 1
-                unit:     "mm"
+                label:   "Tip Diameter (đường kính đầu cành)"
+                value:   Math.round(manager.tipDiameter * 10)
+                from:    1; to: 100; stepSize: 1
+                unit:    "mm"
+                tooltip: "Đường kính phần đầu nhọn của cành tại điểm tiếp xúc A trên bề mặt overhang.\nNhỏ hơn → dễ bẻ gãy support sau khi in xong."
                 onValueEdited: manager.tipDiameter = v
                 Layout.fillWidth: true
             }
             SettingRow {
-                label:    "Branch Diameter"
-                value:    Math.round(manager.branchDiameter * 10)
-                from:     1; to: 200; stepSize: 5
-                unit:     "mm"
+                label:   "Branch Diameter (đường kính cành)"
+                value:   Math.round(manager.branchDiameter * 10)
+                from:    1; to: 200; stepSize: 5
+                unit:    "mm"
+                tooltip: "Đường kính chính của thân cành support.\nLớn hơn → cứng hơn, tốn vật liệu hơn."
                 onValueEdited: manager.branchDiameter = v
                 Layout.fillWidth: true
             }
             SettingRow {
-                label:    "Branch Diameter Angle (widens per layer)"
-                value:    Math.round(manager.branchDiameterAngle * 10)
-                from:     0; to: 300; stepSize: 5
-                unit:     "deg"
+                label:   "Branch Diameter Angle (độ phình cành)"
+                value:   Math.round(manager.branchDiameterAngle * 10)
+                from:    0; to: 300; stepSize: 5
+                unit:    "deg"
+                tooltip: "Tốc độ mở rộng đường kính cành theo chiều cao (mỗi lớp).\nGiá trị lớn hơn → cành phình rộng nhanh hơn từ đỉnh xuống đáy, tạo hình nón."
                 onValueEdited: manager.branchDiameterAngle = v
                 Layout.fillWidth: true
             }
             SettingRow {
-                label:    "Base Plate Diameter"
-                value:    Math.round(manager.baseDiameter * 10)
-                from:     10; to: 500; stepSize: 5
-                unit:     "mm"
+                label:   "Base Plate Diameter (đường kính đế)"
+                value:   Math.round(manager.baseDiameter * 10)
+                from:    10; to: 500; stepSize: 5
+                unit:    "mm"
+                tooltip: "Đường kính của đĩa đế tại điểm neo B trên bàn in.\nĐế rộng hơn → bám sàn tốt hơn, ít bị lật hơn."
                 onValueEdited: manager.baseDiameter = v
                 Layout.fillWidth: true
             }
@@ -142,10 +156,11 @@ Window {
             Label { text: "Merging"; font.bold: true; color: "#555" }
 
             SettingRow {
-                label:    "Merge Threshold (branches closer than this are merged)"
-                value:    Math.round(manager.mergeThreshold * 10)
-                from:     1; to: 200; stepSize: 5
-                unit:     "mm"
+                label:   "Merge Threshold (ngưỡng gộp cành)"
+                value:   Math.round(manager.mergeThreshold * 10)
+                from:    1; to: 200; stepSize: 5
+                unit:    "mm"
+                tooltip: "Nếu hai điểm overhang cách nhau dưới khoảng cách này, chúng sẽ được gộp thành một điểm tiếp xúc duy nhất.\nGiá trị lớn hơn → ít cành hơn, support thô hơn nhưng nhanh hơn."
                 onValueEdited: manager.mergeThreshold = v
                 Layout.fillWidth: true
             }
