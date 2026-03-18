@@ -32,10 +32,11 @@ from ..core.ContactPointFinder import ContactPair
 NAME_A = "MeshTree_MarkerA"
 NAME_B = "MeshTree_MarkerB"
 
-WALL_MM         = 1.2   # hollow-cylinder wall thickness
-MIN_OUTER_R     = 1.5   # minimum outer radius for any B hollow cylinder
-B_CLUSTER_DIST  = 5.0   # mm – B points closer than this are merged into one hollow cylinder
-B_HEIGHT_LAYERS = 10    # layers tall for all B markers
+WALL_MM         = 1.2    # hollow-cylinder wall thickness
+MIN_OUTER_R     = 1.5    # minimum outer radius for any B hollow cylinder
+B_CLUSTER_DIST  = 5.0    # mm – B points closer than this are merged into one hollow cylinder
+B_HEIGHT_LAYERS = 10     # layers tall for all B markers
+MAX_BASE_AREA   = 50.0   # mm² – max footprint area (π·r²) of any B hollow cylinder
 
 
 class MarkerInjector:
@@ -85,6 +86,10 @@ class MarkerInjector:
             else:
                 dists   = np.sqrt((pts[:, 0] - cx) ** 2 + (pts[:, 2] - cz) ** 2)
                 outer_r = max(float(dists.max()) + WALL_MM + 1.0, MIN_OUTER_R)
+
+            # Cap so footprint area π·outer_r² ≤ MAX_BASE_AREA
+            max_r   = float(np.sqrt(MAX_BASE_AREA / np.pi))
+            outer_r = min(outer_r, max_r)
 
             inner_r = max(outer_r - WALL_MM, 0.3)
 
