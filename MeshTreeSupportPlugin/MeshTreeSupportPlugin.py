@@ -271,4 +271,8 @@ class MeshTreeSupportPlugin(Extension, QObject):
         dialog   = self._app.createQmlComponent(qml_path, {"manager": self})
         if dialog is None:
             Logger.log("e", "[MeshTreeSupportPlugin] Failed to create dialog from %s", qml_path)
+            return None
+        main_window = self._app.getMainWindow()
+        if main_window:
+            dialog.setProperty("transientParent", main_window)
         return dialog
