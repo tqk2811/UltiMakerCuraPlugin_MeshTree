@@ -109,11 +109,7 @@ class MarkerInjector:
             dz     = a_pts[:, 2] - cz
             nearest_idx = int(np.argmin(dx * dx + dz * dz))
             nearest_a_y = float(a_pts[nearest_idx, 1])
-            if nearest_a_y > self.b_gap_to_a:
-                b_height = nearest_a_y - self.b_gap_to_a
-            else:
-                b_height = nearest_a_y * 0.9
-            b_height = max(b_height, self.layer_height)
+            b_height    = max(nearest_a_y - self.b_gap_to_a, self.layer_height)
 
             v, idx = self._hollow_cylinder(center, outer_r, inner_r, b_height)
             B_verts_list.append(v)
