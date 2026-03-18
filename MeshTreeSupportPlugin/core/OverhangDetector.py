@@ -73,21 +73,34 @@ class OverhangDetector:
         normals = np.zeros_like(cross)
         normals[valid] = cross[valid] / lengths[valid, np.newaxis]
 
+        # ── Bounding box of all world-space vertices (+ 1 mm margin) ─── #
+        bb_min = verts.min(axis=0) - 1.0
+        bb_max = verts.max(axis=0) + 1.0
+
         # ── Filter: normal.y < -sin(support_angle) ───────────────────── #
         threshold = -np.sin(np.deg2rad(self.support_angle_deg))
         mask = (normals[:, 1] < threshold) & valid
 
-        Logger.log("d", "[OverhangDetector] %d / %d faces are overhang (angle=%.1f°)",
-                   mask.sum(), len(indices), self.support_angle_deg)
-
+        # ── Build results, skipping tiny faces and out-of-bbox centroids  #
+        MIN_AREA = 0.01   # mm² – skip degenerate faces
         results: List[OverhangFace] = []
+        skipped = 0
         for i in np.where(mask)[0]:
+            area = 0.5 * lengths[i]
+            if area < MIN_AREA:
+                skipped += 1
+                continue
             center = (v0[i] + v1[i] + v2[i]) / 3.0
-            area   = 0.5 * lengths[i]
+            if np.any(center < bb_min) or np.any(center > bb_max):
+                skipped += 1
+                continue
             results.append(OverhangFace(
                 center=center.astype(np.float32),
                 normal=normals[i].astype(np.float32),
                 area=float(area),
             ))
+
+        Logger.log("d", "[OverhangDetector] %d overhang faces kept, %d skipped (bbox/area) – angle=%.1f°",
+                   len(results), skipped, self.support_angle_deg)
 
         return results
