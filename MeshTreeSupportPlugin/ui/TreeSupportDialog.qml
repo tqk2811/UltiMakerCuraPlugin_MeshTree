@@ -284,9 +284,10 @@ Window {
             SettingRow {
                 label:   "Wall Thickness (độ dày thành trụ rỗng)"
                 value:   Math.round(manager.wallMm * 10)
-                from:    5; to: 50; stepSize: 1
+                from:    1; to: 50; stepSize: 1
                 unit:    "mm"
-                tooltip: "Độ dày thành của hình trụ rỗng B (outer_r − inner_r).\n\n" +
+                tooltip: "Độ dày thành của hình trụ rỗng B (outer_r − inner_r).\n" +
+                         "Giá trị thực tế = max(setting, line_width của Cura profile).\n\n" +
                          "• 0.5–0.8 mm → thành mỏng, tiết kiệm, nhưng khó thấy màu\n" +
                          "• 1.2 mm – mặc định, đủ dày để nhìn rõ trong viewport\n" +
                          "• 2–3 mm → thành dày, trụ trông rắn chắc hơn"
