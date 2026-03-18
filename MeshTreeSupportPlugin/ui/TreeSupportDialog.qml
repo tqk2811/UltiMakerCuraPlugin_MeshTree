@@ -277,28 +277,28 @@ Window {
                 Layout.fillWidth: true
             }
             SettingRow {
-                label:   "Min Merge Levels (số tầng gộp tối thiểu)"
+                label:   "Min Branch Levels (số đoạn tối thiểu xuống trụ)"
                 value:   Math.round(manager.minLevels * 10)
                 from:    10; to: 200; stepSize: 10
-                unit:    "tầng"
-                tooltip: "Số lần gộp cành tối thiểu trong cây phân nhánh.\n" +
-                         "Dù khoảng cách lớn hơn Branch Merge Distance, vẫn bắt buộc gộp tới số tầng này.\n\n" +
-                         "• 1–2 → ít tầng, cành thường đi thẳng xuống trụ\n" +
-                         "• 4 – mặc định, cây đủ nhiều nhánh hợp nhất\n" +
-                         "• 8+ → cây sâu nhiều tầng, hình dáng phức tạp hơn"
+                unit:    "đoạn"
+                tooltip: "Số đoạn tối thiểu chia đường từ arm_end xuống đỉnh trụ.\n" +
+                         "Mỗi đoạn tạo một khớp nối, giúp cành trông có nhiều tầng hơn.\n\n" +
+                         "• 1 → cành xuống thẳng một đoạn từ arm_end đến trụ\n" +
+                         "• 4 – mặc định, cành có 4 khớp dọc đường xuống\n" +
+                         "• 8+ → cành mềm mại, nhiều khớp hơn"
                 onValueEdited: manager.minLevels = v
                 Layout.fillWidth: true
             }
             SettingRow {
-                label:   "Max Merge Levels (số tầng gộp tối đa)"
+                label:   "Max Merge Levels (số lần gộp tối đa)"
                 value:   Math.round(manager.maxLevels * 10)
                 from:    10; to: 500; stepSize: 10
-                unit:    "tầng"
-                tooltip: "Số lần gộp cành tối đa trong cây phân nhánh.\n" +
-                         "Sau số tầng này thuật toán dừng gộp, dù các cành còn gần nhau.\n\n" +
-                         "• 3–5 → cây nông, ít tầng, đơn giản\n" +
-                         "• 10 – mặc định, cân bằng giữa hình dáng và hiệu năng\n" +
-                         "• 20+ → cho phép cây rất sâu, hữu ích khi có nhiều điểm A"
+                unit:    "lần"
+                tooltip: "Số lần gộp cành tối đa trong greedy merge tree.\n" +
+                         "Chỉ gộp khi hai đầu cành trong Branch Merge Distance.\n\n" +
+                         "• 3–5 → ít lần gộp, cành ít hội tụ\n" +
+                         "• 10 – mặc định\n" +
+                         "• 20+ → cho phép nhiều lần gộp khi có nhiều điểm A gần nhau"
                 onValueEdited: manager.maxLevels = v
                 Layout.fillWidth: true
             }

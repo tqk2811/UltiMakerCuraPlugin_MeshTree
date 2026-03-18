@@ -221,8 +221,9 @@ class BranchBuilder:
             t = float(np.clip((top_y - y) / dy_ref, 0.0, 1.0))
             return self.branch_radius + t * (self.branch_base_radius - self.branch_radius)
 
+        # ── Greedy merge: only within branch_merge_dist, capped at max_levels ── #
         level = 0
-        while len(nodes) > 1:
+        while len(nodes) > 1 and level < self.max_levels:
             # Find closest pair
             min_d, mi, mj = float("inf"), 0, 1
             for i in range(len(nodes)):
@@ -231,18 +232,13 @@ class BranchBuilder:
                     if d < min_d:
                         min_d, mi, mj = d, i, j
 
-            # Stop if: max levels reached, OR distance too far AND already have min levels
-            if level >= self.max_levels:
-                break
-            if min_d > self.branch_merge_dist and level >= self.min_levels:
-                break
+            if min_d > self.branch_merge_dist:
+                break   # no more voluntary merges
 
             merge_pt = ((nodes[mi] + nodes[mj]) / 2.0).astype(np.float32)
             merge_pt[1] = min(float(nodes[mi][1]), float(nodes[mj][1]))
             merge_pt    = self._enforce_angle(nodes[mi], merge_pt)
-            merge_pt    = self._enforce_angle(nodes[mj], merge_pt)
-            # Clamp: merge point must not fall below cylinder top
-            merge_pt[1] = max(float(merge_pt[1]), cyl.height)
+            merge_pt[1] = max(float(merge_pt[1]), cyl.height)  # clamp
 
             for n in (nodes[mi], nodes[mj]):
                 segs.append(BranchSegment(
@@ -254,14 +250,21 @@ class BranchBuilder:
             nodes.pop(mj)
             level += 1
 
-        # Remaining nodes → cylinder connection point
-        for n in nodes:
-            conn = cyl.connection_point(n, self.min_branch_angle_deg)
-            segs.append(BranchSegment(
-                start=n, end=conn,
-                radius_start=_r(float(n[1])),
-                radius_end=self.branch_base_radius,
-            ))
+        # ── Remaining nodes → cylinder, subdivided into min_levels segments ── #
+        n_segs = max(self.min_levels, 1)
+        for node in nodes:
+            conn  = cyl.connection_point(node, self.min_branch_angle_deg)
+            prev  = node.copy()
+            for i in range(1, n_segs + 1):
+                t   = float(i) / n_segs
+                pt  = (node.astype(np.float64) * (1.0 - t)
+                       + conn.astype(np.float64) * t).astype(np.float32)
+                segs.append(BranchSegment(
+                    start=prev.copy(), end=pt,
+                    radius_start=_r(float(prev[1])),
+                    radius_end=_r(float(pt[1])),
+                ))
+                prev = pt
 
         return segs
 
