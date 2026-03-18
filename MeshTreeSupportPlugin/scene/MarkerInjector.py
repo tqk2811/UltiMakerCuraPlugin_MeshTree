@@ -160,16 +160,24 @@ class MarkerInjector:
         branch_segs = builder.build_segments(pair_clusters, cluster_cyls)
         Br_verts, Br_idx = self._build_tubes(branch_segs)
 
+        # ── Merge branch mesh into cylinder mesh (same sliceable object) ─ #
+        # Cura auto-drops any CuraSceneNode whose min-Y > 0.
+        # B cylinder always has min-Y = 0, so combining keeps position correct.
+        combined_verts = np.vstack([B_verts, Br_verts]).astype(np.float32)
+        combined_idx   = np.vstack([
+            B_idx,
+            Br_idx + len(B_verts),
+        ]).astype(np.int32)
+
         # ── Inject into scene ─────────────────────────────────────────── #
         app   = CuraApplication.getInstance()
         scene = app.getController().getScene()
 
         op = GroupedOperation()
         for name, verts, idx, sliceable in [
-            (NAME_A,      A_verts,    A_idx,    False),
-            (NAME_B_DOT,  Bdot_verts, Bdot_idx, False),
-            (NAME_BRANCH, Br_verts,   Br_idx,   True),
-            (NAME_B,      B_verts,    B_idx,    True),
+            (NAME_A,     A_verts,        A_idx,        False),
+            (NAME_B_DOT, Bdot_verts,     Bdot_idx,     False),
+            (NAME_B,     combined_verts, combined_idx, True),
         ]:
             node = self._make_node(name, verts, idx, sliceable=sliceable)
             op.addOperation(AddSceneNodeOperation(node, scene.getRoot()))
@@ -187,6 +195,7 @@ class MarkerInjector:
         nodes_to_remove = [
             n for n in root.getChildren()
             if n.getName() in (NAME_A, NAME_B, NAME_B_DOT, NAME_BRANCH)
+            # NAME_BRANCH kept for backward compat (old scenes may have it)
         ]
         if not nodes_to_remove:
             return
