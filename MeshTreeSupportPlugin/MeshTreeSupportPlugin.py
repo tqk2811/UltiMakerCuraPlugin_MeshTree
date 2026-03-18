@@ -40,6 +40,7 @@ class MeshTreeSupportPlugin(Extension, QObject):
         self.setMenuName(i18n_catalog.i18nc("@item:inmenu", "MeshTree Support"))
         self.addMenuItem(i18n_catalog.i18nc("@item:inmenu", "Settings and Generate"), self._showDialog)
 
+        self._autoLoad()
         Logger.log("d", "[MeshTreeSupportPlugin] Plugin loaded.")
 
     # ------------------------------------------------------------------ #
@@ -174,6 +175,23 @@ class MeshTreeSupportPlugin(Extension, QObject):
             f"B markers (anchor, build plate):  {len(pairs)}"
         )
 
+    @pyqtSlot(result=str)
+    def saveSettings(self) -> str:
+        from .core.SettingsStore import SettingsStore
+        return SettingsStore.save(self._settings)
+
+    @pyqtSlot(result=str)
+    def loadSettings(self) -> str:
+        from .core.SettingsStore import SettingsStore
+        data = SettingsStore.load()
+        if data is None:
+            return "No saved settings found."
+        for k, v in data.items():
+            if k in self._settings:
+                self._settings[k] = float(v)
+        self.settingsChanged.emit()
+        return "Settings loaded."
+
     @pyqtSlot()
     def clearMarkers(self) -> None:
         from .scene.MarkerInjector import MarkerInjector
@@ -233,6 +251,14 @@ class MeshTreeSupportPlugin(Extension, QObject):
     # ------------------------------------------------------------------ #
     #  Dialog                                                              #
     # ------------------------------------------------------------------ #
+
+    def _autoLoad(self):
+        from .core.SettingsStore import SettingsStore
+        data = SettingsStore.load()
+        if data:
+            for k, v in data.items():
+                if k in self._settings:
+                    self._settings[k] = float(v)
 
     def _showDialog(self):
         if self._dialog is None:

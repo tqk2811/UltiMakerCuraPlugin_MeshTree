@@ -183,6 +183,15 @@ Window {
                         statusArea.text = "Settings synced from active Cura profile."
                     }
                 }
+                Item { Layout.fillWidth: true }
+                Button {
+                    text: "Save"
+                    onClicked: statusArea.text = manager.saveSettings()
+                }
+                Button {
+                    text: "Load"
+                    onClicked: statusArea.text = manager.loadSettings()
+                }
             }
 
             Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 4; Layout.bottomMargin: 4 }
