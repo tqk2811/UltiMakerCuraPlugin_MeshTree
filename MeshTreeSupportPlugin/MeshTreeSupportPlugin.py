@@ -164,12 +164,12 @@ class MeshTreeSupportPlugin(Extension, QObject):
             return f"No overhang faces found (angle > {self._settings['support_angle']}°).\nTry lowering the support angle."
 
         pairs = finder.find(all_faces)
-        pairs = ContactPointFinder.exclude_near_footprint(pairs, nodes, exclusion_radius=30.0)
+        pairs = ContactPointFinder.exclude_near_footprint(pairs, nodes, exclusion_radius=10.0)
         injector.inject(pairs)
 
         return (
             f"Found {len(all_faces)} overhang faces → "
-            f"{len(pairs)} contact pairs (after 30 mm footprint exclusion).\n"
+            f"{len(pairs)} contact pairs (after 10 mm footprint exclusion).\n"
             f"A markers (contact, on overhang): {len(pairs)}\n"
             f"B markers (anchor, build plate):  {len(pairs)}"
         )
