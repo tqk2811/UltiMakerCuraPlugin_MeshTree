@@ -1,41 +1,41 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
+import QtQuick.Window 2.15
 import UM 1.5 as UM
 
-UM.Dialog {
+Window {
     id: dialog
-    title: "MeshTree Support – Settings"
+    title: "MeshTree Support - Settings"
 
-    width: 480
+    width: 500
     minimumWidth: 400
-    height: 580
+    height: 600
     minimumHeight: 500
+    flags: Qt.Window | Qt.WindowCloseButtonHint | Qt.WindowMinimizeButtonHint
 
     // ------------------------------------------------------------------ //
     //  Helper component: one labeled row with a SpinBox                   //
     // ------------------------------------------------------------------ //
     component SettingRow: RowLayout {
-        property alias label:   lbl.text
-        property alias value:   spin.value
-        property alias from:    spin.from
-        property alias to:      spin.to
+        property alias label:    lbl.text
+        property alias value:    spin.value
+        property alias from:     spin.from
+        property alias to:       spin.to
         property alias stepSize: spin.stepSize
-        property alias unit:    unitLbl.text
+        property alias unit:     unitLbl.text
         signal valueEdited(real v)
 
         spacing: 8
         Label {
             id: lbl
-            Layout.preferredWidth: 190
+            Layout.preferredWidth: 200
             wrapMode: Text.WordWrap
         }
         SpinBox {
             id: spin
             Layout.preferredWidth: 100
             editable: true
-            // Use integer steps × 0.1 internally for 1-decimal precision
-            property real realValue: value / 10.0
             from:     0
             to:       9990
             stepSize: 1
@@ -47,47 +47,47 @@ UM.Dialog {
     }
 
     // ------------------------------------------------------------------ //
-    //  Main content                                                        //
+    //  Background                                                          //
     // ------------------------------------------------------------------ //
+    Rectangle {
+        anchors.fill: parent
+        color: UM.Theme.getColor ? UM.Theme.getColor("main_background") : "#ffffff"
+    }
+
     ScrollView {
         anchors.fill: parent
-        anchors.margins: 12
+        anchors.margins: 16
         contentWidth: availableWidth
         clip: true
 
         ColumnLayout {
             width: parent.width
-            spacing: 4
+            spacing: 6
 
             // ── Header ─────────────────────────────────────────────── //
             Label {
                 text: "Tree Support Parameters"
                 font.bold: true
-                font.pixelSize: 14
-                Layout.bottomMargin: 6
+                font.pixelSize: 15
+                Layout.bottomMargin: 4
             }
 
             // ── Overhang ───────────────────────────────────────────── //
             Label { text: "Overhang"; font.bold: true; color: "#555" }
 
             SettingRow {
-                label:    "Support Angle  (overhang threshold)"
+                label:    "Support Angle (overhang threshold)"
                 value:    Math.round(manager.supportAngle * 10)
                 from:     0; to: 890; stepSize: 5
-                unit:     "°"
+                unit:     "deg"
                 onValueEdited: manager.supportAngle = v
                 Layout.fillWidth: true
             }
 
-            UM.TooltipArea {
-                Layout.fillWidth: true; height: helpAngle.height
-                text: "Faces whose angle from horizontal exceeds this value will receive support."
-                Label {
-                    id: helpAngle
-                    text: "Faces tilted more than this angle from horizontal are considered overhanging."
-                    color: "#888"; wrapMode: Text.WordWrap; width: parent.width
-                    font.pixelSize: 11
-                }
+            Label {
+                text: "Faces tilted more than this angle from horizontal are considered overhanging."
+                color: "#888"; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                font.pixelSize: 11
             }
 
             Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 4; Layout.bottomMargin: 4 }
@@ -96,10 +96,10 @@ UM.Dialog {
             Label { text: "Branches"; font.bold: true; color: "#555" }
 
             SettingRow {
-                label:    "Branch Angle  (max from vertical)"
+                label:    "Branch Angle (max from vertical)"
                 value:    Math.round(manager.branchAngle * 10)
                 from:     0; to: 800; stepSize: 5
-                unit:     "°"
+                unit:     "deg"
                 onValueEdited: manager.branchAngle = v
                 Layout.fillWidth: true
             }
@@ -120,10 +120,10 @@ UM.Dialog {
                 Layout.fillWidth: true
             }
             SettingRow {
-                label:    "Branch Diameter Angle  (widens per layer)"
+                label:    "Branch Diameter Angle (widens per layer)"
                 value:    Math.round(manager.branchDiameterAngle * 10)
                 from:     0; to: 300; stepSize: 5
-                unit:     "°"
+                unit:     "deg"
                 onValueEdited: manager.branchDiameterAngle = v
                 Layout.fillWidth: true
             }
@@ -142,7 +142,7 @@ UM.Dialog {
             Label { text: "Merging"; font.bold: true; color: "#555" }
 
             SettingRow {
-                label:    "Merge Threshold  (branches closer than this are merged)"
+                label:    "Merge Threshold (branches closer than this are merged)"
                 value:    Math.round(manager.mergeThreshold * 10)
                 from:     1; to: 200; stepSize: 5
                 unit:     "mm"
@@ -197,7 +197,7 @@ UM.Dialog {
                     highlighted: true
                     onClicked: {
                         manager.generate()
-                        statusArea.text = "Generate called – check Cura log for output.\n(Pipeline not yet implemented.)"
+                        statusArea.text = "Generate called - check Cura log for output.\n(Pipeline not yet implemented.)"
                     }
                 }
                 Item { Layout.fillWidth: true }
@@ -206,6 +206,8 @@ UM.Dialog {
                     onClicked: dialog.close()
                 }
             }
+
+            Item { height: 8 }
         }
     }
 }

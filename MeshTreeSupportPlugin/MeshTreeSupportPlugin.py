@@ -43,7 +43,7 @@ class MeshTreeSupportPlugin(Extension, QObject):
         }
 
         self.setMenuName(i18n_catalog.i18nc("@item:inmenu", "MeshTree Support"))
-        self.addMenuItem(i18n_catalog.i18nc("@item:inmenu", "Settings && Generate"), self._showDialog)
+        self.addMenuItem(i18n_catalog.i18nc("@item:inmenu", "Settings and Generate"), self._showDialog)
 
         Logger.log("d", "[MeshTreeSupportPlugin] Plugin loaded.")
 
