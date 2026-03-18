@@ -259,8 +259,7 @@ class MeshTreeSupportPlugin(Extension, QObject):
             support_angle_deg=self._settings["support_angle"]
         )
         finder = ContactPointFinder(
-            branch_angle_deg=self._settings["branch_angle"],
-            merge_threshold =self._settings["merge_threshold"],
+            merge_threshold=self._settings["merge_threshold"],
         )
         # Read minimum printable wall from Cura (line_width), fallback 0.4 mm
         min_wall = 0.4
