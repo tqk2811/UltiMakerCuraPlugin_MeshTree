@@ -2,6 +2,12 @@
 OverhangDetector – identifies overhang faces on a mesh node.
 Cura coordinate system: Y is UP, build plate is Y=0.
 Overhang = face whose normal points downward enough: normal.y < -sin(support_angle_rad)
+
+World-space transform uses the same algorithm as Cura's official
+UM.Mesh.MeshData.transformVertices() to avoid coordinate errors:
+  data = vertices padded with w=0
+  data = data @ M.T          (rotation/scale only)
+  data += M[:, 3]            (add translation column)
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -40,11 +46,21 @@ class OverhangDetector:
             n = len(verts_raw)
             indices = np.arange(n, dtype=np.int32).reshape(-1, 3)
 
-        # ── Transform to world space ──────────────────────────────────── #
-        matrix = scene_node.getWorldTransformation().getData()   # (4, 4)
-        ones   = np.ones((len(verts_raw), 1), dtype=np.float64)
-        verts  = np.hstack([verts_raw.astype(np.float64), ones])  # (N, 4)
-        verts  = (matrix @ verts.T).T[:, :3]                      # (N, 3)
+        # ── Transform to world space (matches Cura's transformVertices) ── #
+        #   data = verts padded w=0 then @ M.T, then += M[:,3]
+        tf     = scene_node.getWorldTransformation()
+        M      = tf.getData().astype(np.float64)          # (4,4) float64
+        data   = np.pad(verts_raw.astype(np.float64), ((0,0),(0,1)), constant_values=0.0)
+        data   = data.dot(M.T)                            # rotation + scale
+        data  += M[:, 3]                                  # add translation
+        verts  = data[:, :3]                              # (N, 3)
+
+        # ── Clamp bad indices ─────────────────────────────────────────── #
+        n_verts  = len(verts)
+        valid_i  = np.all((indices >= 0) & (indices < n_verts), axis=1)
+        indices  = indices[valid_i]
+        if len(indices) == 0:
+            return []
 
         # ── Compute per-face normals ──────────────────────────────────── #
         v0 = verts[indices[:, 0]]

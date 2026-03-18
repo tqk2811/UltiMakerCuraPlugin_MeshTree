@@ -46,6 +46,9 @@ class ContactPointFinder:
 
         A_points = centers + normals * self.tip_offset
 
+        # ── Remove outliers (points > 3σ from median) ────────────────── #
+        A_points = self._remove_outliers(A_points)
+
         # ── Grid-based clustering to reduce marker count ─────────────── #
         A_clustered = self._cluster(A_points, self.merge_threshold)
 
@@ -72,6 +75,22 @@ class ContactPointFinder:
         return pairs
 
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _remove_outliers(points: np.ndarray, sigma: float = 3.0) -> np.ndarray:
+        """Drop points whose distance from the median exceeds sigma × MAD."""
+        if len(points) < 4:
+            return points
+        median = np.median(points, axis=0)
+        dists  = np.linalg.norm(points - median, axis=1)
+        mad    = float(np.median(dists))
+        if mad < 1e-6:
+            return points
+        keep = dists <= sigma * mad * 1.4826   # 1.4826 ≈ 1/Φ⁻¹(0.75) for normal consistency
+        n_removed = int((~keep).sum())
+        if n_removed:
+            Logger.log("d", "[ContactPointFinder] Removed %d outlier A-points (sigma=%.1f)", n_removed, sigma)
+        return points[keep]
+
     @staticmethod
     def exclude_near_footprint(
         pairs:            "List[ContactPair]",
