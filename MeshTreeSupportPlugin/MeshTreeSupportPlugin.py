@@ -3,23 +3,19 @@ import os
 from UM.Extension import Extension
 from UM.Logger import Logger
 from UM.i18n import i18nCatalog
+from UM.Scene.Selection import Selection
 
 from cura.CuraApplication import CuraApplication
 
 try:
-    from PyQt6.QtCore import QObject, pyqtSlot, pyqtProperty, pyqtSignal, QUrl
-    from PyQt6.QtQml import QQmlComponent, QQmlContext
+    from PyQt6.QtCore import QObject, pyqtSlot, pyqtProperty, pyqtSignal
 except ImportError:
-    from PyQt5.QtCore import QObject, pyqtSlot, pyqtProperty, pyqtSignal, QUrl
-    from PyQt5.QtQml import QQmlComponent, QQmlContext
+    from PyQt5.QtCore import QObject, pyqtSlot, pyqtProperty, pyqtSignal
 
 i18n_catalog = i18nCatalog("cura")
 
 
 class MeshTreeSupportPlugin(Extension, QObject):
-    """
-    Main plugin entry point. Registers a menu under Extensions > MeshTree Support.
-    """
 
     settingsChanged = pyqtSignal()
 
@@ -27,19 +23,18 @@ class MeshTreeSupportPlugin(Extension, QObject):
         Extension.__init__(self)
         QObject.__init__(self, parent)
 
-        self._app = CuraApplication.getInstance()
+        self._app    = CuraApplication.getInstance()
         self._dialog = None
 
-        # Default settings
         self._settings = {
-            "support_angle":         50.0,   # overhang angle threshold (degrees)
-            "branch_angle":          40.0,   # max branch angle from vertical (degrees)
-            "tip_diameter":           1.0,   # mm
-            "branch_diameter":        3.0,   # mm
-            "branch_diameter_angle":  5.0,   # degrees, how fast branch widens
-            "base_diameter":          7.0,   # mm, base plate diameter
-            "layer_height":           0.2,   # mm (read from Cura stack)
-            "merge_threshold":        2.0,   # mm, distance to merge branches
+            "support_angle":         50.0,
+            "branch_angle":          40.0,
+            "tip_diameter":           1.0,
+            "branch_diameter":        3.0,
+            "branch_diameter_angle":  5.0,
+            "base_diameter":          7.0,
+            "layer_height":           0.2,
+            "merge_threshold":        2.0,
         }
 
         self.setMenuName(i18n_catalog.i18nc("@item:inmenu", "MeshTree Support"))
@@ -48,7 +43,7 @@ class MeshTreeSupportPlugin(Extension, QObject):
         Logger.log("d", "[MeshTreeSupportPlugin] Plugin loaded.")
 
     # ------------------------------------------------------------------ #
-    #  QML-exposed properties                                              #
+    #  QML properties                                                      #
     # ------------------------------------------------------------------ #
 
     @pyqtProperty(float, notify=settingsChanged)
@@ -122,12 +117,71 @@ class MeshTreeSupportPlugin(Extension, QObject):
             self.settingsChanged.emit()
 
     # ------------------------------------------------------------------ #
-    #  Slots called from QML                                               #
+    #  QML slots                                                           #
     # ------------------------------------------------------------------ #
+
+    @pyqtSlot(result=str)
+    def markOverhangs(self) -> str:
+        """
+        Detect overhang faces on selected (or all) mesh nodes,
+        compute A/B contact pairs, inject cylinder markers into the scene.
+        Returns a status message for the UI.
+        """
+        from .core.OverhangDetector   import OverhangDetector
+        from .core.ContactPointFinder import ContactPointFinder
+        from .scene.MarkerInjector    import MarkerInjector
+
+        # ── Get target nodes ─────────────────────────────────────── #
+        nodes = [n for n in Selection.getAllSelectedObjects() if n.getMeshData()]
+        if not nodes:
+            scene = self._app.getController().getScene()
+            nodes = [
+                n for n in scene.getRoot().getChildren()
+                if n.getMeshData() is not None
+                and n.getName() not in ("MeshTree_MarkerA", "MeshTree_MarkerB")
+            ]
+        if not nodes:
+            return "No mesh objects found in scene."
+
+        detector = OverhangDetector(
+            support_angle_deg=self._settings["support_angle"]
+        )
+        finder = ContactPointFinder(
+            branch_angle_deg=self._settings["branch_angle"],
+            merge_threshold =self._settings["merge_threshold"],
+        )
+        injector = MarkerInjector(
+            layer_height=self._settings["layer_height"]
+        )
+
+        all_faces = []
+        for node in nodes:
+            faces = detector.detect(node)
+            Logger.log("d", "[MeshTreeSupportPlugin] Node '%s': %d overhang faces", node.getName(), len(faces))
+            all_faces.extend(faces)
+
+        if not all_faces:
+            return f"No overhang faces found (angle > {self._settings['support_angle']}°).\nTry lowering the support angle."
+
+        pairs = finder.find(all_faces)
+        injector.inject(pairs)
+
+        return (
+            f"Found {len(all_faces)} overhang faces → "
+            f"{len(pairs)} contact pairs.\n"
+            f"A markers (contact, on overhang): {len(pairs)}\n"
+            f"B markers (anchor, build plate):  {len(pairs)}\n\n"
+            f"Yellow = A (overhang surface)\n"
+            f"Blue   = B (build plate anchor)"
+        )
+
+    @pyqtSlot()
+    def clearMarkers(self) -> None:
+        from .scene.MarkerInjector import MarkerInjector
+        MarkerInjector().clear()
 
     @pyqtSlot()
     def syncFromCura(self):
-        """Read matching settings from the active Cura print profile."""
         stack = self._app.getGlobalContainerStack()
         if stack is None:
             Logger.log("w", "[MeshTreeSupportPlugin] No active container stack.")
@@ -142,29 +196,21 @@ class MeshTreeSupportPlugin(Extension, QObject):
             "base_diameter":         "support_tree_bp_diameter",
             "layer_height":          "layer_height",
         }
-        changed = False
         for local_key, cura_key in mapping.items():
             try:
                 val = stack.getProperty(cura_key, "value")
                 if val is not None:
                     self._settings[local_key] = float(val)
-                    changed = True
             except Exception as e:
                 Logger.log("w", "[MeshTreeSupportPlugin] Could not read %s: %s", cura_key, e)
-
-        if changed:
-            self.settingsChanged.emit()
-        Logger.log("d", "[MeshTreeSupportPlugin] Synced settings from Cura: %s", self._settings)
+        self.settingsChanged.emit()
 
     @pyqtSlot()
     def generate(self):
-        """Placeholder – will call the pipeline in later phases."""
-        Logger.log("i", "[MeshTreeSupportPlugin] Generate called with settings: %s", self._settings)
-        # TODO: wire up OverhangDetector → ContactPointFinder → BranchBuilder → TreeMeshGenerator
+        Logger.log("i", "[MeshTreeSupportPlugin] Generate called – pipeline not yet implemented.")
 
     @pyqtSlot(result=str)
     def getModuleStatus(self):
-        """Return a status string showing which core modules are importable."""
         lines = []
         modules = [
             ("core.SupportSettings",    "SupportSettings"),
@@ -173,16 +219,16 @@ class MeshTreeSupportPlugin(Extension, QObject):
             ("core.BranchBuilder",      "BranchBuilder"),
             ("core.TreeMeshGenerator",  "TreeMeshGenerator"),
             ("scene.SceneNodeInjector", "SceneNodeInjector"),
+            ("scene.MarkerInjector",    "MarkerInjector"),
         ]
         for mod_path, label in modules:
             try:
-                full = "MeshTreeSupportPlugin." + mod_path
-                __import__(full)
-                lines.append("✓  " + label)
+                __import__("MeshTreeSupportPlugin." + mod_path)
+                lines.append("OK  " + label)
             except ImportError as e:
-                lines.append("✗  " + label + "  (" + str(e) + ")")
+                lines.append("ERR " + label + "  (" + str(e) + ")")
             except Exception as e:
-                lines.append("?  " + label + "  (" + str(e) + ")")
+                lines.append("?   " + label + "  (" + str(e) + ")")
         return "\n".join(lines)
 
     # ------------------------------------------------------------------ #
@@ -197,7 +243,7 @@ class MeshTreeSupportPlugin(Extension, QObject):
 
     def _createDialog(self):
         qml_path = os.path.join(os.path.dirname(__file__), "ui", "TreeSupportDialog.qml")
-        dialog = self._app.createQmlComponent(qml_path, {"manager": self})
+        dialog   = self._app.createQmlComponent(qml_path, {"manager": self})
         if dialog is None:
             Logger.log("e", "[MeshTreeSupportPlugin] Failed to create dialog from %s", qml_path)
         return dialog

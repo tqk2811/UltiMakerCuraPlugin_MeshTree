@@ -187,6 +187,38 @@ Window {
 
             Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 4; Layout.bottomMargin: 4 }
 
+            // ── Mark A/B points ────────────────────────────────────── //
+            Label { text: "Overhang Visualisation"; font.bold: true; color: "#555" }
+
+            Label {
+                text: "Select an object (or leave nothing selected for all objects), then click Mark."
+                color: "#888"; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 11
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Button {
+                    text: "Mark A/B Points"
+                    highlighted: true
+                    onClicked: {
+                        statusArea.text = "Detecting overhangs..."
+                        var result = manager.markOverhangs()
+                        statusArea.text = result
+                    }
+                }
+                Button {
+                    text: "Clear Markers"
+                    onClicked: {
+                        manager.clearMarkers()
+                        statusArea.text = "Markers cleared."
+                    }
+                }
+            }
+
+            Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+
             // ── Action buttons ─────────────────────────────────────── //
             RowLayout {
                 Layout.fillWidth: true
@@ -194,10 +226,9 @@ Window {
 
                 Button {
                     text: "Generate Tree Support"
-                    highlighted: true
                     onClicked: {
                         manager.generate()
-                        statusArea.text = "Generate called - check Cura log for output.\n(Pipeline not yet implemented.)"
+                        statusArea.text = "Generate called - pipeline not yet implemented."
                     }
                 }
                 Item { Layout.fillWidth: true }
