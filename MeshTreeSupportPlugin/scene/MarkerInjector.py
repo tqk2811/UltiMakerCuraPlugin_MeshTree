@@ -22,10 +22,9 @@ from UM.Operations.GroupedOperation import GroupedOperation
 from UM.Operations.AddSceneNodeOperation import AddSceneNodeOperation
 from UM.Operations.RemoveSceneNodeOperation import RemoveSceneNodeOperation
 
+from UM.Scene.SceneNode import SceneNode
+
 from cura.CuraApplication import CuraApplication
-from cura.Scene.CuraSceneNode import CuraSceneNode
-from cura.Scene.BuildPlateDecorator import BuildPlateDecorator
-from cura.Scene.SliceableObjectDecorator import SliceableObjectDecorator
 
 from ..core.ContactPointFinder import ContactPair
 
@@ -102,13 +101,12 @@ class MarkerInjector:
         B_idx   = np.vstack(B_idx_list).astype(np.int32)
 
         # ── Inject into scene ─────────────────────────────────────────── #
-        app         = CuraApplication.getInstance()
-        scene       = app.getController().getScene()
-        build_plate = app.getMultiBuildPlateModel().activeBuildPlate
+        app   = CuraApplication.getInstance()
+        scene = app.getController().getScene()
 
         op = GroupedOperation()
         for name, verts, idx in [(NAME_A, A_verts, A_idx), (NAME_B, B_verts, B_idx)]:
-            node = self._make_node(name, verts, idx, build_plate)
+            node = self._make_node(name, verts, idx)
             op.addOperation(AddSceneNodeOperation(node, scene.getRoot()))
         op.push()
 
@@ -138,20 +136,18 @@ class MarkerInjector:
     #  Scene node factory                                                  #
     # ------------------------------------------------------------------ #
 
-    def _make_node(self, name: str, verts: np.ndarray, idx: np.ndarray, build_plate: int) -> CuraSceneNode:
+    def _make_node(self, name: str, verts: np.ndarray, idx: np.ndarray) -> SceneNode:
         builder = MeshBuilder()
         builder.setVertices(verts)
         builder.setIndices(idx)
         builder.calculateNormals()
 
-        node = CuraSceneNode()
+        # Plain SceneNode: visible in viewport, NOT sliceable, NOT snapped to build plate
+        node = SceneNode()
         node.setName(name)
         node.setSelectable(True)
         node.setCalculateBoundingBox(True)
         node.setMeshData(builder.build())
-        node.calculateBoundingBoxMesh()
-        node.addDecorator(BuildPlateDecorator(build_plate))
-        node.addDecorator(SliceableObjectDecorator())
         return node
 
     # ------------------------------------------------------------------ #
