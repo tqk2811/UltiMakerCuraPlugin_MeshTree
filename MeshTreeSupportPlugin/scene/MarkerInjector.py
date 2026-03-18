@@ -36,7 +36,7 @@ WALL_MM         = 1.2    # hollow-cylinder wall thickness
 MIN_OUTER_R     = 1.5    # minimum outer radius for any B hollow cylinder
 B_CLUSTER_DIST  = 5.0    # mm – B points closer than this are merged into one hollow cylinder
 B_HEIGHT_LAYERS = 10     # layers tall for all B markers
-MAX_BASE_AREA   = 50.0   # mm² – max footprint area (π·r²) of any B hollow cylinder
+MAX_BASE_AREA   = 150.0  # mm² – max footprint area (π·r²) of any B hollow cylinder
 
 
 class MarkerInjector:
