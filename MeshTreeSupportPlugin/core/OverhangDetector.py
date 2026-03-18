@@ -83,23 +83,27 @@ class OverhangDetector:
         threshold = -np.sin(np.deg2rad(self.support_angle_deg))
         mask = (normals[:, 1] < threshold) & valid
 
-        # ── Build results, skipping tiny faces and out-of-bbox centroids  #
+        # ── Vectorised: all 3 vertices must be inside robust bbox ─────── #
+        # Checking vertices (not centroid) catches faces whose centroid    #
+        # appears valid but one vertex is a garbage point far from model.  #
+        v0_ok = np.all((v0 >= bb_min) & (v0 <= bb_max), axis=1)
+        v1_ok = np.all((v1 >= bb_min) & (v1 <= bb_max), axis=1)
+        v2_ok = np.all((v2 >= bb_min) & (v2 <= bb_max), axis=1)
+        bbox_ok = v0_ok & v1_ok & v2_ok
+
         MIN_AREA = 0.01   # mm² – skip degenerate faces
+        area_ok  = (0.5 * lengths) >= MIN_AREA
+
+        final_mask = mask & bbox_ok & area_ok
+
         results: List[OverhangFace] = []
-        skipped = 0
-        for i in np.where(mask)[0]:
-            area = 0.5 * lengths[i]
-            if area < MIN_AREA:
-                skipped += 1
-                continue
+        skipped = int((mask & ~(bbox_ok & area_ok)).sum())
+        for i in np.where(final_mask)[0]:
             center = (v0[i] + v1[i] + v2[i]) / 3.0
-            if np.any(center < bb_min) or np.any(center > bb_max):
-                skipped += 1
-                continue
             results.append(OverhangFace(
                 center=center.astype(np.float32),
                 normal=normals[i].astype(np.float32),
-                area=float(area),
+                area=float(0.5 * lengths[i]),
             ))
 
         Logger.log("d", "[OverhangDetector] %d overhang faces kept, %d skipped (bbox/area) – angle=%.1f°",
