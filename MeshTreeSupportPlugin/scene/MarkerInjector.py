@@ -31,8 +31,9 @@ from cura.Scene.BuildPlateDecorator import BuildPlateDecorator
 
 from ..core.ContactPointFinder import ContactPair
 
-NAME_A = "MeshTree_MarkerA"
-NAME_B = "MeshTree_MarkerB"
+NAME_A      = "MeshTree_MarkerA"
+NAME_B      = "MeshTree_MarkerB"
+NAME_B_DOT  = "MeshTree_MarkerBDot"   # flat disc per B point, visual only
 
 class MarkerInjector:
 
@@ -72,6 +73,12 @@ class MarkerInjector:
             centers=[p.A for p in pairs],
             radius=0.5,
             height=3 * self.layer_height,
+        )
+
+        # ── B dot markers: flat disc at each B point on build plate ───── #
+        Bdot_verts, Bdot_idx = self._build_flat_discs(
+            centers=[p.B for p in pairs],
+            radius=self.min_outer_r,
         )
 
         # ── B markers: cluster pairs by proximity of B (XZ), keep A links #
@@ -125,8 +132,9 @@ class MarkerInjector:
 
         op = GroupedOperation()
         for name, verts, idx, sliceable in [
-            (NAME_A, A_verts, A_idx, False),
-            (NAME_B, B_verts, B_idx, True),
+            (NAME_A,     A_verts,    A_idx,    False),
+            (NAME_B_DOT, Bdot_verts, Bdot_idx, False),
+            (NAME_B,     B_verts,    B_idx,    True),
         ]:
             node = self._make_node(name, verts, idx, sliceable=sliceable)
             op.addOperation(AddSceneNodeOperation(node, scene.getRoot()))
@@ -143,7 +151,7 @@ class MarkerInjector:
 
         nodes_to_remove = [
             n for n in root.getChildren()
-            if n.getName() in (NAME_A, NAME_B)
+            if n.getName() in (NAME_A, NAME_B, NAME_B_DOT)
         ]
         if not nodes_to_remove:
             return
@@ -217,6 +225,43 @@ class MarkerInjector:
     # ------------------------------------------------------------------ #
     #  Mesh builders                                                       #
     # ------------------------------------------------------------------ #
+
+    def _build_flat_discs(
+        self,
+        centers: List[np.ndarray],
+        radius:  float,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        all_v, all_i = [], []
+        offset = 0
+        for c in centers:
+            v, idx = self._flat_disc(c, radius)
+            all_v.append(v)
+            all_i.append(idx + offset)
+            offset += len(v)
+        return np.vstack(all_v).astype(np.float32), np.vstack(all_i).astype(np.int32)
+
+    def _flat_disc(
+        self,
+        center: np.ndarray,
+        radius: float,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Flat polygon disc at Y = center[1] (build plate, Y=0).
+        Double-sided: top face + bottom face so it's visible from both sides."""
+        s  = self.sides
+        cx, cy, cz = float(center[0]), float(center[1]), float(center[2])
+        angles = np.linspace(0, 2 * np.pi, s, endpoint=False)
+        ring   = np.column_stack([cx + radius * np.cos(angles),
+                                  np.full(s, cy),
+                                  cz + radius * np.sin(angles)])
+        ctr    = np.array([[cx, cy, cz]])
+        verts  = np.vstack([ring, ctr])   # s+1 vertices, index s = center
+        ci     = s
+        faces  = []
+        for i in range(s):
+            j = (i + 1) % s
+            faces.append([ci, i,  j ])   # top face (CCW from above)
+            faces.append([ci, j,  i ])   # bottom face (CW from above = visible below)
+        return verts.astype(np.float32), np.array(faces, dtype=np.int32)
 
     def _build_solid_cylinders(
         self,
