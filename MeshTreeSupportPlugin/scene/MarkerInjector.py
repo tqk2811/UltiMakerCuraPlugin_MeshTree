@@ -39,41 +39,56 @@ NAME_BRANCH  = "MeshTree_MarkerBranch"  # branch lines from A to cylinder tops
 
 class MarkerInjector:
 
+    _LAYER_HEIGHT = 0.2   # internal constant, not exposed as setting
+
     def __init__(
         self,
-        layer_height:      float = 0.2,
-        sides:             int   = 12,
-        b_cluster_dist:    float = 5.0,
-        b_gap_to_a:        float = 20.0,    # mm – cylinder top stays this far below nearest A
-        max_base_area:     float = 150.0,
-        wall_mm:           float = 1.2,
-        min_wall_mm:       float = 0.4,     # minimum printable wall (≥ 1 line width)
-        min_outer_r:          float = 1.5,
-        tip_arm_length:       float = 2.0,
-        branch_merge_dist:    float = 5.0,
-        branch_radius:        float = 0.4,   # mm – radius at A (tip end)
-        branch_base_radius:   float = 1.2,   # mm – radius at cylinder (base end)
-        min_branch_length:    float = 1.0,   # mm – drop shorter segments
-        min_branch_angle_deg: float = 20.0,  # °  – min angle from horizontal
-        min_levels:           int   = 4,     # minimum merge iterations
-        max_levels:           int   = 10,    # maximum merge iterations
+        sides:                   int   = 12,
+        b_cluster_dist:          float = 5.0,
+        b_gap_to_a:              float = 20.0,   # mm – cylinder top stays this far below nearest A
+        max_base_area:           float = 150.0,
+        wall_mm:                 float = 1.2,
+        min_wall_mm:             float = 0.4,    # minimum printable wall (≥ 1 line width)
+        min_outer_r:             float = 1.5,
+        tip_arm_length:          float = 2.0,
+        branch_merge_dist:       float = 5.0,
+        branch_tip_diameter:     float = 0.8,    # mm – diameter at A (tip end)
+        branch_base_diameter:    float = 2.4,    # mm – diameter at cylinder (base end)
+        min_branch_length:       float = 1.0,    # mm – drop shorter segments
+        min_branch_angle_deg:    float = 20.0,   # °  – min angle from horizontal
+        max_segment_length:      float = 50.0,   # mm – max trunk segment length
+        min_junction_angle_deg:  float = 20.0,   # °  – min opening angle at merge junction
+        min_levels:              int   = 4,      # minimum segments for trunk path
+        max_levels:              int   = 10,     # maximum merge iterations
+        # Legacy params
+        layer_height:            float = None,
+        branch_radius:           float = None,
+        branch_base_radius:      float = None,
     ):
-        self.layer_height         = layer_height
-        self.sides                = sides
-        self.b_cluster_dist       = b_cluster_dist
-        self.b_gap_to_a           = b_gap_to_a
-        self.max_base_area        = max_base_area
-        self.wall_mm              = wall_mm
-        self.min_wall_mm          = min_wall_mm
-        self.min_outer_r          = min_outer_r
-        self.tip_arm_length       = tip_arm_length
-        self.branch_merge_dist    = branch_merge_dist
-        self.branch_radius        = branch_radius
-        self.branch_base_radius   = branch_base_radius
-        self.min_branch_length    = min_branch_length
-        self.min_branch_angle_deg = min_branch_angle_deg
-        self.min_levels           = int(min_levels)
-        self.max_levels           = int(max_levels)
+        self.sides                  = sides
+        self.b_cluster_dist         = b_cluster_dist
+        self.b_gap_to_a             = b_gap_to_a
+        self.max_base_area          = max_base_area
+        self.wall_mm                = wall_mm
+        self.min_wall_mm            = min_wall_mm
+        self.min_outer_r            = min_outer_r
+        self.tip_arm_length         = tip_arm_length
+        self.branch_merge_dist      = branch_merge_dist
+        # Accept old radius params for backward compat
+        if branch_radius is not None:
+            self.branch_tip_diameter    = float(branch_radius) * 2.0
+        else:
+            self.branch_tip_diameter    = branch_tip_diameter
+        if branch_base_radius is not None:
+            self.branch_base_diameter   = float(branch_base_radius) * 2.0
+        else:
+            self.branch_base_diameter   = branch_base_diameter
+        self.min_branch_length      = min_branch_length
+        self.min_branch_angle_deg   = min_branch_angle_deg
+        self.max_segment_length     = max_segment_length
+        self.min_junction_angle_deg = min_junction_angle_deg
+        self.min_levels             = int(min_levels)
+        self.max_levels             = int(max_levels)
 
     # ------------------------------------------------------------------ #
     #  Public API                                                          #
@@ -90,7 +105,7 @@ class MarkerInjector:
         A_verts, A_idx = self._build_solid_cylinders(
             centers=[p.A for p in pairs],
             radius=0.5,
-            height=3 * self.layer_height,
+            height=3 * self._LAYER_HEIGHT,
         )
 
         # ── B dot markers: flat disc at each B point on build plate ───── #
@@ -135,7 +150,7 @@ class MarkerInjector:
             dz     = a_pts[:, 2] - cz
             nearest_idx = int(np.argmin(dx * dx + dz * dz))
             nearest_a_y = float(a_pts[nearest_idx, 1])
-            b_height    = max(nearest_a_y - self.b_gap_to_a, self.layer_height)
+            b_height    = max(nearest_a_y - self.b_gap_to_a, self._LAYER_HEIGHT)
 
             v, idx = self._hollow_cylinder(center, outer_r, inner_r, b_height)
             B_verts_list.append(v)
@@ -148,14 +163,16 @@ class MarkerInjector:
 
         # ── Branch lines: A → cylinder connection points ─────────────── #
         builder = BranchBuilder(
-            tip_arm_length       = self.tip_arm_length,
-            branch_merge_dist    = self.branch_merge_dist,
-            branch_radius        = self.branch_radius,
-            branch_base_radius   = self.branch_base_radius,
-            min_branch_length    = self.min_branch_length,
-            min_branch_angle_deg = self.min_branch_angle_deg,
-            min_levels           = self.min_levels,
-            max_levels           = self.max_levels,
+            tip_arm_length          = self.tip_arm_length,
+            branch_merge_dist       = self.branch_merge_dist,
+            branch_tip_diameter     = self.branch_tip_diameter,
+            branch_base_diameter    = self.branch_base_diameter,
+            min_branch_length       = self.min_branch_length,
+            min_branch_angle_deg    = self.min_branch_angle_deg,
+            max_segment_length      = self.max_segment_length,
+            min_junction_angle_deg  = self.min_junction_angle_deg,
+            min_levels              = self.min_levels,
+            max_levels              = self.max_levels,
         )
         branch_segs = builder.build_segments(pair_clusters, cluster_cyls)
         Br_verts, Br_idx = self._build_tubes(branch_segs)
@@ -184,8 +201,8 @@ class MarkerInjector:
         op.push()
 
         scene.sceneChanged.emit(scene.getRoot())
-        Logger.log("i", "[MarkerInjector] A=%d pts  B=%d clusters  (layer_h=%.2f)",
-                   len(pairs), len(pair_clusters), self.layer_height)
+        Logger.log("i", "[MarkerInjector] A=%d pts  B=%d clusters",
+                   len(pairs), len(pair_clusters))
 
     def clear(self) -> None:
         app   = CuraApplication.getInstance()

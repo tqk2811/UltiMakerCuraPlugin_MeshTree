@@ -27,29 +27,25 @@ class MeshTreeSupportPlugin(Extension, QObject):
         self._dialog = None
 
         self._settings = {
-            "support_angle":         50.0,
-            "branch_angle":          40.0,
-            "tip_diameter":           1.0,
-            "branch_diameter":        3.0,
-            "branch_diameter_angle":  5.0,
-            "base_diameter":          7.0,
-            "layer_height":           0.2,
-            "merge_threshold":        2.0,
+            "support_angle":            50.0,
+            "merge_threshold":           2.0,
             # Marker visualisation – cylinders
-            "b_cluster_dist":         5.0,
-            "b_gap_to_a":            20.0,   # mm – cylinder top stops this far below nearest A
-            "max_base_area":        150.0,
-            "wall_mm":                1.2,
-            "min_outer_r":            1.5,
+            "b_cluster_dist":            5.0,
+            "b_gap_to_a":               20.0,
+            "max_base_area":           150.0,
+            "wall_mm":                   1.2,
+            "min_outer_r":               1.5,
             # Marker visualisation – branches
-            "tip_arm_length":         2.0,   # mm – arm from A along face normal
-            "branch_merge_dist":      5.0,   # mm – merge branches closer than this
-            "branch_radius":          0.4,   # mm – radius at A (thin tip)
-            "branch_base_radius":     1.2,   # mm – radius at cylinder (thick base)
-            "min_branch_length":      1.0,   # mm – drop shorter sub-segments
-            "min_branch_angle_deg":  20.0,   # °  – min angle from horizontal
-            "min_levels":             4.0,   # minimum merge iterations
-            "max_levels":            10.0,   # maximum merge iterations
+            "tip_arm_length":            2.0,
+            "branch_merge_dist":         5.0,
+            "branch_tip_diameter":       0.8,   # mm – diameter at A (thin tip)
+            "branch_base_diameter":      2.4,   # mm – diameter at cylinder (thick base)
+            "min_branch_length":         1.0,
+            "min_branch_angle_deg":     20.0,
+            "max_segment_length":       50.0,   # mm – max trunk segment length
+            "min_junction_angle_deg":   20.0,   # °  – min opening angle at merge junction
+            "min_levels":                4.0,
+            "max_levels":               10.0,
         }
 
         self.setMenuName(i18n_catalog.i18nc("@item:inmenu", "MeshTree Support"))
@@ -70,56 +66,6 @@ class MeshTreeSupportPlugin(Extension, QObject):
     def supportAngle(self, value):
         if self._settings["support_angle"] != value:
             self._settings["support_angle"] = value
-            self.settingsChanged.emit()
-
-    @pyqtProperty(float, notify=settingsChanged)
-    def branchAngle(self):
-        return self._settings["branch_angle"]
-
-    @branchAngle.setter
-    def branchAngle(self, value):
-        if self._settings["branch_angle"] != value:
-            self._settings["branch_angle"] = value
-            self.settingsChanged.emit()
-
-    @pyqtProperty(float, notify=settingsChanged)
-    def tipDiameter(self):
-        return self._settings["tip_diameter"]
-
-    @tipDiameter.setter
-    def tipDiameter(self, value):
-        if self._settings["tip_diameter"] != value:
-            self._settings["tip_diameter"] = value
-            self.settingsChanged.emit()
-
-    @pyqtProperty(float, notify=settingsChanged)
-    def branchDiameter(self):
-        return self._settings["branch_diameter"]
-
-    @branchDiameter.setter
-    def branchDiameter(self, value):
-        if self._settings["branch_diameter"] != value:
-            self._settings["branch_diameter"] = value
-            self.settingsChanged.emit()
-
-    @pyqtProperty(float, notify=settingsChanged)
-    def branchDiameterAngle(self):
-        return self._settings["branch_diameter_angle"]
-
-    @branchDiameterAngle.setter
-    def branchDiameterAngle(self, value):
-        if self._settings["branch_diameter_angle"] != value:
-            self._settings["branch_diameter_angle"] = value
-            self.settingsChanged.emit()
-
-    @pyqtProperty(float, notify=settingsChanged)
-    def baseDiameter(self):
-        return self._settings["base_diameter"]
-
-    @baseDiameter.setter
-    def baseDiameter(self, value):
-        if self._settings["base_diameter"] != value:
-            self._settings["base_diameter"] = value
             self.settingsChanged.emit()
 
     @pyqtProperty(float, notify=settingsChanged)
@@ -203,23 +149,23 @@ class MeshTreeSupportPlugin(Extension, QObject):
             self.settingsChanged.emit()
 
     @pyqtProperty(float, notify=settingsChanged)
-    def branchRadiusTip(self):
-        return self._settings["branch_radius"]
+    def branchTipDiameter(self):
+        return self._settings["branch_tip_diameter"]
 
-    @branchRadiusTip.setter
-    def branchRadiusTip(self, value):
-        if self._settings["branch_radius"] != value:
-            self._settings["branch_radius"] = value
+    @branchTipDiameter.setter
+    def branchTipDiameter(self, value):
+        if self._settings["branch_tip_diameter"] != value:
+            self._settings["branch_tip_diameter"] = value
             self.settingsChanged.emit()
 
     @pyqtProperty(float, notify=settingsChanged)
-    def branchRadiusBase(self):
-        return self._settings["branch_base_radius"]
+    def branchBaseDiameter(self):
+        return self._settings["branch_base_diameter"]
 
-    @branchRadiusBase.setter
-    def branchRadiusBase(self, value):
-        if self._settings["branch_base_radius"] != value:
-            self._settings["branch_base_radius"] = value
+    @branchBaseDiameter.setter
+    def branchBaseDiameter(self, value):
+        if self._settings["branch_base_diameter"] != value:
+            self._settings["branch_base_diameter"] = value
             self.settingsChanged.emit()
 
     @pyqtProperty(float, notify=settingsChanged)
@@ -240,6 +186,26 @@ class MeshTreeSupportPlugin(Extension, QObject):
     def minBranchAngleDeg(self, value):
         if self._settings["min_branch_angle_deg"] != value:
             self._settings["min_branch_angle_deg"] = value
+            self.settingsChanged.emit()
+
+    @pyqtProperty(float, notify=settingsChanged)
+    def maxSegmentLength(self):
+        return self._settings["max_segment_length"]
+
+    @maxSegmentLength.setter
+    def maxSegmentLength(self, value):
+        if self._settings["max_segment_length"] != value:
+            self._settings["max_segment_length"] = value
+            self.settingsChanged.emit()
+
+    @pyqtProperty(float, notify=settingsChanged)
+    def minJunctionAngleDeg(self):
+        return self._settings["min_junction_angle_deg"]
+
+    @minJunctionAngleDeg.setter
+    def minJunctionAngleDeg(self, value):
+        if self._settings["min_junction_angle_deg"] != value:
+            self._settings["min_junction_angle_deg"] = value
             self.settingsChanged.emit()
 
     @pyqtProperty(float, notify=settingsChanged)
@@ -306,21 +272,22 @@ class MeshTreeSupportPlugin(Extension, QObject):
                 pass
 
         injector = MarkerInjector(
-            layer_height         = self._settings["layer_height"],
-            b_cluster_dist       = self._settings["b_cluster_dist"],
-            b_gap_to_a           = self._settings["b_gap_to_a"],
-            max_base_area        = self._settings["max_base_area"],
-            wall_mm              = self._settings["wall_mm"],
-            min_wall_mm          = min_wall,
-            min_outer_r          = self._settings["min_outer_r"],
-            tip_arm_length       = self._settings["tip_arm_length"],
-            branch_merge_dist    = self._settings["branch_merge_dist"],
-            branch_radius        = self._settings["branch_radius"],
-            branch_base_radius   = self._settings["branch_base_radius"],
-            min_branch_length    = self._settings["min_branch_length"],
-            min_branch_angle_deg = self._settings["min_branch_angle_deg"],
-            min_levels           = int(self._settings["min_levels"]),
-            max_levels           = int(self._settings["max_levels"]),
+            b_cluster_dist          = self._settings["b_cluster_dist"],
+            b_gap_to_a              = self._settings["b_gap_to_a"],
+            max_base_area           = self._settings["max_base_area"],
+            wall_mm                 = self._settings["wall_mm"],
+            min_wall_mm             = min_wall,
+            min_outer_r             = self._settings["min_outer_r"],
+            tip_arm_length          = self._settings["tip_arm_length"],
+            branch_merge_dist       = self._settings["branch_merge_dist"],
+            branch_tip_diameter     = self._settings["branch_tip_diameter"],
+            branch_base_diameter    = self._settings["branch_base_diameter"],
+            min_branch_length       = self._settings["min_branch_length"],
+            min_branch_angle_deg    = self._settings["min_branch_angle_deg"],
+            max_segment_length      = self._settings["max_segment_length"],
+            min_junction_angle_deg  = self._settings["min_junction_angle_deg"],
+            min_levels              = int(self._settings["min_levels"]),
+            max_levels              = int(self._settings["max_levels"]),
         )
 
         all_faces = []
@@ -373,13 +340,7 @@ class MeshTreeSupportPlugin(Extension, QObject):
             return
 
         mapping = {
-            "support_angle":         "support_angle",
-            "branch_angle":          "support_tree_angle",
-            "tip_diameter":          "support_tree_tip_diameter",
-            "branch_diameter":       "support_tree_branch_diameter",
-            "branch_diameter_angle": "support_tree_branch_diameter_angle",
-            "base_diameter":         "support_tree_bp_diameter",
-            "layer_height":          "layer_height",
+            "support_angle": "support_angle",
         }
         for local_key, cura_key in mapping.items():
             try:
