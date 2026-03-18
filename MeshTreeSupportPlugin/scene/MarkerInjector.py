@@ -1,13 +1,15 @@
 """
-MarkerInjector – creates small cylinder markers in the Cura scene to
-visualise contact points A (on overhang) and anchor points B (build plate).
+MarkerInjector – creates marker meshes in the Cura scene to visualise
+contact points A (on overhang) and anchor points B (build plate).
 
-Marker dimensions (configurable):
-  A markers: radius=0.5 mm, height = 3 × layer_height  (default ~0.6 mm)
-  B markers: radius=0.8 mm, height = 2 × layer_height  (default ~0.4 mm)
+A markers : small solid cylinder,  r=0.5 mm,  h = 3 × layer_height
+B markers : hollow cylinder,        h = 10 × layer_height
+  • Isolated B point  → small hollow cylinder, outer_r = 1.5 mm
+  • Cluster of B pts  → hollow cylinder sized to enclose the cluster,
+                        outer_r = max(dist_from_centroid) + wall + 1 mm
+  Wall thickness is fixed at WALL_MM (default 1.2 mm).
 
-Cylinders are added as regular sliceable CuraSceneNodes (no special mesh
-type flag), so they show in the viewport and can simply be deleted later.
+Cura coordinate: Y is UP.  Build plate is at Y = 0.
 """
 from __future__ import annotations
 from typing import List, Tuple
@@ -30,10 +32,15 @@ from ..core.ContactPointFinder import ContactPair
 NAME_A = "MeshTree_MarkerA"
 NAME_B = "MeshTree_MarkerB"
 
+WALL_MM         = 1.2   # hollow-cylinder wall thickness
+MIN_OUTER_R     = 1.5   # minimum outer radius for any B hollow cylinder
+B_CLUSTER_DIST  = 5.0   # mm – B points closer than this are merged into one hollow cylinder
+B_HEIGHT_LAYERS = 10    # layers tall for all B markers
+
 
 class MarkerInjector:
 
-    def __init__(self, layer_height: float = 0.2, sides: int = 8):
+    def __init__(self, layer_height: float = 0.2, sides: int = 12):
         self.layer_height = layer_height
         self.sides        = sides
 
@@ -48,19 +55,50 @@ class MarkerInjector:
 
         self.clear()
 
-        A_verts, A_idx = self._merge_cylinders(
-            [p.A for p in pairs],
-            radius = 0.5,
-            height = 3 * self.layer_height,
-        )
-        B_verts, B_idx = self._merge_cylinders(
-            [p.B for p in pairs],
-            radius = 0.8,
-            height = 2 * self.layer_height,
+        b_height = B_HEIGHT_LAYERS * self.layer_height
+
+        # ── A markers: one small solid cylinder per contact point ─────── #
+        A_verts, A_idx = self._build_solid_cylinders(
+            centers=[p.A for p in pairs],
+            radius=0.5,
+            height=3 * self.layer_height,
         )
 
-        app   = CuraApplication.getInstance()
-        scene = app.getController().getScene()
+        # ── B markers: cluster nearby B points, hollow cylinder per cluster #
+        b_points  = [p.B for p in pairs]
+        b_clusters = self._cluster_points(b_points, B_CLUSTER_DIST)
+        Logger.log("d", "[MarkerInjector] %d B points → %d clusters", len(b_points), len(b_clusters))
+
+        B_verts_list: List[np.ndarray] = []
+        B_idx_list:   List[np.ndarray] = []
+        b_offset = 0
+
+        for cluster in b_clusters:
+            pts    = np.array(cluster, dtype=np.float32)
+            cx     = float(pts[:, 0].mean())
+            cz     = float(pts[:, 2].mean())
+            center = np.array([cx, 0.0, cz], dtype=np.float32)
+
+            # outer radius = spread of cluster + 1 mm margin, min MIN_OUTER_R
+            if len(pts) == 1:
+                outer_r = MIN_OUTER_R
+            else:
+                dists   = np.sqrt((pts[:, 0] - cx) ** 2 + (pts[:, 2] - cz) ** 2)
+                outer_r = max(float(dists.max()) + WALL_MM + 1.0, MIN_OUTER_R)
+
+            inner_r = max(outer_r - WALL_MM, 0.3)
+
+            v, idx = self._hollow_cylinder(center, outer_r, inner_r, b_height)
+            B_verts_list.append(v)
+            B_idx_list.append(idx + b_offset)
+            b_offset += len(v)
+
+        B_verts = np.vstack(B_verts_list).astype(np.float32)
+        B_idx   = np.vstack(B_idx_list).astype(np.int32)
+
+        # ── Inject into scene ─────────────────────────────────────────── #
+        app         = CuraApplication.getInstance()
+        scene       = app.getController().getScene()
         build_plate = app.getMultiBuildPlateModel().activeBuildPlate
 
         op = GroupedOperation()
@@ -70,8 +108,8 @@ class MarkerInjector:
         op.push()
 
         scene.sceneChanged.emit(scene.getRoot())
-        Logger.log("i", "[MarkerInjector] Injected %d A-markers and %d B-markers.",
-                   len(pairs), len(pairs))
+        Logger.log("i", "[MarkerInjector] A=%d pts  B=%d clusters  (layer_h=%.2f)",
+                   len(pairs), len(b_clusters), self.layer_height)
 
     def clear(self) -> None:
         app   = CuraApplication.getInstance()
@@ -92,7 +130,7 @@ class MarkerInjector:
         scene.sceneChanged.emit(root)
 
     # ------------------------------------------------------------------ #
-    #  Internals                                                           #
+    #  Scene node factory                                                  #
     # ------------------------------------------------------------------ #
 
     def _make_node(self, name: str, verts: np.ndarray, idx: np.ndarray, build_plate: int) -> CuraSceneNode:
@@ -111,65 +149,127 @@ class MarkerInjector:
         node.addDecorator(SliceableObjectDecorator())
         return node
 
-    def _merge_cylinders(
+    # ------------------------------------------------------------------ #
+    #  Clustering                                                          #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _cluster_points(points: List[np.ndarray], max_dist: float) -> List[List[np.ndarray]]:
+        """
+        Union-Find clustering: merge B points whose XZ distance < max_dist.
+        Returns list of clusters, each cluster is a list of points.
+        """
+        n = len(points)
+        parent = list(range(n))
+
+        def find(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        pts = np.array(points, dtype=np.float32)
+        for i in range(n):
+            for j in range(i + 1, n):
+                dx = pts[i, 0] - pts[j, 0]
+                dz = pts[i, 2] - pts[j, 2]
+                if dx * dx + dz * dz <= max_dist * max_dist:
+                    ri, rj = find(i), find(j)
+                    if ri != rj:
+                        parent[ri] = rj
+
+        groups: dict = {}
+        for i in range(n):
+            r = find(i)
+            groups.setdefault(r, []).append(points[i])
+        return list(groups.values())
+
+    # ------------------------------------------------------------------ #
+    #  Mesh builders                                                       #
+    # ------------------------------------------------------------------ #
+
+    def _build_solid_cylinders(
         self,
         centers: List[np.ndarray],
         radius:  float,
         height:  float,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Build one mesh containing all cylinders merged together."""
-        all_verts: List[np.ndarray] = []
-        all_idx:   List[np.ndarray] = []
+        all_v, all_i = [], []
         offset = 0
-
         for c in centers:
-            v, idx = self._cylinder(c, radius, height)
-            all_verts.append(v)
-            all_idx.append(idx + offset)
+            v, idx = self._solid_cylinder(c, radius, height)
+            all_v.append(v)
+            all_i.append(idx + offset)
             offset += len(v)
+        return np.vstack(all_v).astype(np.float32), np.vstack(all_i).astype(np.int32)
 
-        return (
-            np.vstack(all_verts).astype(np.float32),
-            np.vstack(all_idx).astype(np.int32),
-        )
-
-    def _cylinder(
+    def _solid_cylinder(
         self,
         center: np.ndarray,
         radius: float,
         height: float,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Single cylinder.  center = (cx, cy, cz);  extends  cy → cy+height  (Y-up).
-        Returns (vertices (2s+2, 3), indices (4s, 3)).
-        """
-        s = self.sides
-        angles = np.linspace(0, 2 * np.pi, s, endpoint=False)
+        """Solid cylinder.  center Y → center Y + height."""
+        s  = self.sides
         cx, cy, cz = float(center[0]), float(center[1]), float(center[2])
+        angles = np.linspace(0, 2 * np.pi, s, endpoint=False)
 
-        bot = np.column_stack([
-            cx + radius * np.cos(angles),
-            np.full(s, cy),
-            cz + radius * np.sin(angles),
-        ])                                          # (s, 3)
-        top = bot.copy()
-        top[:, 1] = cy + height                    # (s, 3)
+        bot = np.column_stack([cx + radius * np.cos(angles), np.full(s, cy),          cz + radius * np.sin(angles)])
+        top = np.column_stack([cx + radius * np.cos(angles), np.full(s, cy + height), cz + radius * np.sin(angles)])
+        bc  = np.array([[cx, cy,          cz]])
+        tc  = np.array([[cx, cy + height, cz]])
+        verts = np.vstack([bot, top, bc, tc])   # 2s+2
 
-        bc  = np.array([[cx, cy,          cz]])    # bottom centre
-        tc  = np.array([[cx, cy + height, cz]])    # top    centre
-
-        verts = np.vstack([bot, top, bc, tc])      # (2s+2, 3)
-
-        faces = []
         bc_i, tc_i = 2 * s, 2 * s + 1
+        faces = []
         for i in range(s):
             j = (i + 1) % s
-            # Side
-            faces.append([i,     j,     s + i])
-            faces.append([j,     s + j, s + i])
-            # Bottom cap (normal down: winding CW from below)
-            faces.append([bc_i,  j,     i    ])
-            # Top cap
-            faces.append([tc_i,  s + i, s + j])
+            faces += [[i, j, s+i], [j, s+j, s+i]]          # sides
+            faces.append([bc_i, j,   i   ])                  # bottom cap
+            faces.append([tc_i, s+i, s+j ])                  # top cap
 
         return verts.astype(np.float32), np.array(faces, dtype=np.int32)
+
+    def _hollow_cylinder(
+        self,
+        center:  np.ndarray,
+        outer_r: float,
+        inner_r: float,
+        height:  float,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Hollow cylinder (tube).  Y = center[1] → center[1] + height.
+
+        Vertex layout (s = sides):
+          [0  .. s-1 ]  outer bottom
+          [s  .. 2s-1]  outer top
+          [2s .. 3s-1]  inner bottom
+          [3s .. 4s-1]  inner top
+        Total: 4s vertices, 8s triangles.
+        """
+        s  = self.sides
+        cx, cy, cz = float(center[0]), float(center[1]), float(center[2])
+        angles = np.linspace(0, 2 * np.pi, s, endpoint=False)
+
+        ob = np.column_stack([cx + outer_r * np.cos(angles), np.full(s, cy),          cz + outer_r * np.sin(angles)])
+        ot = np.column_stack([cx + outer_r * np.cos(angles), np.full(s, cy + height), cz + outer_r * np.sin(angles)])
+        ib = np.column_stack([cx + inner_r * np.cos(angles), np.full(s, cy),          cz + inner_r * np.sin(angles)])
+        it = np.column_stack([cx + inner_r * np.cos(angles), np.full(s, cy + height), cz + inner_r * np.sin(angles)])
+
+        verts = np.vstack([ob, ot, ib, it]).astype(np.float32)  # (4s, 3)
+        # index offsets
+        OB, OT, IB, IT = 0, s, 2*s, 3*s
+
+        faces = []
+        for i in range(s):
+            j = (i + 1) % s
+            # Outer wall (normal outward)
+            faces += [[OB+i, OB+j, OT+i], [OB+j, OT+j, OT+i]]
+            # Inner wall (normal inward → reversed winding)
+            faces += [[IB+i, IT+i, IB+j], [IB+j, IT+i, IT+j]]
+            # Top annulus
+            faces += [[OT+i, OT+j, IT+i], [OT+j, IT+j, IT+i]]
+            # Bottom annulus
+            faces += [[OB+i, IB+i, OB+j], [OB+j, IB+i, IB+j]]
+
+        return verts, np.array(faces, dtype=np.int32)
