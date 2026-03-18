@@ -25,6 +25,9 @@ from UM.Operations.RemoveSceneNodeOperation import RemoveSceneNodeOperation
 from UM.Scene.SceneNode import SceneNode
 
 from cura.CuraApplication import CuraApplication
+from cura.Scene.CuraSceneNode import CuraSceneNode
+from cura.Scene.SliceableObjectDecorator import SliceableObjectDecorator
+from cura.Scene.BuildPlateDecorator import BuildPlateDecorator
 
 from ..core.ContactPointFinder import ContactPair
 
@@ -117,8 +120,11 @@ class MarkerInjector:
         scene = app.getController().getScene()
 
         op = GroupedOperation()
-        for name, verts, idx in [(NAME_A, A_verts, A_idx), (NAME_B, B_verts, B_idx)]:
-            node = self._make_node(name, verts, idx)
+        for name, verts, idx, sliceable in [
+            (NAME_A, A_verts, A_idx, False),
+            (NAME_B, B_verts, B_idx, True),
+        ]:
+            node = self._make_node(name, verts, idx, sliceable=sliceable)
             op.addOperation(AddSceneNodeOperation(node, scene.getRoot()))
         op.push()
 
@@ -148,14 +154,21 @@ class MarkerInjector:
     #  Scene node factory                                                  #
     # ------------------------------------------------------------------ #
 
-    def _make_node(self, name: str, verts: np.ndarray, idx: np.ndarray) -> SceneNode:
+    def _make_node(self, name: str, verts: np.ndarray, idx: np.ndarray,
+                   sliceable: bool = False) -> SceneNode:
         builder = MeshBuilder()
         builder.setVertices(verts)
         builder.setIndices(idx)
         builder.calculateNormals()
 
-        # Plain SceneNode: visible in viewport, NOT sliceable, NOT snapped to build plate
-        node = SceneNode()
+        if sliceable:
+            # CuraSceneNode: sliceable printable object, grounded at Y=0
+            node = CuraSceneNode()
+            node.addDecorator(SliceableObjectDecorator())
+            node.addDecorator(BuildPlateDecorator(0))
+        else:
+            # Plain SceneNode: visual marker only, NOT sliceable
+            node = SceneNode()
         node.setName(name)
         node.setSelectable(True)
         node.setCalculateBoundingBox(True)
