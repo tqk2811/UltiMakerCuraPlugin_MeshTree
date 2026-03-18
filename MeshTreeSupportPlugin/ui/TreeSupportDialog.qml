@@ -24,8 +24,15 @@ Window {
         property alias to:       spin.to
         property alias stepSize: spin.stepSize
         property alias unit:     unitLbl.text
-        property alias tooltip:  tipArea.text
+        property string tooltip: ""
         signal valueEdited(real v)
+
+        // Full tooltip = description + auto range line
+        readonly property string _fullTip: tooltip +
+            "\n\nGiới hạn: " + (spin.from / 10.0).toFixed(1) +
+            " – " + (spin.to / 10.0).toFixed(1) +
+            " " + unitLbl.text +
+            "  |  Bước: " + (spin.stepSize / 10.0).toFixed(1)
 
         spacing: 8
 
@@ -38,11 +45,10 @@ Window {
 
             MouseArea {
                 id: tipArea
-                property string text: ""
                 anchors.fill: parent
                 hoverEnabled: true
-                ToolTip.visible: containsMouse && tipArea.text !== ""
-                ToolTip.text:    tipArea.text
+                ToolTip.visible: containsMouse && tooltip !== ""
+                ToolTip.text:    _fullTip
                 ToolTip.delay:   400
             }
         }
@@ -102,7 +108,12 @@ Window {
                 value:   Math.round(manager.supportAngle * 10)
                 from:    0; to: 890; stepSize: 5
                 unit:    "deg"
-                tooltip: "Góc tính từ mặt phẳng nằm ngang.\nMặt nào nghiêng hơn góc này sẽ được coi là overhang và cần support.\nVí dụ: 50° → mặt dốc hơn 50° so với nằm ngang cần support."
+                tooltip: "Góc ngưỡng để xác định mặt overhang, tính từ mặt phẳng nằm ngang.\n" +
+                         "Mặt nào nghiêng HƠN góc này sẽ bị coi là overhang và cần support.\n\n" +
+                         "• 45° – mặc định Cura, cân bằng giữa chất lượng và vật liệu\n" +
+                         "• 30° – chỉ support những chỗ dốc đứng nhất, ít support hơn\n" +
+                         "• 60° – support nhiều hơn, an toàn hơn cho model phức tạp\n\n" +
+                         "Lưu ý: giá trị nhỏ → ít điểm A, giá trị lớn → nhiều điểm A hơn."
                 onValueEdited: manager.supportAngle = v
                 Layout.fillWidth: true
             }
@@ -111,7 +122,10 @@ Window {
                 value:   Math.round(manager.tipDiameter * 10)
                 from:    1; to: 100; stepSize: 1
                 unit:    "mm"
-                tooltip: "Đường kính phần đầu nhọn của cành tại điểm A trên bề mặt overhang.\nNhỏ hơn → dễ bẻ gãy support sau khi in xong."
+                tooltip: "Đường kính phần đầu nhọn của cành support tại điểm A (nơi chạm vào model).\n\n" +
+                         "• Nhỏ (0.5–1 mm) → dễ bẻ gãy support sau in, vết để lại ít\n" +
+                         "• Lớn (2–3 mm) → support bền hơn nhưng khó tách và để lại vết\n\n" +
+                         "Khuyến nghị: 0.8–1.2 mm cho PLA/PETG, 0.5–0.8 mm cho resin."
                 onValueEdited: manager.tipDiameter = v
                 Layout.fillWidth: true
             }
@@ -120,7 +134,12 @@ Window {
                 value:   Math.round(manager.mergeThreshold * 10)
                 from:    1; to: 200; stepSize: 5
                 unit:    "mm"
-                tooltip: "Nếu hai điểm A cách nhau dưới khoảng cách này, chúng được gộp thành một.\nGiá trị lớn hơn → ít điểm A hơn, support thô hơn nhưng nhanh hơn."
+                tooltip: "Hai điểm A trong phạm vi này sẽ được gộp thành một điểm duy nhất.\n" +
+                         "Giúp giảm số lượng cành support trên cùng một vùng overhang.\n\n" +
+                         "• 1–2 mm → giữ gần như tất cả điểm, support dày đặc, chính xác\n" +
+                         "• 5 mm – bình thường, cân bằng số lượng và chất lượng\n" +
+                         "• 10–20 mm → ít cành hơn, in nhanh hơn nhưng có thể thiếu support\n\n" +
+                         "Lưu ý: giá trị này cũng là kích thước ô lưới để phân vùng điểm A."
                 onValueEdited: manager.mergeThreshold = v
                 Layout.fillWidth: true
             }
@@ -143,7 +162,12 @@ Window {
                 value:   Math.round(manager.branchAngle * 10)
                 from:    0; to: 800; stepSize: 5
                 unit:    "deg"
-                tooltip: "Góc tối đa của cành so với phương thẳng đứng.\nCành vươn từ B lên A không được nghiêng quá góc này.\nGóc càng lớn → B được phép lệch xa khỏi vị trí ngay dưới A hơn."
+                tooltip: "Góc tối đa mà cành support được phép nghiêng so với phương thẳng đứng.\n" +
+                         "Cành vươn từ điểm B (sàn) lên điểm A (overhang) không được vượt góc này.\n\n" +
+                         "• 0° → cành hoàn toàn thẳng đứng, B nằm ngay dưới A\n" +
+                         "• 40° – mặc định Cura, cành có thể nghiêng vừa phải để tránh model\n" +
+                         "• 60–70° → cành rất thoải, B có thể lệch xa để tìm vị trí tốt hơn\n\n" +
+                         "Góc lớn hơn giúp B tránh xa footprint model, nhưng cành dài và yếu hơn."
                 onValueEdited: manager.branchAngle = v
                 Layout.fillWidth: true
             }
@@ -152,7 +176,12 @@ Window {
                 value:   Math.round(manager.baseDiameter * 10)
                 from:    10; to: 500; stepSize: 5
                 unit:    "mm"
-                tooltip: "Đường kính đĩa đế tại điểm B trên bàn in.\nĐế rộng hơn → bám sàn tốt hơn, ít bị lật hơn."
+                tooltip: "Đường kính đĩa đế (base plate) tại điểm B trên bàn in.\n" +
+                         "Đế rộng giúp support bám sàn tốt hơn, ít bị lật khi in.\n\n" +
+                         "• 5–8 mm → đế nhỏ, tiết kiệm vật liệu, phù hợp support đơn lẻ\n" +
+                         "• 10–15 mm – cân bằng độ bám và vật liệu, dùng cho hầu hết model\n" +
+                         "• 20+ mm → đế lớn, bám rất chắc, phù hợp model cao hoặc nặng\n\n" +
+                         "Lưu ý: giá trị này chỉ dùng khi tạo mesh support thực tế (generate)."
                 onValueEdited: manager.baseDiameter = v
                 Layout.fillWidth: true
             }
@@ -175,7 +204,12 @@ Window {
                 value:   Math.round(manager.branchDiameter * 10)
                 from:    1; to: 200; stepSize: 5
                 unit:    "mm"
-                tooltip: "Đường kính chính của thân cành support.\nLớn hơn → cứng hơn, tốn vật liệu hơn."
+                tooltip: "Đường kính danh nghĩa của thân cành support (tại điểm A trên overhang).\n" +
+                         "Giá trị này là đường kính trước khi áp dụng Branch Diameter Angle.\n\n" +
+                         "• 1–2 mm → cành mảnh, dễ bẻ, tiết kiệm vật liệu\n" +
+                         "• 3 mm – mặc định Cura, phù hợp hầu hết trường hợp\n" +
+                         "• 5+ mm → cành dày, cứng, dùng cho model nặng hoặc overhang rộng\n\n" +
+                         "Kết hợp với Branch Diameter Angle để tạo hình nón từ đỉnh xuống đáy."
                 onValueEdited: manager.branchDiameter = v
                 Layout.fillWidth: true
             }
@@ -184,7 +218,12 @@ Window {
                 value:   Math.round(manager.branchDiameterAngle * 10)
                 from:    0; to: 300; stepSize: 5
                 unit:    "deg"
-                tooltip: "Tốc độ mở rộng đường kính thân theo chiều cao (mỗi lớp).\nGiá trị lớn hơn → thân phình rộng nhanh hơn từ đỉnh xuống đáy, tạo hình nón."
+                tooltip: "Tốc độ tăng đường kính thân theo chiều cao, tạo hình nón từ đỉnh xuống đáy.\n" +
+                         "Công thức: diameter_tại_lớp = branch_diameter + 2 × tan(angle) × chiều_cao\n\n" +
+                         "• 0° → thân hình trụ, đường kính không đổi từ A xuống B\n" +
+                         "• 5° – mặc định Cura, thân phình nhẹ, ổn định tốt\n" +
+                         "• 10–15° → thân phình mạnh, rất ổn định nhưng tốn vật liệu\n\n" +
+                         "Giá trị lớn kết hợp cành cao sẽ tạo đế rất rộng tại điểm B."
                 onValueEdited: manager.branchDiameterAngle = v
                 Layout.fillWidth: true
             }
