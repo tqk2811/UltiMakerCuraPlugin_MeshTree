@@ -241,6 +241,8 @@ class BranchBuilder:
             merge_pt[1] = min(float(nodes[mi][1]), float(nodes[mj][1]))
             merge_pt    = self._enforce_angle(nodes[mi], merge_pt)
             merge_pt    = self._enforce_angle(nodes[mj], merge_pt)
+            # Clamp: merge point must not fall below cylinder top
+            merge_pt[1] = max(float(merge_pt[1]), cyl.height)
 
             for n in (nodes[mi], nodes[mj]):
                 segs.append(BranchSegment(
