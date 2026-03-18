@@ -96,9 +96,13 @@ class MarkerInjector:
 
             inner_r = max(outer_r - self.wall_mm, 0.3)
 
-            # Height: reach up to min(A.y) in this cluster, leaving b_gap_to_a clearance
-            min_a_y   = float(min(p.A[1] for p in cluster_pairs))
-            b_height  = max(min_a_y - self.b_gap_to_a, self.layer_height)
+            # Height: reach up to min(A.y) minus gap; if gap > A.y, go to 90% of A.y
+            min_a_y  = float(min(p.A[1] for p in cluster_pairs))
+            if min_a_y > self.b_gap_to_a:
+                b_height = min_a_y - self.b_gap_to_a
+            else:
+                b_height = min_a_y * 0.9
+            b_height = max(b_height, self.layer_height)
 
             v, idx = self._hollow_cylinder(center, outer_r, inner_r, b_height)
             B_verts_list.append(v)
