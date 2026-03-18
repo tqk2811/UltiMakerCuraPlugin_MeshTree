@@ -73,9 +73,11 @@ class OverhangDetector:
         normals = np.zeros_like(cross)
         normals[valid] = cross[valid] / lengths[valid, np.newaxis]
 
-        # ── Bounding box of all world-space vertices (+ 1 mm margin) ─── #
-        bb_min = verts.min(axis=0) - 1.0
-        bb_max = verts.max(axis=0) + 1.0
+        # ── Robust bounding box: 1st–99th percentile of vertices + 5 mm  #
+        # Using percentiles ignores stray/artifact vertices that would    #
+        # otherwise extend min/max and let bad centroids slip through.    #
+        bb_min = np.percentile(verts, 1,  axis=0) - 5.0
+        bb_max = np.percentile(verts, 99, axis=0) + 5.0
 
         # ── Filter: normal.y < -sin(support_angle) ───────────────────── #
         threshold = -np.sin(np.deg2rad(self.support_angle_deg))
