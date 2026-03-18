@@ -35,12 +35,15 @@ class MeshTreeSupportPlugin(Extension, QObject):
             "base_diameter":          7.0,
             "layer_height":           0.2,
             "merge_threshold":        2.0,
-            # Marker visualisation
+            # Marker visualisation – cylinders
             "b_cluster_dist":         5.0,
-            "b_gap_to_a":           200.0,   # mm – cylinder top stops this far below A
+            "b_gap_to_a":            20.0,   # mm – cylinder top stops this far below nearest A
             "max_base_area":        150.0,
             "wall_mm":                1.2,
             "min_outer_r":            1.5,
+            # Marker visualisation – branches
+            "tip_arm_length":         2.0,   # mm – arm from A along face normal
+            "branch_merge_dist":      5.0,   # mm – merge branches closer than this
         }
 
         self.setMenuName(i18n_catalog.i18nc("@item:inmenu", "MeshTree Support"))
@@ -173,6 +176,26 @@ class MeshTreeSupportPlugin(Extension, QObject):
             self._settings["min_outer_r"] = value
             self.settingsChanged.emit()
 
+    @pyqtProperty(float, notify=settingsChanged)
+    def tipArmLength(self):
+        return self._settings["tip_arm_length"]
+
+    @tipArmLength.setter
+    def tipArmLength(self, value):
+        if self._settings["tip_arm_length"] != value:
+            self._settings["tip_arm_length"] = value
+            self.settingsChanged.emit()
+
+    @pyqtProperty(float, notify=settingsChanged)
+    def branchMergeDist(self):
+        return self._settings["branch_merge_dist"]
+
+    @branchMergeDist.setter
+    def branchMergeDist(self, value):
+        if self._settings["branch_merge_dist"] != value:
+            self._settings["branch_merge_dist"] = value
+            self.settingsChanged.emit()
+
     # ------------------------------------------------------------------ #
     #  QML slots                                                           #
     # ------------------------------------------------------------------ #
@@ -217,13 +240,15 @@ class MeshTreeSupportPlugin(Extension, QObject):
                 pass
 
         injector = MarkerInjector(
-            layer_height   = self._settings["layer_height"],
-            b_cluster_dist = self._settings["b_cluster_dist"],
-            b_gap_to_a     = self._settings["b_gap_to_a"],
-            max_base_area  = self._settings["max_base_area"],
-            wall_mm        = self._settings["wall_mm"],
-            min_wall_mm    = min_wall,
-            min_outer_r    = self._settings["min_outer_r"],
+            layer_height      = self._settings["layer_height"],
+            b_cluster_dist    = self._settings["b_cluster_dist"],
+            b_gap_to_a        = self._settings["b_gap_to_a"],
+            max_base_area     = self._settings["max_base_area"],
+            wall_mm           = self._settings["wall_mm"],
+            min_wall_mm       = min_wall,
+            min_outer_r       = self._settings["min_outer_r"],
+            tip_arm_length    = self._settings["tip_arm_length"],
+            branch_merge_dist = self._settings["branch_merge_dist"],
         )
 
         all_faces = []

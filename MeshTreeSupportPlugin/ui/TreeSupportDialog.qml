@@ -199,6 +199,32 @@ Window {
                 onValueEdited: manager.branchDiameterAngle = v
                 Layout.fillWidth: true
             }
+            SettingRow {
+                label:   "Tip Arm Length (độ dài cánh tay từ A)"
+                value:   Math.round(manager.tipArmLength * 10)
+                from:    1; to: 200; stepSize: 5
+                unit:    "mm"
+                tooltip: "Chiều dài đoạn thẳng vuông góc với bề mặt overhang tại điểm A.\n" +
+                         "Cành bắt đầu bằng đoạn này theo hướng pháp tuyến mặt trước khi đi xuống trụ.\n\n" +
+                         "• 1–2 mm → cánh tay ngắn, cành bắt đầu đi xuống gần như ngay từ A\n" +
+                         "• 5 mm – vừa, cành tách xa bề mặt model một chút trước khi đi xuống\n" +
+                         "• 10+ mm → cánh tay dài, hữu ích khi model có vành nhô ra"
+                onValueEdited: manager.tipArmLength = v
+                Layout.fillWidth: true
+            }
+            SettingRow {
+                label:   "Branch Merge Distance (khoảng gộp cành)"
+                value:   Math.round(manager.branchMergeDist * 10)
+                from:    5; to: 500; stepSize: 5
+                unit:    "mm"
+                tooltip: "Hai cành có điểm đầu (sau cánh tay) gần nhau trong khoảng này sẽ gộp lại.\n" +
+                         "Điểm gộp nằm ở giữa, thấp hơn trong hai đầu cành, từ đó đi chung xuống trụ.\n\n" +
+                         "• 2–3 mm → hiếm khi gộp, mỗi điểm A gần như có cành riêng\n" +
+                         "• 5 mm – mặc định, gộp các cành từ các điểm A gần nhau\n" +
+                         "• 15+ mm → gộp mạnh, ít cành hơn nhưng thân trở nên dày hơn"
+                onValueEdited: manager.branchMergeDist = v
+                Layout.fillWidth: true
+            }
 
             Rectangle { height: 1; color: "#ddd"; Layout.fillWidth: true; Layout.topMargin: 4; Layout.bottomMargin: 4 }
 
@@ -234,8 +260,8 @@ Window {
                 tooltip: "Khoảng trống giữa đỉnh trụ và điểm A gần nhất theo chiều ngang.\n" +
                          "Chiều cao trụ = A.y(gần nhất) − giá trị này.\n\n" +
                          "• 0 mm → trụ cao tới tận điểm A\n" +
-                         "• 20 mm – ví dụ: A ở 80 mm → trụ cao 60 mm\n" +
-                         "• 200 mm – mặc định: A ở 250 mm → trụ cao 50 mm"
+                         "• 20 mm – mặc định: A ở 80 mm → trụ cao 60 mm\n" +
+                         "• 50 mm → A ở 80 mm → trụ cao 30 mm (cành dài hơn)"
                 onValueEdited: manager.bGapToA = v
                 Layout.fillWidth: true
             }

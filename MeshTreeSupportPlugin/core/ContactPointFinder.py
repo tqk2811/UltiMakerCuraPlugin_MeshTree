@@ -18,8 +18,9 @@ from .OverhangDetector import OverhangFace
 
 @dataclass
 class ContactPair:
-    A: np.ndarray   # (3,) world-space contact point  (on overhang)
-    B: np.ndarray   # (3,) world-space anchor  point  (on build plate, Y≈0)
+    A:      np.ndarray              # (3,) world-space contact point  (on overhang)
+    B:      np.ndarray              # (3,) world-space anchor  point  (on build plate, Y≈0)
+    normal: np.ndarray = None       # (3,) outward face normal at A (unit vector, points downward for overhangs)
 
 
 class ContactPointFinder:
@@ -47,49 +48,69 @@ class ContactPointFinder:
         A_points = centers + normals * self.tip_offset
 
         # ── Remove outliers (points > 3σ from median) ────────────────── #
-        A_points = self._remove_outliers(A_points)
+        A_points, normals = self._remove_outliers(A_points, aux=normals)
 
         # ── Grid-based clustering to reduce marker count ─────────────── #
-        A_clustered = self._cluster(A_points, self.merge_threshold)
+        A_clustered, normals_clustered = self._cluster_with_normals(
+            A_points, normals, self.merge_threshold
+        )
 
         if len(A_clustered) > self.max_points:
-            # Sub-sample evenly
             idx = np.round(np.linspace(0, len(A_clustered) - 1, self.max_points)).astype(int)
-            A_clustered = A_clustered[idx]
+            A_clustered        = A_clustered[idx]
+            normals_clustered  = normals_clustered[idx]
 
         Logger.log("d", "[ContactPointFinder] %d → %d contact points after clustering",
                    len(A_points), len(A_clustered))
 
         # ── Compute B points ─────────────────────────────────────────── #
         pairs: List[ContactPair] = []
-        tan_branch = np.tan(np.deg2rad(self.branch_angle_deg))
-
-        for A in A_clustered:
-            h = float(A[1])          # height above build plate
+        for A, n in zip(A_clustered, normals_clustered):
+            h = float(A[1])
             if h <= 0:
                 h = 0.01
-            # B is directly below A; the straight vertical satisfies any branch angle
             B = np.array([A[0], 0.0, A[2]], dtype=np.float32)
-            pairs.append(ContactPair(A=A.astype(np.float32), B=B))
+            pairs.append(ContactPair(A=A.astype(np.float32), B=B,
+                                     normal=n.astype(np.float32)))
 
         return pairs
 
     # ------------------------------------------------------------------ #
     @staticmethod
-    def _remove_outliers(points: np.ndarray, sigma: float = 3.0) -> np.ndarray:
-        """Drop points whose distance from the median exceeds sigma × MAD."""
+    def _remove_outliers(points: np.ndarray, sigma: float = 3.0,
+                         aux: np.ndarray = None):
+        """Drop points whose distance from the median exceeds sigma × MAD.
+        If aux is provided (same length), it is filtered in sync and returned as second value."""
         if len(points) < 4:
-            return points
+            return (points, aux) if aux is not None else points
         median = np.median(points, axis=0)
         dists  = np.linalg.norm(points - median, axis=1)
         mad    = float(np.median(dists))
         if mad < 1e-6:
-            return points
-        keep = dists <= sigma * mad * 1.4826   # 1.4826 ≈ 1/Φ⁻¹(0.75) for normal consistency
+            return (points, aux) if aux is not None else points
+        keep = dists <= sigma * mad * 1.4826
         n_removed = int((~keep).sum())
         if n_removed:
             Logger.log("d", "[ContactPointFinder] Removed %d outlier A-points (sigma=%.1f)", n_removed, sigma)
+        if aux is not None:
+            return points[keep], aux[keep]
         return points[keep]
+
+    @staticmethod
+    def _cluster_with_normals(points: np.ndarray, normals: np.ndarray,
+                               cell_size: float):
+        """Grid-based clustering that keeps both the representative point and its normal."""
+        if len(points) == 0:
+            return (np.zeros((0, 3), dtype=np.float32),
+                    np.zeros((0, 3), dtype=np.float32))
+        cells: dict = {}
+        for p, n in zip(points, normals):
+            key = (int(p[0] / cell_size), int(p[1] / cell_size), int(p[2] / cell_size))
+            if key not in cells:
+                cells[key] = (p.copy(), n.copy())
+        pts  = np.array([v[0] for v in cells.values()], dtype=np.float32)
+        nrms = np.array([v[1] for v in cells.values()], dtype=np.float32)
+        return pts, nrms
 
     @staticmethod
     def exclude_near_footprint(
@@ -148,14 +169,3 @@ class ContactPointFinder:
                    "%d kept, %d excluded", exclusion_radius, len(kept), excluded)
         return kept
 
-    @staticmethod
-    def _cluster(points: np.ndarray, cell_size: float) -> np.ndarray:
-        """Keep one representative point per grid cell (first encountered)."""
-        if len(points) == 0:
-            return points
-        cells: dict = {}
-        for p in points:
-            key = (int(p[0] / cell_size), int(p[1] / cell_size), int(p[2] / cell_size))
-            if key not in cells:
-                cells[key] = p
-        return np.array(list(cells.values()), dtype=np.float32)
