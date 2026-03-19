@@ -536,12 +536,16 @@ class OverhangSupportPlugin(QObject, Extension):
                     # The stub is a separate mini-branch so the main branch tip is
                     # unchanged and the diagonal continues unaffected.
                     # Extension length = tan(branch_angle) / radius_at_pairing_point
-                    for br in (a, bb):
+                    # For level ≥ 1: stub goes in the MIRROR of the diagonal direction
+                    # (same angle, opposite horizontal + upward) so stub and diagonal
+                    # form a straight rod through the bend point.
+                    for br, xz_dir_toward in ((a, xz_d), (bb, -xz_d)):
                         if br.level >= 1:
-                            ext_len = tan_a / _radius_at(br.tip[1], br.origin_y)
-                            up_pt   = br.tip.copy()
-                            up_pt[1] += ext_len
-                            stub = _Branch(br.tip, br.level, origin_y=br.origin_y)
+                            ext_len    = tan_a / _radius_at(br.tip[1], br.origin_y)
+                            stub_dir   = np.array([-xz_dir_toward[0]*sin_a, cos_a,
+                                                   -xz_dir_toward[1]*sin_a])
+                            up_pt      = br.tip + stub_dir * ext_len
+                            stub       = _Branch(br.tip, br.level, origin_y=br.origin_y)
                             stub.waypoints = [br.tip.copy(), up_pt]
                             stub.active    = False
                             all_branches.append(stub)
