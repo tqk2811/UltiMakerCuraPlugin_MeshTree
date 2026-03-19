@@ -1,6 +1,3 @@
-@echo off
-echo === Cai dat Post-Processing Script ===
-mklink "%appdata%\cura\5.12\scripts\MeshTreeTipAdjuster.py" "%~dp0MeshTreeTipAdjuster.py"
 
 echo.
 echo === Cai dat Extension Plugin ===
