@@ -45,7 +45,7 @@ Window
         spacing: UM.Theme.getSize("default_margin").height
 
         // ── Tiêu đề ───────────────────────────────────────────────────
-        UM.Label { text: "⚙  Cài đặt phát hiện"; font.bold: true }
+        UM.Label { text: "⚙  Xác định Contact Points"; font.bold: true }
 
         // ── Lưới cài đặt ──────────────────────────────────────────────
         GridLayout

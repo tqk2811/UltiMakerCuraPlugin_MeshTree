@@ -173,11 +173,12 @@ class OverhangSupportPlugin(QObject, Extension):
         for node in scene.getRoot().getAllChildren():
             if node.getMeshData() is None:
                 continue
-            if node.getName() == _SUPPORT_NODE_TAG:
+            # Bỏ qua các node do plugin này tạo ra
+            if node.getName() in (_SUPPORT_NODE_TAG, _OVERLAY_NODE_TAG):
                 continue
             if not node.callDecoration("isSliceable"):
                 continue
-            # Skip special mesh types
+            # Bỏ qua các loại mesh đặc biệt (không phải object in thật)
             stack = node.callDecoration("getStack")
             if stack is not None:
                 if any(stack.getProperty(k, "value") for k in _SPECIAL_MESH_KEYS):
@@ -218,17 +219,18 @@ class OverhangSupportPlugin(QObject, Extension):
             # và ngăn không bị đưa vào slice engine như object thật.
             overlay.addDecorator(BuildPlateDecorator(active_plate))
             overlay.addDecorator(SliceableObjectDecorator())
+            # support_mesh = True → Cura hiển thị màu xanh dương đặc trưng
+            # Overlay sẽ bị slicer bỏ qua vì mesh rỗng (không phải solid)
             stack = overlay.callDecoration("getStack")
             if stack:
                 from UM.Settings.SettingInstance import SettingInstance
                 settings = stack.getTop()
-                for key in ("anti_overhang_mesh",):
-                    defn = stack.getSettingDefinition(key)
-                    if defn:
-                        inst = SettingInstance(defn, settings)
-                        inst.setProperty("value", True)
-                        inst.resetState()
-                        settings.addInstance(inst)
+                defn = stack.getSettingDefinition("support_mesh")
+                if defn:
+                    inst = SettingInstance(defn, settings)
+                    inst.setProperty("value", True)
+                    inst.resetState()
+                    settings.addInstance(inst)
             self._overlay_nodes.append(overlay)
             operations.append(AddSceneNodeOperation(overlay, scene.getRoot()))
 
