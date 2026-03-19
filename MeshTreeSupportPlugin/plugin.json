@@ -1,0 +1,8 @@
+{
+    "name": "Overhang Support Visualizer",
+    "author": "tqk2811",
+    "version": "1.0.0",
+    "description": "Detects overhang areas of objects and visualizes support points distributed by area.",
+    "api": 8,
+    "i18n-catalog": "cura"
+}
