@@ -23,6 +23,7 @@ catalog = i18nCatalog("cura")
 
 _SUPPORT_NODE_TAG  = "__overhang_support_point__"
 _OVERLAY_NODE_TAG  = "__overhang_overlay__"
+_TREE_NODE_TAG     = "__overhang_tree_support__"
 
 _PREF_ANGLE        = "overhang_support_visualizer/overhang_angle"
 _PREF_SPACING      = "overhang_support_visualizer/point_spacing"
@@ -30,27 +31,40 @@ _PREF_DIAM         = "overhang_support_visualizer/point_diameter"
 _PREF_OFFSET       = "overhang_support_visualizer/point_offset"
 _PREF_SHOW_OVERLAY = "overhang_support_visualizer/show_overlay"
 
+_PREF_TREE_ANGLE   = "overhang_support_visualizer/tree_branch_angle"
+_PREF_TREE_BASE    = "overhang_support_visualizer/tree_base_dist"
+_PREF_TREE_PER_LVL = "overhang_support_visualizer/tree_dist_per_level"
+_PREF_TREE_RADIUS  = "overhang_support_visualizer/tree_branch_radius"
+_PREF_TREE_STEP    = "overhang_support_visualizer/tree_step_size"
+
 
 class OverhangSupportPlugin(QObject, Extension):
     """Extension plugin that detects overhang areas and visualizes support points."""
 
-    overhangAngleChanged = pyqtSignal()
-    pointSpacingChanged = pyqtSignal()
-    pointDiameterChanged = pyqtSignal()
-    pointOffsetChanged = pyqtSignal()
-    showOverlayChanged = pyqtSignal()
-    statusChanged = pyqtSignal()
+    overhangAngleChanged    = pyqtSignal()
+    pointSpacingChanged     = pyqtSignal()
+    pointDiameterChanged    = pyqtSignal()
+    pointOffsetChanged      = pyqtSignal()
+    showOverlayChanged      = pyqtSignal()
+    statusChanged           = pyqtSignal()
+
+    treeBranchAngleChanged  = pyqtSignal()
+    treeBaseDistChanged     = pyqtSignal()
+    treeDistPerLevelChanged = pyqtSignal()
+    treeBranchRadiusChanged = pyqtSignal()
+    treeStepSizeChanged     = pyqtSignal()
 
     def __init__(self, parent=None):
         QObject.__init__(self, parent)
         Extension.__init__(self)
 
         self._support_point_nodes: List[SceneNode] = []
-        self._overlay_nodes: List[SceneNode] = []
+        self._overlay_nodes:       List[SceneNode] = []
+        self._tree_nodes:          List[SceneNode] = []
+        self._contact_points:      List[np.ndarray] = []
         self._status_message = ""
         self._panel = None
 
-        # Register preferences with defaults; Cura persists them automatically.
         prefs = Application.getInstance().getPreferences()
         prefs.addPreference(_PREF_ANGLE,        45)
         prefs.addPreference(_PREF_SPACING,        5)
@@ -58,21 +72,29 @@ class OverhangSupportPlugin(QObject, Extension):
         prefs.addPreference(_PREF_OFFSET,         0)
         prefs.addPreference(_PREF_SHOW_OVERLAY, True)
 
-        # Load saved values
-        self._overhang_angle  = int(prefs.getValue(_PREF_ANGLE))
-        self._point_spacing   = round(float(prefs.getValue(_PREF_SPACING)), 2)
-        self._point_diameter  = round(float(prefs.getValue(_PREF_DIAM)), 2)
-        self._point_offset    = round(float(prefs.getValue(_PREF_OFFSET)), 2)
-        self._show_overlay    = bool(prefs.getValue(_PREF_SHOW_OVERLAY))
+        prefs.addPreference(_PREF_TREE_ANGLE,    30)
+        prefs.addPreference(_PREF_TREE_BASE,     20)
+        prefs.addPreference(_PREF_TREE_PER_LVL,   5)
+        prefs.addPreference(_PREF_TREE_RADIUS,   0.5)
+        prefs.addPreference(_PREF_TREE_STEP,     1.0)
+
+        self._overhang_angle      = int(prefs.getValue(_PREF_ANGLE))
+        self._point_spacing       = round(float(prefs.getValue(_PREF_SPACING)), 2)
+        self._point_diameter      = round(float(prefs.getValue(_PREF_DIAM)), 2)
+        self._point_offset        = round(float(prefs.getValue(_PREF_OFFSET)), 2)
+        self._show_overlay        = bool(prefs.getValue(_PREF_SHOW_OVERLAY))
+
+        self._tree_branch_angle   = int(prefs.getValue(_PREF_TREE_ANGLE))
+        self._tree_base_dist      = round(float(prefs.getValue(_PREF_TREE_BASE)), 2)
+        self._tree_dist_per_level = round(float(prefs.getValue(_PREF_TREE_PER_LVL)), 2)
+        self._tree_branch_radius  = round(float(prefs.getValue(_PREF_TREE_RADIUS)), 2)
+        self._tree_step_size      = round(float(prefs.getValue(_PREF_TREE_STEP)), 2)
 
         self.setMenuName(catalog.i18nc("@item:inmenu", "Overhang Support Visualizer"))
-        self.addMenuItem(
-            catalog.i18nc("@item:inmenu", "Open Panel"),
-            self._openPanel
-        )
+        self.addMenuItem(catalog.i18nc("@item:inmenu", "Open Panel"), self._openPanel)
 
     # ------------------------------------------------------------------
-    # QML properties
+    # QML properties – contact point detection
     # ------------------------------------------------------------------
 
     @pyqtProperty(int, notify=overhangAngleChanged)
@@ -142,6 +164,70 @@ class OverhangSupportPlugin(QObject, Extension):
         return self._status_message
 
     # ------------------------------------------------------------------
+    # QML properties – tree support
+    # ------------------------------------------------------------------
+
+    @pyqtProperty(int, notify=treeBranchAngleChanged)
+    def treeBranchAngle(self) -> int:
+        return self._tree_branch_angle
+
+    @treeBranchAngle.setter
+    def treeBranchAngle(self, value: int):
+        value = max(1, min(89, int(value)))
+        if self._tree_branch_angle != value:
+            self._tree_branch_angle = value
+            Application.getInstance().getPreferences().setValue(_PREF_TREE_ANGLE, value)
+            self.treeBranchAngleChanged.emit()
+
+    @pyqtProperty(float, notify=treeBaseDistChanged)
+    def treeBaseDist(self) -> float:
+        return self._tree_base_dist
+
+    @treeBaseDist.setter
+    def treeBaseDist(self, value: float):
+        value = round(max(0.01, float(value)), 2)
+        if self._tree_base_dist != value:
+            self._tree_base_dist = value
+            Application.getInstance().getPreferences().setValue(_PREF_TREE_BASE, value)
+            self.treeBaseDistChanged.emit()
+
+    @pyqtProperty(float, notify=treeDistPerLevelChanged)
+    def treeDistPerLevel(self) -> float:
+        return self._tree_dist_per_level
+
+    @treeDistPerLevel.setter
+    def treeDistPerLevel(self, value: float):
+        value = round(max(0.0, float(value)), 2)
+        if self._tree_dist_per_level != value:
+            self._tree_dist_per_level = value
+            Application.getInstance().getPreferences().setValue(_PREF_TREE_PER_LVL, value)
+            self.treeDistPerLevelChanged.emit()
+
+    @pyqtProperty(float, notify=treeBranchRadiusChanged)
+    def treeBranchRadius(self) -> float:
+        return self._tree_branch_radius
+
+    @treeBranchRadius.setter
+    def treeBranchRadius(self, value: float):
+        value = round(max(0.01, float(value)), 2)
+        if self._tree_branch_radius != value:
+            self._tree_branch_radius = value
+            Application.getInstance().getPreferences().setValue(_PREF_TREE_RADIUS, value)
+            self.treeBranchRadiusChanged.emit()
+
+    @pyqtProperty(float, notify=treeStepSizeChanged)
+    def treeStepSize(self) -> float:
+        return self._tree_step_size
+
+    @treeStepSize.setter
+    def treeStepSize(self, value: float):
+        value = round(max(0.1, float(value)), 2)
+        if self._tree_step_size != value:
+            self._tree_step_size = value
+            Application.getInstance().getPreferences().setValue(_PREF_TREE_STEP, value)
+            self.treeStepSizeChanged.emit()
+
+    # ------------------------------------------------------------------
     # Panel
     # ------------------------------------------------------------------
 
@@ -151,8 +237,6 @@ class OverhangSupportPlugin(QObject, Extension):
             app = Application.getInstance()
             self._panel = app.createQmlComponent(qml_path, {"manager": self})
             if self._panel:
-                # Đặt cửa sổ chính là transient parent (cửa sổ con của Cura)
-                # createQmlComponent không tự làm điều này (khác createQmlSubWindow)
                 main_window = app.getMainWindow()
                 if main_window:
                     self._panel.setTransientParent(main_window)
@@ -167,24 +251,20 @@ class OverhangSupportPlugin(QObject, Extension):
     def detectAndVisualize(self):
         """Detect overhang areas on all scene objects, create overlay + support markers."""
         self.clearSupportPoints()
+        self._contact_points.clear()
 
         scene = Application.getInstance().getController().getScene()
 
-        # Collect only nodes that will actually be printed with plastic:
-        #   - have SliceableObjectDecorator  (isSliceable == True)
-        #   - are NOT special mesh types (support, anti-overhang, cutting, infill)
         _SPECIAL_MESH_KEYS = ("support_mesh", "anti_overhang_mesh", "cutting_mesh", "infill_mesh")
 
         all_nodes = []
         for node in scene.getRoot().getAllChildren():
             if node.getMeshData() is None:
                 continue
-            # Bỏ qua các node do plugin này tạo ra
-            if node.getName() in (_SUPPORT_NODE_TAG, _OVERLAY_NODE_TAG):
+            if node.getName() in (_SUPPORT_NODE_TAG, _OVERLAY_NODE_TAG, _TREE_NODE_TAG):
                 continue
             if not node.callDecoration("isSliceable"):
                 continue
-            # Bỏ qua các loại mesh đặc biệt (không phải object in thật)
             stack = node.callDecoration("getStack")
             if stack is not None:
                 if any(stack.getProperty(k, "value") for k in _SPECIAL_MESH_KEYS):
@@ -198,7 +278,6 @@ class OverhangSupportPlugin(QObject, Extension):
         operations = []
         total_points = 0
 
-        # Pre-build sphere mesh (shared across all support points)
         radius = self._point_diameter / 2.0
         sphere_mesh = self._buildSphereMesh(radius)
 
@@ -213,9 +292,7 @@ class OverhangSupportPlugin(QObject, Extension):
             if not overhang_faces:
                 continue
 
-            # ── Overlay mesh (tô màu vùng overhang) ──────────────────
             active_plate = Application.getInstance().getMultiBuildPlateModel().activeBuildPlate
-            # Dùng CuraSceneNode để SolidView nhận ra và render với màu extruder
             overlay = CuraSceneNode()
             overlay.setName(_OVERLAY_NODE_TAG)
             overlay.setMeshData(self._buildOverhangMesh(overhang_faces, offset=max(0.15, self._point_offset)))
@@ -223,7 +300,6 @@ class OverhangSupportPlugin(QObject, Extension):
             overlay.setVisible(self._show_overlay)
             overlay.addDecorator(BuildPlateDecorator(active_plate))
             overlay.addDecorator(SliceableObjectDecorator())
-            # support_mesh = True → ngăn slicer xử lý như object thật
             stack = overlay.callDecoration("getStack")
             if stack:
                 from UM.Settings.SettingInstance import SettingInstance
@@ -234,7 +310,6 @@ class OverhangSupportPlugin(QObject, Extension):
                     inst.setProperty("value", True)
                     inst.resetState()
                     settings.addInstance(inst)
-            # Gán sang extruder 1 → SolidView render màu extruder 1 (khác object thật)
             try:
                 overlay.callDecoration("setActiveExtruder", "1")
             except Exception:
@@ -242,18 +317,16 @@ class OverhangSupportPlugin(QObject, Extension):
             self._overlay_nodes.append(overlay)
             operations.append(AddSceneNodeOperation(overlay, scene.getRoot()))
 
-            # ── Điểm chống đỡ ────────────────────────────────────────
             points = self._sampleSupportPoints(overhang_faces, float(self._point_spacing))
             total_points += len(points)
 
             for pt in points:
+                self._contact_points.append(pt.copy())
                 marker = SceneNode()
                 marker.setName(_SUPPORT_NODE_TAG)
                 marker.setMeshData(sphere_mesh)
                 marker.setSelectable(False)
-                # Cura dùng Y là trục đứng; offset dương → hạ điểm xuống (-Y)
                 marker.setPosition(Vector(float(pt[0]), float(pt[1]) - self._point_offset, float(pt[2])))
-
                 self._support_point_nodes.append(marker)
                 operations.append(AddSceneNodeOperation(marker, scene.getRoot()))
 
@@ -277,20 +350,293 @@ class OverhangSupportPlugin(QObject, Extension):
     def clearSupportPoints(self):
         """Remove all overlay and support-point marker nodes from the scene."""
         all_nodes = self._support_point_nodes + self._overlay_nodes
-        if not all_nodes:
-            return
-
-        op = GroupedOperation()
-        for node in all_nodes:
-            if node.getParent() is not None:
-                op.addOperation(RemoveSceneNodeOperation(node))
-        op.push()
+        if all_nodes:
+            op = GroupedOperation()
+            for node in all_nodes:
+                if node.getParent() is not None:
+                    op.addOperation(RemoveSceneNodeOperation(node))
+            op.push()
         self._support_point_nodes.clear()
         self._overlay_nodes.clear()
         self._setStatus("Support point markers cleared.")
 
+    @pyqtSlot()
+    def generateTreeSupport(self):
+        """Generate tree support structure from detected contact points."""
+        self.clearTreeSupport()
+
+        if not self._contact_points:
+            self._setStatus("Chưa có contact points. Hãy chạy 'Phát hiện & Hiển thị' trước.")
+            return
+
+        self._setStatus(f"Đang tạo cây chống đỡ từ {len(self._contact_points)} điểm…")
+
+        segments = self._buildTreeBranches(self._contact_points)
+        if not segments:
+            self._setStatus("Không tạo được đường cây chống đỡ.")
+            return
+
+        mesh = self._buildTreeMesh(segments, self._tree_branch_radius)
+        if mesh is None:
+            self._setStatus("Không xây dựng được mesh cây chống đỡ.")
+            return
+
+        scene = Application.getInstance().getController().getScene()
+        active_plate = Application.getInstance().getMultiBuildPlateModel().activeBuildPlate
+
+        node = SceneNode()
+        node.setName(_TREE_NODE_TAG)
+        node.setMeshData(mesh)
+        node.setSelectable(False)
+        node.addDecorator(BuildPlateDecorator(active_plate))
+
+        self._tree_nodes.append(node)
+
+        op = GroupedOperation()
+        op.addOperation(AddSceneNodeOperation(node, scene.getRoot()))
+        op.push()
+
+        self._setStatus(f"Đã tạo cây chống đỡ với {len(segments)} đoạn.")
+
+    @pyqtSlot()
+    def clearTreeSupport(self):
+        """Remove all tree support nodes from the scene."""
+        if self._tree_nodes:
+            op = GroupedOperation()
+            for node in self._tree_nodes:
+                if node.getParent() is not None:
+                    op.addOperation(RemoveSceneNodeOperation(node))
+            op.push()
+        self._tree_nodes.clear()
+
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Tree support simulation
+    # ------------------------------------------------------------------
+
+    def _buildTreeBranches(self, contact_points: List[np.ndarray]) -> List[Tuple]:
+        """
+        Simulate tree support branch growth from contact points downward.
+        Returns list of (start, end, level) segments.
+
+        Algorithm (sweep top → ground):
+          • Each contact point spawns a level-0 branch going straight down.
+          • Branches are activated lazily as the sweep reaches their Y height.
+          • At each sweep step, ONLY unpaired branches (partner is None) try to pair.
+            Branches that are already bending toward a partner are excluded from
+            new pairings until they merge into a higher-level branch.
+          • Pairing threshold: tree_base_dist + max(level_a, level_b) * tree_dist_per_level
+          • When paired, both branches tilt at tree_branch_angle° from vertical toward
+            each other's XZ midpoint.
+          • When a pair's XZ distance drops below 1.5 × step, they merge: a new
+            branch (level + 1) starts at the midpoint, going straight down again.
+          • If a branch reaches ground (Y ≤ 0) while paired, its partner is reset to
+            straight-down and freed for future pairings.
+        """
+        if not contact_points:
+            return []
+
+        step       = max(0.1, self._tree_step_size)
+        angle_rad  = math.radians(max(1.0, min(89.0, float(self._tree_branch_angle))))
+        base_dist  = max(0.01, self._tree_base_dist)
+        dist_per_lvl = max(0.0, self._tree_dist_per_level)
+        sin_a = math.sin(angle_rad)
+        cos_a = math.cos(angle_rad)
+        merge_dist = step * 1.5
+
+        class _Branch:
+            __slots__ = ["tip", "direction", "level", "waypoints", "active", "partner"]
+            def __init__(self, tip, level):
+                self.tip       = np.array(tip, dtype=np.float64)
+                self.direction = np.array([0.0, -1.0, 0.0])
+                self.level     = level
+                self.waypoints = [self.tip.copy()]   # list of recorded XYZ waypoints
+                self.active    = True
+                self.partner   = None                # type: Optional[_Branch]
+
+        all_branches: List[_Branch] = []
+
+        # Sort contact points by Y descending for lazy activation
+        pending = sorted(
+            [np.array(p, dtype=np.float64) for p in contact_points],
+            key=lambda p: -p[1]
+        )
+
+        active:  List[_Branch] = []
+        y_cur = float(pending[0][1]) if pending else 0.0
+        ground_y = 0.01
+
+        max_iters = int(y_cur / step) + 500
+
+        for _ in range(max_iters):
+            # ── Activate contact-point branches whose Y we've just reached ──────
+            while pending and pending[0][1] >= y_cur - step * 0.01:
+                pt = pending.pop(0)
+                b  = _Branch(pt, 0)
+                all_branches.append(b)
+                active.append(b)
+
+            if not active and not pending:
+                break
+
+            # ── Pair ONLY unpaired branches (partner is None) ────────────────────
+            # Branches already bending toward a partner are skipped entirely.
+            unpaired = [b for b in active if b.partner is None]
+            if len(unpaired) >= 2:
+                # Collect candidate pairs sorted by XZ distance (greedy closest-first)
+                cands = []
+                for i in range(len(unpaired)):
+                    for j in range(i + 1, len(unpaired)):
+                        a, bb = unpaired[i], unpaired[j]
+                        # Only consider branches at similar heights (within 4 steps)
+                        if abs(a.tip[1] - bb.tip[1]) > step * 4:
+                            continue
+                        eff_level = max(a.level, bb.level)
+                        thresh    = base_dist + eff_level * dist_per_lvl
+                        dxz = float(np.linalg.norm((a.tip - bb.tip)[[0, 2]]))
+                        if dxz <= thresh:
+                            cands.append((dxz, i, j))
+                cands.sort()
+
+                used = set()
+                for dxz, i, j in cands:
+                    if i in used or j in used:
+                        continue
+                    a, bb = unpaired[i], unpaired[j]
+                    used.add(i); used.add(j)
+
+                    a.partner  = bb
+                    bb.partner = a
+
+                    # Record direction-change waypoint
+                    a.waypoints.append(a.tip.copy())
+                    bb.waypoints.append(bb.tip.copy())
+
+                    # Converge toward XZ midpoint at branch_angle from vertical
+                    xz_diff = (bb.tip - a.tip)[[0, 2]]
+                    norm    = float(np.linalg.norm(xz_diff))
+                    if norm > 1e-6:
+                        xz_d = xz_diff / norm
+                        a.direction  = np.array([ xz_d[0]*sin_a, -cos_a,  xz_d[1]*sin_a])
+                        bb.direction = np.array([-xz_d[0]*sin_a, -cos_a, -xz_d[1]*sin_a])
+
+            # ── Move all active branches one step ────────────────────────────────
+            for b in active:
+                b.tip += b.direction * step
+
+            # ── Detect merges: paired branches whose XZ gap closed ───────────────
+            checked_ids  = set()
+            new_branches: List[_Branch] = []
+            for b in list(active):
+                if b.partner is None or id(b) in checked_ids:
+                    continue
+                p = b.partner
+                if p not in active:
+                    continue
+                checked_ids.add(id(b))
+                checked_ids.add(id(p))
+
+                dxz = float(np.linalg.norm((b.tip - p.tip)[[0, 2]]))
+                if dxz < merge_dist:
+                    meet = (b.tip + p.tip) / 2.0
+                    b.waypoints.append(meet.copy())
+                    p.waypoints.append(meet.copy())
+                    b.active = False
+                    p.active = False
+
+                    new_b = _Branch(meet, max(b.level, p.level) + 1)
+                    all_branches.append(new_b)
+                    new_branches.append(new_b)
+
+            active = [b for b in active if b.active] + new_branches
+
+            # ── Ground collision ─────────────────────────────────────────────────
+            for b in list(active):
+                if b.tip[1] <= ground_y:
+                    b.tip[1] = ground_y
+                    b.waypoints.append(b.tip.copy())
+                    b.active = False
+                    # Free the partner so it can try new pairings
+                    if b.partner is not None and b.partner.active:
+                        b.partner.partner   = None
+                        b.partner.direction = np.array([0.0, -1.0, 0.0])
+                        b.partner.waypoints.append(b.partner.tip.copy())
+
+            active = [b for b in active if b.active]
+            y_cur -= step
+
+        # Close branches still above ground
+        for b in active:
+            end_pt = b.tip.copy()
+            end_pt[1] = ground_y
+            b.waypoints.append(end_pt)
+
+        # Convert waypoints → segments
+        segments = []
+        for b in all_branches:
+            wps = b.waypoints
+            for i in range(len(wps) - 1):
+                s, e = wps[i], wps[i + 1]
+                if np.linalg.norm(s - e) > 1e-6:
+                    segments.append((s, e, b.level))
+
+        return segments
+
+    @staticmethod
+    def _buildTreeMesh(segments: List[Tuple], branch_radius: float):
+        """Build a combined cylinder mesh for all tree support segments."""
+        SEG_SIDES = 8
+        all_verts = []
+        all_idxs  = []
+
+        for start, end, _level in segments:
+            d      = end - start
+            length = float(np.linalg.norm(d))
+            if length < 1e-6:
+                continue
+            d_norm = d / length
+
+            # Orthonormal basis perpendicular to d_norm
+            ref = np.array([1., 0., 0.]) if abs(d_norm[0]) < 0.9 else np.array([0., 1., 0.])
+            u   = np.cross(d_norm, ref);  u /= np.linalg.norm(u)
+            v   = np.cross(d_norm, u)
+
+            base = len(all_verts)
+
+            # Two rings: bottom (start) and top (end)
+            for ring_pt in (start, end):
+                for i in range(SEG_SIDES):
+                    angle = 2.0 * math.pi * i / SEG_SIDES
+                    all_verts.append(ring_pt + branch_radius * (math.cos(angle) * u + math.sin(angle) * v))
+
+            # Side quads
+            for i in range(SEG_SIDES):
+                a    = base + i
+                b    = base + (i + 1) % SEG_SIDES
+                c    = base + SEG_SIDES + (i + 1) % SEG_SIDES
+                d_i  = base + SEG_SIDES + i
+                all_idxs.extend([a, b, c, a, c, d_i])
+
+            # Bottom cap
+            cbot = len(all_verts);  all_verts.append(start.copy())
+            for i in range(SEG_SIDES):
+                all_idxs.extend([cbot, base + (i + 1) % SEG_SIDES, base + i])
+
+            # Top cap
+            ctop = len(all_verts);  all_verts.append(end.copy())
+            for i in range(SEG_SIDES):
+                all_idxs.extend([ctop, base + SEG_SIDES + i, base + SEG_SIDES + (i + 1) % SEG_SIDES])
+
+        if not all_verts:
+            return None
+
+        builder = MeshBuilder()
+        builder.setVertices(np.array(all_verts, dtype=np.float32))
+        builder.setIndices(np.array(all_idxs,  dtype=np.int32).reshape(-1, 3))
+        builder.calculateNormals()
+        return builder.build()
+
+    # ------------------------------------------------------------------
+    # Overhang detection helpers
     # ------------------------------------------------------------------
 
     def _setStatus(self, msg: str):
@@ -302,48 +648,37 @@ class OverhangSupportPlugin(QObject, Extension):
         """
         Return a list of (v0, v1, v2) world-space triangles whose normals point
         downward beyond the configured overhang angle.
-
-        In Cura the Y axis is UP.  A face is "overhanging" when its outward
-        normal has a negative Y component whose magnitude exceeds
-        cos(overhang_angle), i.e. normal_y < -cos(overhang_angle_rad).
         """
         vertices = mesh_data.getVertices()
-        indices = mesh_data.getIndices()
+        indices  = mesh_data.getIndices()
 
         if vertices is None:
             return []
 
-        # --- transform all vertices to world space in one numpy op ----------
-        mat = transform_matrix.getData()   # 4×4 column-major (OpenGL style)
-        ones = np.ones((len(vertices), 1), dtype=np.float32)
-        local_h = np.hstack([vertices, ones])   # (N, 4)
-        # UM Vector.preMultiply does: result = mat @ [x,y,z,1]
-        # so world_row = local_row @ mat.T
-        world_h = local_h @ mat.T               # (N, 4)
-        world_verts = world_h[:, :3]            # (N, 3)
+        mat    = transform_matrix.getData()
+        ones   = np.ones((len(vertices), 1), dtype=np.float32)
+        local_h = np.hstack([vertices, ones])
+        world_h = local_h @ mat.T
+        world_verts = world_h[:, :3]
 
-        # --- gather triangle vertex positions --------------------------------
         if indices is not None:
             idx = indices.reshape(-1, 3).astype(np.int32)
         else:
-            n = len(world_verts)
-            idx = np.arange(n).reshape(-1, 3)
+            idx = np.arange(len(world_verts)).reshape(-1, 3)
 
-        v0 = world_verts[idx[:, 0]]   # (M, 3)
+        v0 = world_verts[idx[:, 0]]
         v1 = world_verts[idx[:, 1]]
         v2 = world_verts[idx[:, 2]]
 
-        # --- compute face normals (world space) ------------------------------
-        edge1 = v1 - v0
-        edge2 = v2 - v0
-        normals = np.cross(edge1, edge2)        # (M, 3)
-        lengths = np.linalg.norm(normals, axis=1)  # (M,)
+        edge1   = v1 - v0
+        edge2   = v2 - v0
+        normals = np.cross(edge1, edge2)
+        lengths = np.linalg.norm(normals, axis=1)
 
         valid = lengths > 1e-10
         normals[valid] /= lengths[valid, np.newaxis]
 
-        # --- overhang test ---------------------------------------------------
-        threshold = -math.cos(math.radians(self._overhang_angle))
+        threshold     = -math.cos(math.radians(self._overhang_angle))
         overhang_mask = valid & (normals[:, 1] < threshold)
 
         oi = np.where(overhang_mask)[0]
@@ -357,14 +692,10 @@ class OverhangSupportPlugin(QObject, Extension):
         """
         Distribute support points on overhang faces using area-weighted random
         sampling with a Poisson-disk minimum-distance filter.
-
-        Faces with a lower centroid Y (thấp hơn trên trục đứng) get higher
-        sampling priority so contact points are preferentially placed on the
-        lowest overhanging surfaces first.
+        Faces with a lower centroid Y get higher sampling priority.
         """
-        rng = np.random.default_rng(seed=0)   # reproducible
+        rng = np.random.default_rng(seed=0)
 
-        # --- per-face metrics ------------------------------------------------
         areas    = np.empty(len(overhang_faces), dtype=np.float64)
         center_y = np.empty(len(overhang_faces), dtype=np.float64)
         for i, (v0, v1, v2) in enumerate(overhang_faces):
@@ -375,78 +706,56 @@ class OverhangSupportPlugin(QObject, Extension):
         if total_area < 1e-6:
             return []
 
-        # target number of points based on area / spacing²
         num_target = max(1, int(total_area / (spacing * spacing)))
-        num_target = min(num_target, 1000)   # safety cap
+        num_target = min(num_target, 1000)
 
-        # --- Z-priority weight ----------------------------------------------
-        # Cura dùng Y là trục đứng: Y thấp hơn = gần mặt bàn hơn = ưu tiên cao
         y_min, y_max = center_y.min(), center_y.max()
         if y_max > y_min:
-            # lowness ∈ [0, 1]: 1 = vùng thấp nhất, 0 = vùng cao nhất
             lowness = (y_max - center_y) / (y_max - y_min)
         else:
             lowness = np.ones(len(overhang_faces))
 
-        # Kết hợp diện tích × hệ số ưu tiên độ cao (mũ 2 để khuếch đại chênh lệch)
         weights = areas * (lowness ** 2 + 0.05)
         weights /= weights.sum()
 
         points: List[np.ndarray] = []
-
         max_attempts = num_target * 30
+
         for _ in range(max_attempts):
             if len(points) >= num_target:
                 break
-
-            # pick a random face (area-weighted)
             fi = rng.choice(len(overhang_faces), p=weights)
             v0, v1, v2 = overhang_faces[fi]
-
-            # uniform random point inside the triangle (barycentric)
             r1 = rng.random()
             r2 = rng.random()
             if r1 + r2 > 1.0:
                 r1, r2 = 1.0 - r1, 1.0 - r2
             pt = v0 + r1 * (v1 - v0) + r2 * (v2 - v0)
-
-            # Poisson-disk rejection
             if any(np.linalg.norm(pt - ex) < spacing for ex in points):
                 continue
-
             points.append(pt)
 
         return points
 
     @staticmethod
-    def _buildOverhangMesh(overhang_faces: List[Tuple], offset: float = 0.15):  # offset tính bằng mm
-        """
-        Build a double-sided MeshData from overhang triangles (world-space coords).
-
-        Each face is duplicated with reversed winding so it renders from both sides.
-        Vertices are shifted slightly along the face normal (outward = downward for
-        bottom-facing surfaces) to avoid z-fighting with the original object mesh.
-        """
+    def _buildOverhangMesh(overhang_faces: List[Tuple], offset: float = 0.15):
+        """Build a double-sided MeshData from overhang triangles (world-space coords)."""
         verts = []
         idxs  = []
 
         for v0, v1, v2 in overhang_faces:
-            # Face normal (already pointing downward for overhang faces)
             edge1 = v1 - v0
             edge2 = v2 - v0
-            n = np.cross(edge1, edge2)
+            n     = np.cross(edge1, edge2)
             length = np.linalg.norm(n)
             n = (n / length) if length > 1e-10 else np.array([0.0, -1.0, 0.0])
 
-            # Push vertices slightly outward to avoid z-fighting
             dv = n * offset
             ov0, ov1, ov2 = v0 + dv, v1 + dv, v2 + dv
 
             base = len(verts)
             verts.extend([ov0, ov1, ov2])
-            # Front face (normal direction)
             idxs.extend([base, base + 1, base + 2])
-            # Back face (reversed winding) — visible from any camera angle
             idxs.extend([base, base + 2, base + 1])
 
         builder = MeshBuilder()
@@ -460,13 +769,14 @@ class OverhangSupportPlugin(QObject, Extension):
         """Build a UV-sphere MeshData of the given radius."""
         verts = []
         for ring in range(rings + 1):
-            phi = math.pi * ring / rings          # 0 … π
+            phi = math.pi * ring / rings
             for seg in range(segments):
                 theta = 2.0 * math.pi * seg / segments
-                x = radius * math.sin(phi) * math.cos(theta)
-                y = radius * math.cos(phi)
-                z = radius * math.sin(phi) * math.sin(theta)
-                verts.append([x, y, z])
+                verts.append([
+                    radius * math.sin(phi) * math.cos(theta),
+                    radius * math.cos(phi),
+                    radius * math.sin(phi) * math.sin(theta),
+                ])
 
         idxs = []
         for ring in range(rings):
