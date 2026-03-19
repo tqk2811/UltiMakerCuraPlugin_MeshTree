@@ -549,7 +549,7 @@ class OverhangSupportPlugin(QObject, Extension):
                     # form a straight rod through the bend point.
                     for br, xz_dir_toward in ((a, xz_d), (bb, -xz_d)):
                         if br.level >= 1:
-                            ext_len    = tan_a / _radius_at(br.tip[1], br.origin_y)
+                            ext_len    = tan_a * _radius_at(br.tip[1], br.origin_y)
                             stub_dir   = np.array([-xz_dir_toward[0]*sin_a, cos_a,
                                                    -xz_dir_toward[1]*sin_a])
                             up_pt      = br.tip + stub_dir * ext_len
