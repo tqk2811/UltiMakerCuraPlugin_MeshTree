@@ -9,10 +9,10 @@ Window
     id: panel
     title: "Overhang Support Visualizer – Phát hiện vùng Overhang"
 
-    width: 460
-    height: 420
-    minimumWidth: 380
-    minimumHeight: 360
+    width: 380
+    height: 280
+    minimumWidth: 320
+    minimumHeight: 240
 
     modality: Qt.NonModal
     flags: Qt.Window | Qt.WindowSystemMenuHint | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | Qt.WindowStaysOnTopHint
@@ -25,14 +25,9 @@ Window
         anchors.margins: UM.Theme.getSize("default_margin").width
         spacing: UM.Theme.getSize("default_margin").height
 
-        // ── Tiêu đề nhóm cài đặt ──────────────────────────────────────
-        UM.Label
-        {
-            text: "⚙  Cài đặt phát hiện"
-            font.bold: true
-        }
+        // ── Cài đặt ───────────────────────────────────────────────────
+        UM.Label { text: "⚙  Cài đặt phát hiện"; font.bold: true }
 
-        // ── Lưới cài đặt ──────────────────────────────────────────────
         GridLayout
         {
             columns: 3
@@ -40,18 +35,13 @@ Window
             columnSpacing: UM.Theme.getSize("default_margin").width
             rowSpacing: UM.Theme.getSize("default_margin").height
 
-            // ── Góc Overhang ──────────────────────────────────────────
-            ColumnLayout
+            // Góc Overhang
+            UM.Label
             {
-                spacing: 2
-                UM.Label { text: "Góc Overhang"; font.bold: true }
-                UM.Label
-                {
-                    text: "Mặt có góc nghiêng lớn hơn\ngiá trị này sẽ bị coi là overhang\n(cần điểm chống đỡ)."
-                    font.pixelSize: 10
-                    color: UM.Theme.getColor("text_inactive")
-                    wrapMode: Text.WordWrap
-                }
+                text: "Góc Overhang"
+                ToolTip.visible: hovered
+                ToolTip.delay: 400
+                ToolTip.text: "Mặt có góc nghiêng lớn hơn giá trị này sẽ bị coi là overhang (cần điểm chống đỡ).\nPhạm vi: 0° – 90° | Khuyến nghị: 45°"
             }
             SpinBox
             {
@@ -61,23 +51,16 @@ Window
                 editable: true
                 value: manager.overhangAngle
                 onValueModified: manager.overhangAngle = value
-                ToolTip.visible: hovered
-                ToolTip.text: "Phạm vi: 0° – 90°\n45° là giá trị tiêu chuẩn cho hầu hết máy in."
             }
             UM.Label { text: "°" }
 
-            // ── Khoảng cách điểm ──────────────────────────────────────
-            ColumnLayout
+            // Khoảng cách điểm
+            UM.Label
             {
-                spacing: 2
-                UM.Label { text: "Khoảng cách điểm"; font.bold: true }
-                UM.Label
-                {
-                    text: "Khoảng cách tối thiểu giữa\nhai điểm chống đỡ liền kề.\nGiá trị nhỏ → nhiều điểm hơn."
-                    font.pixelSize: 10
-                    color: UM.Theme.getColor("text_inactive")
-                    wrapMode: Text.WordWrap
-                }
+                text: "Khoảng cách điểm"
+                ToolTip.visible: hovered
+                ToolTip.delay: 400
+                ToolTip.text: "Khoảng cách tối thiểu giữa hai điểm chống đỡ liền kề.\nGiá trị nhỏ → nhiều điểm hơn.\nPhạm vi: 1 – 200 mm | Khuyến nghị: 5 – 15 mm"
             }
             SpinBox
             {
@@ -87,23 +70,16 @@ Window
                 editable: true
                 value: manager.pointSpacing
                 onValueModified: manager.pointSpacing = value
-                ToolTip.visible: hovered
-                ToolTip.text: "Phạm vi: 1 – 200 mm\nKhuyến nghị: 5 – 15 mm."
             }
             UM.Label { text: "mm" }
 
-            // ── Đường kính điểm ───────────────────────────────────────
-            ColumnLayout
+            // Đường kính điểm
+            UM.Label
             {
-                spacing: 2
-                UM.Label { text: "Đường kính điểm"; font.bold: true }
-                UM.Label
-                {
-                    text: "Kích thước hình cầu hiển thị\ncho mỗi điểm chống đỡ\ntrên khung nhìn 3D."
-                    font.pixelSize: 10
-                    color: UM.Theme.getColor("text_inactive")
-                    wrapMode: Text.WordWrap
-                }
+                text: "Đường kính điểm"
+                ToolTip.visible: hovered
+                ToolTip.delay: 400
+                ToolTip.text: "Kích thước hình cầu hiển thị cho mỗi điểm chống đỡ trên khung nhìn 3D.\nChỉ ảnh hưởng hiển thị, không thay đổi bản in.\nPhạm vi: 1 – 50 mm"
             }
             SpinBox
             {
@@ -113,8 +89,6 @@ Window
                 editable: true
                 value: manager.pointDiameter
                 onValueModified: manager.pointDiameter = value
-                ToolTip.visible: hovered
-                ToolTip.text: "Phạm vi: 1 – 50 mm\nChỉ ảnh hưởng hiển thị, không thay đổi bản in."
             }
             UM.Label { text: "mm" }
         }
@@ -130,9 +104,9 @@ Window
         // ── Trạng thái ────────────────────────────────────────────────
         UM.Label
         {
-            id: statusLabel
             Layout.fillWidth: true
-            text: manager.statusMessage !== "" ? manager.statusMessage : "Nhấn \"Phát hiện & Hiển thị\" để bắt đầu quét."
+            text: manager.statusMessage !== "" ? manager.statusMessage
+                                               : "Nhấn \"Phát hiện & Hiển thị\" để bắt đầu quét."
             wrapMode: Text.WordWrap
             font.italic: true
             color: UM.Theme.getColor("text_inactive")
@@ -152,7 +126,8 @@ Window
                 Layout.fillWidth: true
                 onClicked: manager.detectAndVisualize()
                 ToolTip.visible: hovered
-                ToolTip.text: "Quét toàn bộ object sẽ được in,\nphát hiện vùng overhang và\nhiển thị điểm chống đỡ trên 3D."
+                ToolTip.delay: 400
+                ToolTip.text: "Quét toàn bộ object sẽ được in, phát hiện vùng overhang\nvà hiển thị điểm chống đỡ trên khung nhìn 3D."
             }
 
             Cura.SecondaryButton
@@ -160,7 +135,8 @@ Window
                 text: "Xoá điểm"
                 onClicked: manager.clearSupportPoints()
                 ToolTip.visible: hovered
-                ToolTip.text: "Xoá toàn bộ điểm chống đỡ\nđang hiển thị trên khung nhìn 3D."
+                ToolTip.delay: 400
+                ToolTip.text: "Xoá toàn bộ điểm chống đỡ đang hiển thị."
             }
         }
     }
