@@ -506,8 +506,16 @@ class OverhangSupportPlugin(QObject, Extension):
                         eff_level = max(a.level, bb.level)
                         thresh    = base_dist + eff_level * dist_per_lvl
                         dxz = float(np.linalg.norm((a.tip - bb.tip)[[0, 2]]))
-                        if dxz <= thresh:
-                            cands.append((dxz, i, j))
+                        if dxz > thresh:
+                            continue
+                        # Pre-check: meeting Y must be above ground.
+                        # Each branch covers dxz/2 horizontally at branch_angle,
+                        # dropping (dxz/2) / tan(angle) vertically.
+                        avg_y     = (a.tip[1] + bb.tip[1]) / 2.0
+                        meet_y    = avg_y - (dxz / 2.0) / tan_a
+                        if meet_y < ground_y:
+                            continue   # would meet below ground – pairing fails
+                        cands.append((dxz, i, j))
                 cands.sort()
 
                 used = set()
