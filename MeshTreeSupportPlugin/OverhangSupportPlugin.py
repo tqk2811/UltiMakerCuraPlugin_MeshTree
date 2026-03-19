@@ -113,11 +113,25 @@ class OverhangSupportPlugin(QObject, Extension):
 
         scene = Application.getInstance().getController().getScene()
 
-        # Collect all sliceable mesh nodes in the scene (skip markers, build plate, etc.)
+        # Collect only nodes that will actually be printed with plastic:
+        #   - have SliceableObjectDecorator  (isSliceable == True)
+        #   - are NOT special mesh types (support, anti-overhang, cutting, infill)
+        _SPECIAL_MESH_KEYS = ("support_mesh", "anti_overhang_mesh", "cutting_mesh", "infill_mesh")
+
         all_nodes = []
         for node in scene.getRoot().getAllChildren():
-            if node.getMeshData() is not None and node.getName() != _SUPPORT_NODE_TAG:
-                all_nodes.append(node)
+            if node.getMeshData() is None:
+                continue
+            if node.getName() == _SUPPORT_NODE_TAG:
+                continue
+            if not node.callDecoration("isSliceable"):
+                continue
+            # Skip special mesh types
+            stack = node.callDecoration("getStack")
+            if stack is not None:
+                if any(stack.getProperty(k, "value") for k in _SPECIAL_MESH_KEYS):
+                    continue
+            all_nodes.append(node)
 
         if not all_nodes:
             self._setStatus("No objects in scene.")
