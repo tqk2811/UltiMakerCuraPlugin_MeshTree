@@ -111,6 +111,26 @@ Window
                 valueFromText: function(t) { return Math.round(parseFloat(t) * 100) }
             }
             UM.Label { text: "mm" }
+
+            // Khoảng cách tới object
+            LabelWithTip
+            {
+                text: "Khoảng cách tới object"
+                tip: "Điểm sẽ bị dịch xuống dưới theo trục Z một khoảng bằng giá trị này.\n0 mm = điểm nằm sát mặt overhang.\nPhạm vi: 0.00 – 100.00 mm"
+            }
+            SpinBox
+            {
+                id: offsetSpinBox
+                Layout.fillWidth: true
+                from: 0; to: 10000
+                stepSize: 10        // bước 0.10 mm
+                editable: true
+                value: Math.round(manager.pointOffset * 100)
+                onValueModified: manager.pointOffset = value / 100.0
+                textFromValue: function(v) { return (v / 100.0).toFixed(2) }
+                valueFromText: function(t) { return Math.round(parseFloat(t) * 100) }
+            }
+            UM.Label { text: "mm" }
         }
 
         // ── Divider ───────────────────────────────────────────────────

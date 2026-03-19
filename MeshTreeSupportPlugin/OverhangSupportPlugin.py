@@ -23,6 +23,7 @@ _SUPPORT_NODE_TAG = "__overhang_support_point__"
 _PREF_ANGLE   = "overhang_support_visualizer/overhang_angle"
 _PREF_SPACING = "overhang_support_visualizer/point_spacing"
 _PREF_DIAM    = "overhang_support_visualizer/point_diameter"
+_PREF_OFFSET  = "overhang_support_visualizer/point_offset"
 
 
 class OverhangSupportPlugin(QObject, Extension):
@@ -31,6 +32,7 @@ class OverhangSupportPlugin(QObject, Extension):
     overhangAngleChanged = pyqtSignal()
     pointSpacingChanged = pyqtSignal()
     pointDiameterChanged = pyqtSignal()
+    pointOffsetChanged = pyqtSignal()
     statusChanged = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -46,11 +48,13 @@ class OverhangSupportPlugin(QObject, Extension):
         prefs.addPreference(_PREF_ANGLE,   45)
         prefs.addPreference(_PREF_SPACING,  5)
         prefs.addPreference(_PREF_DIAM,     2)
+        prefs.addPreference(_PREF_OFFSET,   0)
 
         # Load saved values
         self._overhang_angle  = int(prefs.getValue(_PREF_ANGLE))
         self._point_spacing   = round(float(prefs.getValue(_PREF_SPACING)), 2)
         self._point_diameter  = round(float(prefs.getValue(_PREF_DIAM)), 2)
+        self._point_offset    = round(float(prefs.getValue(_PREF_OFFSET)), 2)
 
         self.setMenuName(catalog.i18nc("@item:inmenu", "Overhang Support Visualizer"))
         self.addMenuItem(
@@ -97,6 +101,18 @@ class OverhangSupportPlugin(QObject, Extension):
             self._point_diameter = value
             Application.getInstance().getPreferences().setValue(_PREF_DIAM, value)
             self.pointDiameterChanged.emit()
+
+    @pyqtProperty(float, notify=pointOffsetChanged)
+    def pointOffset(self) -> float:
+        return self._point_offset
+
+    @pointOffset.setter
+    def pointOffset(self, value: float):
+        value = round(max(0.0, float(value)), 2)
+        if self._point_offset != value:
+            self._point_offset = value
+            Application.getInstance().getPreferences().setValue(_PREF_OFFSET, value)
+            self.pointOffsetChanged.emit()
 
     @pyqtProperty(str, notify=statusChanged)
     def statusMessage(self) -> str:
@@ -176,7 +192,8 @@ class OverhangSupportPlugin(QObject, Extension):
                 marker.setName(_SUPPORT_NODE_TAG)
                 marker.setMeshData(sphere_mesh)
                 marker.setSelectable(False)
-                marker.setPosition(Vector(float(pt[0]), float(pt[1]), float(pt[2])))
+                # Cura dùng Y là trục đứng; offset dương → hạ điểm xuống (-Y)
+                marker.setPosition(Vector(float(pt[0]), float(pt[1]) - self._point_offset, float(pt[2])))
 
                 self._support_point_nodes.append(marker)
                 operations.append(AddSceneNodeOperation(marker, scene.getRoot()))
