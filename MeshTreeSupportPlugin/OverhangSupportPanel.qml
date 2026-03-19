@@ -4,17 +4,20 @@ import QtQuick.Layouts 1.3
 import UM 1.5 as UM
 import Cura 1.0 as Cura
 
-UM.Dialog
+Window
 {
-    id: dialog
+    id: panel
     title: "Overhang Support Visualizer"
 
     width: 400
+    height: 320
     minimumWidth: 320
-    minimumHeight: 340
+    minimumHeight: 280
 
-    // Keep the dialog alive between open/close cycles
-    onClosing: { visible = false; close.accepted = false }
+    modality: Qt.NonModal
+    flags: Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | Qt.WindowStaysOnTopHint
+
+    color: UM.Theme.getColor("main_background")
 
     ColumnLayout
     {
