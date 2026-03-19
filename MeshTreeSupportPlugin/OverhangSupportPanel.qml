@@ -40,6 +40,7 @@ Window
                 id: angleSpinBox
                 Layout.fillWidth: true
                 from: 0; to: 90
+                editable: true
                 value: manager.overhangAngle
                 onValueModified: manager.overhangAngle = value
             }
@@ -52,6 +53,7 @@ Window
                 id: spacingSpinBox
                 Layout.fillWidth: true
                 from: 1; to: 200
+                editable: true
                 value: manager.pointSpacing
                 onValueModified: manager.pointSpacing = value
             }
@@ -64,6 +66,7 @@ Window
                 id: diameterSpinBox
                 Layout.fillWidth: true
                 from: 1; to: 50
+                editable: true
                 value: manager.pointDiameter
                 onValueModified: manager.pointDiameter = value
             }

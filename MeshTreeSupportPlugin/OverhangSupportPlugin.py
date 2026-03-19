@@ -20,6 +20,10 @@ catalog = i18nCatalog("cura")
 
 _SUPPORT_NODE_TAG = "__overhang_support_point__"
 
+_PREF_ANGLE   = "overhang_support_visualizer/overhang_angle"
+_PREF_SPACING = "overhang_support_visualizer/point_spacing"
+_PREF_DIAM    = "overhang_support_visualizer/point_diameter"
+
 
 class OverhangSupportPlugin(QObject, Extension):
     """Extension plugin that detects overhang areas and visualizes support points."""
@@ -33,14 +37,20 @@ class OverhangSupportPlugin(QObject, Extension):
         QObject.__init__(self, parent)
         Extension.__init__(self)
 
-        self._overhang_angle = 45  # degrees (integer)
-        self._point_spacing = 5    # mm between points (integer)
-        self._point_diameter = 2   # mm diameter of support point sphere (integer)
-
         self._support_point_nodes: List[SceneNode] = []
         self._status_message = ""
-
         self._panel = None
+
+        # Register preferences with defaults; Cura persists them automatically.
+        prefs = Application.getInstance().getPreferences()
+        prefs.addPreference(_PREF_ANGLE,   45)
+        prefs.addPreference(_PREF_SPACING,  5)
+        prefs.addPreference(_PREF_DIAM,     2)
+
+        # Load saved values
+        self._overhang_angle  = int(prefs.getValue(_PREF_ANGLE))
+        self._point_spacing   = int(prefs.getValue(_PREF_SPACING))
+        self._point_diameter  = int(prefs.getValue(_PREF_DIAM))
 
         self.setMenuName(catalog.i18nc("@item:inmenu", "Overhang Support Visualizer"))
         self.addMenuItem(
@@ -61,6 +71,7 @@ class OverhangSupportPlugin(QObject, Extension):
         value = max(0, min(90, int(value)))
         if self._overhang_angle != value:
             self._overhang_angle = value
+            Application.getInstance().getPreferences().setValue(_PREF_ANGLE, value)
             self.overhangAngleChanged.emit()
 
     @pyqtProperty(int, notify=pointSpacingChanged)
@@ -72,6 +83,7 @@ class OverhangSupportPlugin(QObject, Extension):
         value = max(1, int(value))
         if self._point_spacing != value:
             self._point_spacing = value
+            Application.getInstance().getPreferences().setValue(_PREF_SPACING, value)
             self.pointSpacingChanged.emit()
 
     @pyqtProperty(int, notify=pointDiameterChanged)
@@ -83,6 +95,7 @@ class OverhangSupportPlugin(QObject, Extension):
         value = max(1, int(value))
         if self._point_diameter != value:
             self._point_diameter = value
+            Application.getInstance().getPreferences().setValue(_PREF_DIAM, value)
             self.pointDiameterChanged.emit()
 
     @pyqtProperty(str, notify=statusChanged)
