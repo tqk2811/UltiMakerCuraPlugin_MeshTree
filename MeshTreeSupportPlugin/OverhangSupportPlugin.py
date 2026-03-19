@@ -11,7 +11,6 @@ from UM.Logger import Logger
 from UM.Math.Vector import Vector
 from UM.Mesh.MeshBuilder import MeshBuilder
 from UM.Scene.SceneNode import SceneNode
-from UM.Scene.Selection import Selection
 from UM.Operations.AddSceneNodeOperation import AddSceneNodeOperation
 from UM.Operations.RemoveSceneNodeOperation import RemoveSceneNodeOperation
 from UM.Operations.GroupedOperation import GroupedOperation
@@ -109,15 +108,21 @@ class OverhangSupportPlugin(QObject, Extension):
 
     @pyqtSlot()
     def detectAndVisualize(self):
-        """Detect overhang areas on selected objects and create visual support markers."""
+        """Detect overhang areas on all scene objects and create visual support markers."""
         self.clearSupportPoints()
 
-        selected_nodes = Selection.getAllSelectedObjects()
-        if not selected_nodes:
-            self._setStatus("No objects selected. Please select an object first.")
+        scene = Application.getInstance().getController().getScene()
+
+        # Collect all sliceable mesh nodes in the scene (skip markers, build plate, etc.)
+        all_nodes = []
+        for node in scene.getRoot().getAllChildren():
+            if node.getMeshData() is not None and node.getName() != _SUPPORT_NODE_TAG:
+                all_nodes.append(node)
+
+        if not all_nodes:
+            self._setStatus("No objects in scene.")
             return
 
-        scene = Application.getInstance().getController().getScene()
         operations = []
         total_points = 0
 
@@ -125,7 +130,7 @@ class OverhangSupportPlugin(QObject, Extension):
         radius = self._point_diameter / 2.0
         sphere_mesh = self._buildSphereMesh(radius)
 
-        for node in selected_nodes:
+        for node in all_nodes:
             mesh_data = node.getMeshData()
             if mesh_data is None:
                 continue
