@@ -37,8 +37,9 @@ _PREF_TREE_ANGLE     = "overhang_support_visualizer/tree_branch_angle"
 _PREF_TREE_BASE      = "overhang_support_visualizer/tree_base_dist"
 _PREF_TREE_PER_LVL   = "overhang_support_visualizer/tree_dist_per_level"
 _PREF_TREE_GROWTH    = "overhang_support_visualizer/tree_growth_pct"
-_PREF_TREE_CLEARANCE = "overhang_support_visualizer/tree_clearance"
-_PREF_TREE_STEP      = "overhang_support_visualizer/tree_step_size"
+_PREF_TREE_CLEARANCE  = "overhang_support_visualizer/tree_clearance"
+_PREF_TREE_STEP       = "overhang_support_visualizer/tree_step_size"
+_PREF_TREE_MERGE_DROP = "overhang_support_visualizer/tree_merge_drop"
 _PREF_TREE_THREADS   = "overhang_support_visualizer/tree_thread_count"
 
 
@@ -58,6 +59,7 @@ class OverhangSupportPlugin(QObject, Extension):
     treeGrowthPctChanged    = pyqtSignal()
     treeClearanceChanged    = pyqtSignal()
     treeStepSizeChanged     = pyqtSignal()
+    treeMergeDropChanged    = pyqtSignal()
     treeThreadCountChanged  = pyqtSignal()
     isGeneratingChanged     = pyqtSignal()
     _treeReady              = pyqtSignal()   # internal: cross-thread → main thread
@@ -90,6 +92,7 @@ class OverhangSupportPlugin(QObject, Extension):
         prefs.addPreference(_PREF_TREE_GROWTH,      1)
         prefs.addPreference(_PREF_TREE_CLEARANCE,   2.0)
         prefs.addPreference(_PREF_TREE_STEP,        1.0)
+        prefs.addPreference(_PREF_TREE_MERGE_DROP, 10.0)
         prefs.addPreference(_PREF_TREE_THREADS,     0)
 
         self._overhang_angle      = int(prefs.getValue(_PREF_ANGLE))
@@ -104,6 +107,7 @@ class OverhangSupportPlugin(QObject, Extension):
         self._tree_growth_pct     = round(float(prefs.getValue(_PREF_TREE_GROWTH)), 2)
         self._tree_clearance      = round(float(prefs.getValue(_PREF_TREE_CLEARANCE)), 2)
         self._tree_step_size      = round(float(prefs.getValue(_PREF_TREE_STEP)), 2)
+        self._tree_merge_drop     = round(float(prefs.getValue(_PREF_TREE_MERGE_DROP)), 2)
         self._tree_thread_count   = int(prefs.getValue(_PREF_TREE_THREADS))
 
         self.setMenuName(catalog.i18nc("@item:inmenu", "Overhang Support Visualizer"))
@@ -254,6 +258,18 @@ class OverhangSupportPlugin(QObject, Extension):
             self._tree_step_size = value
             Application.getInstance().getPreferences().setValue(_PREF_TREE_STEP, value)
             self.treeStepSizeChanged.emit()
+
+    @pyqtProperty(float, notify=treeMergeDropChanged)
+    def treeMergeDrop(self) -> float:
+        return self._tree_merge_drop
+
+    @treeMergeDrop.setter
+    def treeMergeDrop(self, value: float):
+        value = round(max(0.0, float(value)), 2)
+        if self._tree_merge_drop != value:
+            self._tree_merge_drop = value
+            Application.getInstance().getPreferences().setValue(_PREF_TREE_MERGE_DROP, value)
+            self.treeMergeDropChanged.emit()
 
     @pyqtProperty(int, notify=treeThreadCountChanged)
     def treeThreadCount(self) -> int:
@@ -534,13 +550,14 @@ class OverhangSupportPlugin(QObject, Extension):
 
         # ── Branch data class ────────────────────────────────────────────────────
         class _Branch:
-            __slots__ = ["tip", "level", "waypoints", "active", "origin_y"]
-            def __init__(self, tip, level, origin_y=None):
-                self.tip      = np.array(tip, dtype=np.float64)
-                self.level    = level
-                self.origin_y = float(tip[1]) if origin_y is None else float(origin_y)
-                self.waypoints = [self.tip.copy()]
-                self.active   = True
+            __slots__ = ["tip", "level", "waypoints", "active", "origin_y", "straight_left"]
+            def __init__(self, tip, level, origin_y=None, straight_left=0.0):
+                self.tip          = np.array(tip, dtype=np.float64)
+                self.level        = level
+                self.origin_y     = float(tip[1]) if origin_y is None else float(origin_y)
+                self.waypoints    = [self.tip.copy()]
+                self.active       = True
+                self.straight_left = float(straight_left)
 
         all_branches: List[_Branch] = []
 
@@ -578,6 +595,8 @@ class OverhangSupportPlugin(QObject, Extension):
                 for i in range(n):
                     for j in range(i + 1, n):
                         a, bb = active[i], active[j]
+                        if a.straight_left > 0 or bb.straight_left > 0:
+                            continue
                         if abs(a.tip[1] - bb.tip[1]) > step * 4:
                             continue
                         eff_level = max(a.level, bb.level)
@@ -646,9 +665,10 @@ class OverhangSupportPlugin(QObject, Extension):
                             stub.active    = False
                             all_branches.append(stub)
 
-                    # Merged branch continues straight down from meeting point
+                    # Merged branch goes straight down before allowing bends
                     new_b = _Branch(meet_pt, max(a.level, bb.level) + 1,
-                                    origin_y=max(a.origin_y, bb.origin_y))
+                                    origin_y=max(a.origin_y, bb.origin_y),
+                                    straight_left=self._tree_merge_drop)
                     all_branches.append(new_b)
                     new_branches.append(new_b)
 
@@ -657,6 +677,8 @@ class OverhangSupportPlugin(QObject, Extension):
             # ── Move all active branches one step straight down ──────────────────
             for b in active:
                 b.tip[1] -= step
+                if b.straight_left > 0:
+                    b.straight_left = max(0.0, b.straight_left - step)
 
             # ── Ground collision ─────────────────────────────────────────────────
             for b in list(active):

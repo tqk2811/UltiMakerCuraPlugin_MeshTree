@@ -325,6 +325,26 @@ Window
                 }
                 UM.Label { text: "mm" }
 
+                // Đoạn thẳng sau gộp
+                LabelWithTip
+                {
+                    text: "Thẳng sau gộp"
+                    tip: "Sau khi hai nhánh hội tụ, nhánh gộp đi thẳng xuống bao nhiêu mm trước khi được phép bẻ góc tiếp.\nPhạm vi: 0 – 100 mm | Mặc định: 10 mm"
+                }
+                SpinBox
+                {
+                    id: treeMergeDropSpinBox
+                    Layout.fillWidth: true
+                    from: 0; to: 10000
+                    stepSize: 1
+                    editable: true
+                    value: Math.round(manager.treeMergeDrop * 100)
+                    onValueModified: manager.treeMergeDrop = value / 100.0
+                    textFromValue: function(v) { return (v / 100.0).toFixed(2) }
+                    valueFromText: function(t) { return Math.round(parseFloat(t) * 100) }
+                }
+                UM.Label { text: "mm" }
+
                 // Số luồng
                 LabelWithTip
                 {
