@@ -15,7 +15,7 @@ Window
     minimumHeight: 360
 
     modality: Qt.NonModal
-    flags: Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | Qt.WindowStaysOnTopHint
+    flags: Qt.Window | Qt.WindowSystemMenuHint | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | Qt.WindowStaysOnTopHint
 
     color: UM.Theme.getColor("main_background")
 
