@@ -49,8 +49,8 @@ class OverhangSupportPlugin(QObject, Extension):
 
         # Load saved values
         self._overhang_angle  = int(prefs.getValue(_PREF_ANGLE))
-        self._point_spacing   = int(prefs.getValue(_PREF_SPACING))
-        self._point_diameter  = int(prefs.getValue(_PREF_DIAM))
+        self._point_spacing   = round(float(prefs.getValue(_PREF_SPACING)), 2)
+        self._point_diameter  = round(float(prefs.getValue(_PREF_DIAM)), 2)
 
         self.setMenuName(catalog.i18nc("@item:inmenu", "Overhang Support Visualizer"))
         self.addMenuItem(
@@ -74,25 +74,25 @@ class OverhangSupportPlugin(QObject, Extension):
             Application.getInstance().getPreferences().setValue(_PREF_ANGLE, value)
             self.overhangAngleChanged.emit()
 
-    @pyqtProperty(int, notify=pointSpacingChanged)
-    def pointSpacing(self) -> int:
+    @pyqtProperty(float, notify=pointSpacingChanged)
+    def pointSpacing(self) -> float:
         return self._point_spacing
 
     @pointSpacing.setter
-    def pointSpacing(self, value: int):
-        value = max(1, int(value))
+    def pointSpacing(self, value: float):
+        value = round(max(0.01, float(value)), 2)
         if self._point_spacing != value:
             self._point_spacing = value
             Application.getInstance().getPreferences().setValue(_PREF_SPACING, value)
             self.pointSpacingChanged.emit()
 
-    @pyqtProperty(int, notify=pointDiameterChanged)
-    def pointDiameter(self) -> int:
+    @pyqtProperty(float, notify=pointDiameterChanged)
+    def pointDiameter(self) -> float:
         return self._point_diameter
 
     @pointDiameter.setter
-    def pointDiameter(self, value: int):
-        value = max(1, int(value))
+    def pointDiameter(self, value: float):
+        value = round(max(0.01, float(value)), 2)
         if self._point_diameter != value:
             self._point_diameter = value
             Application.getInstance().getPreferences().setValue(_PREF_DIAM, value)
