@@ -442,7 +442,16 @@ class OverhangSupportPlugin(QObject, Extension):
         dist_per_lvl = max(0.0, self._tree_dist_per_level)
         sin_a = math.sin(angle_rad)
         cos_a = math.cos(angle_rad)
+        tan_a = math.tan(angle_rad)
         merge_dist = step * 1.5
+
+        pt_diam    = self._point_diameter
+        growth_fac = pt_diam * self._tree_growth_pct / 100.0
+
+        def _radius_at(y: float, origin_y: float) -> float:
+            """Branch radius at world-Y `y` for a branch whose origin is at `origin_y`."""
+            drop = max(0.0, origin_y - y)
+            return max(0.01, (pt_diam + drop * growth_fac) / 2.0)
 
         class _Branch:
             __slots__ = ["tip", "direction", "level", "waypoints", "active", "partner", "origin_y"]
@@ -511,17 +520,31 @@ class OverhangSupportPlugin(QObject, Extension):
                     a.partner  = bb
                     bb.partner = a
 
-                    # Record direction-change waypoint
+                    # Record direction-change waypoint at current tip
                     a.waypoints.append(a.tip.copy())
                     bb.waypoints.append(bb.tip.copy())
 
-                    # Converge toward XZ midpoint at branch_angle from vertical
+                    # Set converging directions toward XZ midpoint at branch_angle
                     xz_diff = (bb.tip - a.tip)[[0, 2]]
                     norm    = float(np.linalg.norm(xz_diff))
                     if norm > 1e-6:
                         xz_d = xz_diff / norm
                         a.direction  = np.array([ xz_d[0]*sin_a, -cos_a,  xz_d[1]*sin_a])
                         bb.direction = np.array([-xz_d[0]*sin_a, -cos_a, -xz_d[1]*sin_a])
+
+                    # For level ≥ 1: RIGHT AFTER the bend, add a short stub going UP.
+                    # The stub is a separate mini-branch so the main branch tip is
+                    # unchanged and the diagonal continues unaffected.
+                    # Extension length = tan(branch_angle) / radius_at_pairing_point
+                    for br in (a, bb):
+                        if br.level >= 1:
+                            ext_len = tan_a / _radius_at(br.tip[1], br.origin_y)
+                            up_pt   = br.tip.copy()
+                            up_pt[1] += ext_len
+                            stub = _Branch(br.tip, br.level, origin_y=br.origin_y)
+                            stub.waypoints = [br.tip.copy(), up_pt]
+                            stub.active    = False
+                            all_branches.append(stub)
 
             # ── Move all active branches one step ────────────────────────────────
             for b in active:
