@@ -324,6 +324,26 @@ Window
                     valueFromText: function(t) { return Math.round(parseFloat(t) * 100) }
                 }
                 UM.Label { text: "mm" }
+
+                // Số luồng
+                LabelWithTip
+                {
+                    text: "Số luồng"
+                    tip: "Số luồng CPU dùng để tính toán cây chống đỡ.\n0 = tự động (dùng toàn bộ CPU).\nPhạm vi: 0 – 64 | Mặc định: 0 (tự động)"
+                }
+                SpinBox
+                {
+                    id: treeThreadsSpinBox
+                    Layout.fillWidth: true
+                    from: 0; to: 64
+                    stepSize: 1
+                    editable: true
+                    value: manager.treeThreadCount
+                    onValueModified: manager.treeThreadCount = value
+                    textFromValue: function(v) { return v === 0 ? "auto" : v.toString() }
+                    valueFromText: function(t) { return t === "auto" ? 0 : parseInt(t) || 0 }
+                }
+                UM.Label { text: "luồng" }
             }
 
             // Nút tree
@@ -336,8 +356,9 @@ Window
 
                 Cura.PrimaryButton
                 {
-                    text: "Tạo cây chống đỡ"
+                    text: manager.isGenerating ? "Đang tính toán…" : "Tạo cây chống đỡ"
                     Layout.fillWidth: true
+                    enabled: !manager.isGenerating
                     onClicked: manager.generateTreeSupport()
                     ToolTip.visible: hovered
                     ToolTip.delay: 400
@@ -347,6 +368,7 @@ Window
                 Cura.SecondaryButton
                 {
                     text: "Xoá cây"
+                    enabled: !manager.isGenerating
                     onClicked: manager.clearTreeSupport()
                     ToolTip.visible: hovered
                     ToolTip.delay: 400
@@ -365,16 +387,40 @@ Window
             }
 
             // ── Trạng thái ─────────────────────────────────────────────────────
-            UM.Label
+            Item
             {
                 Layout.fillWidth: true
                 Layout.leftMargin:  UM.Theme.getSize("default_margin").width
                 Layout.rightMargin: UM.Theme.getSize("default_margin").width
-                text: manager.statusMessage !== "" ? manager.statusMessage
-                                                   : "Nhấn \"Phát hiện & Hiển thị\" để bắt đầu quét."
-                wrapMode: Text.WordWrap
-                font.italic: true
-                color: UM.Theme.getColor("text_inactive")
+                implicitHeight: statusLabel.implicitHeight
+
+                property int dotPhase: 0
+                property var dotTexts: ["   ", ".  ", ".. ", "..."]
+
+                Timer
+                {
+                    id: dotTimer
+                    interval: 400
+                    repeat: true
+                    running: manager.isGenerating
+                    onTriggered: parent.dotPhase = (parent.dotPhase + 1) % 4
+                    onRunningChanged: if (!running) parent.dotPhase = 0
+                }
+
+                UM.Label
+                {
+                    id: statusLabel
+                    anchors { left: parent.left; right: parent.right }
+                    text: {
+                        var base = manager.statusMessage !== "" ? manager.statusMessage
+                                                                : "Nhấn \"Phát hiện & Hiển thị\" để bắt đầu quét."
+                        return manager.isGenerating ? base + parent.dotTexts[parent.dotPhase] : base
+                    }
+                    wrapMode: Text.WordWrap
+                    font.italic: true
+                    color: manager.isGenerating ? UM.Theme.getColor("text")
+                                                : UM.Theme.getColor("text_inactive")
+                }
             }
 
             // padding bottom

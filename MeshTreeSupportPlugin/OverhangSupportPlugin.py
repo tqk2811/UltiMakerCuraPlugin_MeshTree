@@ -1,5 +1,7 @@
 import os
 import math
+import threading
+import concurrent.futures
 import numpy as np
 from typing import List, Tuple, Optional
 
@@ -37,6 +39,7 @@ _PREF_TREE_PER_LVL   = "overhang_support_visualizer/tree_dist_per_level"
 _PREF_TREE_GROWTH    = "overhang_support_visualizer/tree_growth_pct"
 _PREF_TREE_CLEARANCE = "overhang_support_visualizer/tree_clearance"
 _PREF_TREE_STEP      = "overhang_support_visualizer/tree_step_size"
+_PREF_TREE_THREADS   = "overhang_support_visualizer/tree_thread_count"
 
 
 class OverhangSupportPlugin(QObject, Extension):
@@ -55,6 +58,9 @@ class OverhangSupportPlugin(QObject, Extension):
     treeGrowthPctChanged    = pyqtSignal()
     treeClearanceChanged    = pyqtSignal()
     treeStepSizeChanged     = pyqtSignal()
+    treeThreadCountChanged  = pyqtSignal()
+    isGeneratingChanged     = pyqtSignal()
+    _treeReady              = pyqtSignal()   # internal: cross-thread → main thread
 
     def __init__(self, parent=None):
         QObject.__init__(self, parent)
@@ -66,6 +72,10 @@ class OverhangSupportPlugin(QObject, Extension):
         self._contact_points:      List[np.ndarray] = []
         self._status_message = ""
         self._panel = None
+        self._is_generating  = False
+        self._pending_mesh   = None
+        self._pending_status = ""
+        self._treeReady.connect(self._onTreeReady)
 
         prefs = Application.getInstance().getPreferences()
         prefs.addPreference(_PREF_ANGLE,        45)
@@ -80,6 +90,7 @@ class OverhangSupportPlugin(QObject, Extension):
         prefs.addPreference(_PREF_TREE_GROWTH,      1)
         prefs.addPreference(_PREF_TREE_CLEARANCE,   2.0)
         prefs.addPreference(_PREF_TREE_STEP,        1.0)
+        prefs.addPreference(_PREF_TREE_THREADS,     0)
 
         self._overhang_angle      = int(prefs.getValue(_PREF_ANGLE))
         self._point_spacing       = round(float(prefs.getValue(_PREF_SPACING)), 2)
@@ -93,6 +104,7 @@ class OverhangSupportPlugin(QObject, Extension):
         self._tree_growth_pct     = round(float(prefs.getValue(_PREF_TREE_GROWTH)), 2)
         self._tree_clearance      = round(float(prefs.getValue(_PREF_TREE_CLEARANCE)), 2)
         self._tree_step_size      = round(float(prefs.getValue(_PREF_TREE_STEP)), 2)
+        self._tree_thread_count   = int(prefs.getValue(_PREF_TREE_THREADS))
 
         self.setMenuName(catalog.i18nc("@item:inmenu", "Overhang Support Visualizer"))
         self.addMenuItem(catalog.i18nc("@item:inmenu", "Open Panel"), self._openPanel)
@@ -243,6 +255,22 @@ class OverhangSupportPlugin(QObject, Extension):
             Application.getInstance().getPreferences().setValue(_PREF_TREE_STEP, value)
             self.treeStepSizeChanged.emit()
 
+    @pyqtProperty(int, notify=treeThreadCountChanged)
+    def treeThreadCount(self) -> int:
+        return self._tree_thread_count
+
+    @treeThreadCount.setter
+    def treeThreadCount(self, value: int):
+        value = max(0, int(value))
+        if self._tree_thread_count != value:
+            self._tree_thread_count = value
+            Application.getInstance().getPreferences().setValue(_PREF_TREE_THREADS, value)
+            self.treeThreadCountChanged.emit()
+
+    @pyqtProperty(bool, notify=isGeneratingChanged)
+    def isGenerating(self) -> bool:
+        return self._is_generating
+
     # ------------------------------------------------------------------
     # Panel
     # ------------------------------------------------------------------
@@ -378,27 +406,59 @@ class OverhangSupportPlugin(QObject, Extension):
 
     @pyqtSlot()
     def generateTreeSupport(self):
-        """Generate tree support structure from detected contact points."""
+        """Generate tree support structure from detected contact points (runs in background thread)."""
+        if self._is_generating:
+            return
         self.clearTreeSupport()
 
         if not self._contact_points:
             self._setStatus("Chưa có contact points. Hãy chạy 'Phát hiện & Hiển thị' trước.")
             return
 
-        self._setStatus(f"Đang tạo cây chống đỡ từ {len(self._contact_points)} điểm…")
+        n_workers = self._tree_thread_count if self._tree_thread_count > 0 else (os.cpu_count() or 1)
+        self._is_generating = True
+        self.isGeneratingChanged.emit()
+        self._setStatus(f"Đang tạo cây chống đỡ từ {len(self._contact_points)} điểm ({n_workers} luồng)")
 
-        scene_tris = self._collectSceneTris()
-        segments = self._buildTreeBranches(self._contact_points, scene_tris)
-        if not segments:
-            self._setStatus("Không tạo được đường cây chống đỡ.")
-            return
+        contact_points = [p.copy() for p in self._contact_points]
+        scene_tris     = self._collectSceneTris()
+        point_diameter = self._point_diameter
+        growth_pct     = self._tree_growth_pct
 
-        mesh = self._buildTreeMesh(segments, self._point_diameter, self._tree_growth_pct)
+        def _run():
+            try:
+                segments = self._buildTreeBranches(contact_points, scene_tris, n_workers=n_workers)
+                if not segments:
+                    self._pending_mesh   = None
+                    self._pending_status = "Không tạo được đường cây chống đỡ."
+                    self._treeReady.emit()
+                    return
+                mesh = self._buildTreeMesh(segments, point_diameter, growth_pct)
+                self._pending_mesh   = mesh
+                self._pending_status = (f"Đã tạo cây chống đỡ với {len(segments)} đoạn."
+                                        if mesh else "Không xây dựng được mesh cây chống đỡ.")
+            except Exception as exc:
+                Logger.log("e", "[OverhangSupportPlugin] generateTreeSupport error: %s", exc)
+                self._pending_mesh   = None
+                self._pending_status = f"Lỗi tạo cây: {exc}"
+            finally:
+                self._treeReady.emit()
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _onTreeReady(self):
+        """Called on main thread when background generation finishes."""
+        self._is_generating = False
+        self.isGeneratingChanged.emit()
+
+        mesh = self._pending_mesh
+        self._pending_mesh = None
+
         if mesh is None:
-            self._setStatus("Không xây dựng được mesh cây chống đỡ.")
+            self._setStatus(self._pending_status)
             return
 
-        scene = Application.getInstance().getController().getScene()
+        scene        = Application.getInstance().getController().getScene()
         active_plate = Application.getInstance().getMultiBuildPlateModel().activeBuildPlate
 
         node = CuraSceneNode()
@@ -407,14 +467,13 @@ class OverhangSupportPlugin(QObject, Extension):
         node.setSelectable(True)
         node.addDecorator(BuildPlateDecorator(active_plate))
         node.addDecorator(SliceableObjectDecorator())
-
         self._tree_nodes.append(node)
 
         op = GroupedOperation()
         op.addOperation(AddSceneNodeOperation(node, scene.getRoot()))
         op.push()
 
-        self._setStatus(f"Đã tạo cây chống đỡ với {len(segments)} đoạn.")
+        self._setStatus(self._pending_status)
 
     @pyqtSlot()
     def clearTreeSupport(self):
@@ -432,7 +491,8 @@ class OverhangSupportPlugin(QObject, Extension):
     # ------------------------------------------------------------------
 
     def _buildTreeBranches(self, contact_points: List[np.ndarray],
-                           scene_tris: Optional[np.ndarray] = None) -> List[Tuple]:
+                           scene_tris: Optional[np.ndarray] = None,
+                           n_workers: int = 1) -> List[Tuple]:
         """
         Simulate tree support branch growth from contact points downward.
         Returns list of (start, end, level) segments.
@@ -511,12 +571,12 @@ class OverhangSupportPlugin(QObject, Extension):
             #   • immediately deactivate both and create the merged branch
             #   • eliminates oscillation / deadloop from simulation-based merging
             if len(active) >= 2:
-                cands = []
+                # Phase 1: cheap geometric filter (no clearance check yet)
+                raw_cands = []
                 n = len(active)
                 for i in range(n):
                     for j in range(i + 1, n):
                         a, bb = active[i], active[j]
-                        # Only pair at similar heights (within 4 steps)
                         if abs(a.tip[1] - bb.tip[1]) > step * 4:
                             continue
                         eff_level = max(a.level, bb.level)
@@ -524,21 +584,29 @@ class OverhangSupportPlugin(QObject, Extension):
                         dxz = float(np.linalg.norm((a.tip - bb.tip)[[0, 2]]))
                         if dxz > thresh:
                             continue
-                        # Pre-check 1: meeting Y above ground
                         avg_y  = (a.tip[1] + bb.tip[1]) / 2.0
                         meet_y = avg_y - (dxz / 2.0) / tan_a
                         if meet_y < ground_y:
                             continue
-                        # Pre-check 2: clearance from object surfaces
-                        if scene_tris is not None and len(scene_tris) and clearance > 0.0:
-                            mid_xz  = (a.tip[[0, 2]] + bb.tip[[0, 2]]) / 2.0
-                            meet_pt = np.array([mid_xz[0], meet_y, mid_xz[1]])
-                            if (not self._segment_clearance_ok(
-                                        a.tip, meet_pt, scene_tris, clearance) or
-                                    not self._segment_clearance_ok(
-                                        bb.tip, meet_pt, scene_tris, clearance)):
-                                continue
-                        cands.append((dxz, i, j, meet_y))
+                        raw_cands.append((dxz, i, j, meet_y,
+                                          a.tip.copy(), bb.tip.copy()))
+
+                # Phase 2: clearance check – parallel across candidates
+                if scene_tris is not None and len(scene_tris) and clearance > 0.0 and raw_cands:
+                    def _check(item):
+                        dxz_, i_, j_, my, a_tip, b_tip = item
+                        mid_xz  = (a_tip[[0, 2]] + b_tip[[0, 2]]) / 2.0
+                        meet_pt = np.array([mid_xz[0], my, mid_xz[1]])
+                        ok = (self._segment_clearance_ok(a_tip, meet_pt, scene_tris, clearance) and
+                              self._segment_clearance_ok(b_tip, meet_pt, scene_tris, clearance))
+                        return item if ok else None
+
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as pool:
+                        results = list(pool.map(_check, raw_cands))
+                    cands = [(r[0], r[1], r[2], r[3]) for r in results if r is not None]
+                else:
+                    cands = [(r[0], r[1], r[2], r[3]) for r in raw_cands]
+
                 cands.sort()
 
                 used = set()
