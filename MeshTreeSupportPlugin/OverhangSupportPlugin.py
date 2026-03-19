@@ -15,6 +15,8 @@ from UM.Operations.AddSceneNodeOperation import AddSceneNodeOperation
 from UM.Operations.RemoveSceneNodeOperation import RemoveSceneNodeOperation
 from UM.Operations.GroupedOperation import GroupedOperation
 from UM.i18n import i18nCatalog
+from cura.Scene.BuildPlateDecorator import BuildPlateDecorator
+from cura.Scene.SliceableObjectDecorator import SliceableObjectDecorator
 
 catalog = i18nCatalog("cura")
 
@@ -205,11 +207,28 @@ class OverhangSupportPlugin(QObject, Extension):
                 continue
 
             # ── Overlay mesh (tô màu vùng overhang) ──────────────────
+            active_plate = Application.getInstance().getMultiBuildPlateModel().activeBuildPlate
             overlay = SceneNode()
             overlay.setName(_OVERLAY_NODE_TAG)
-            overlay.setMeshData(self._buildOverhangMesh(overhang_faces))
+            overlay.setMeshData(self._buildOverhangMesh(overhang_faces, offset=max(0.15, self._point_offset)))
             overlay.setSelectable(False)
             overlay.setVisible(self._show_overlay)
+            # BuildPlateDecorator + SliceableObjectDecorator để Cura render node này;
+            # anti_overhang_mesh = True qua SettingOverrideDecorator sẽ cho màu riêng
+            # và ngăn không bị đưa vào slice engine như object thật.
+            overlay.addDecorator(BuildPlateDecorator(active_plate))
+            overlay.addDecorator(SliceableObjectDecorator())
+            stack = overlay.callDecoration("getStack")
+            if stack:
+                from UM.Settings.SettingInstance import SettingInstance
+                settings = stack.getTop()
+                for key in ("anti_overhang_mesh",):
+                    defn = stack.getSettingDefinition(key)
+                    if defn:
+                        inst = SettingInstance(defn, settings)
+                        inst.setProperty("value", True)
+                        inst.resetState()
+                        settings.addInstance(inst)
             self._overlay_nodes.append(overlay)
             operations.append(AddSceneNodeOperation(overlay, scene.getRoot()))
 
@@ -373,18 +392,39 @@ class OverhangSupportPlugin(QObject, Extension):
         return points
 
     @staticmethod
-    def _buildOverhangMesh(overhang_faces: List[Tuple]):
-        """Build a flat MeshData from the overhang triangle list (world-space coords)."""
-        verts = []
-        for v0, v1, v2 in overhang_faces:
-            verts.extend([v0, v1, v2])
+    def _buildOverhangMesh(overhang_faces: List[Tuple], offset: float = 0.15):  # offset tính bằng mm
+        """
+        Build a double-sided MeshData from overhang triangles (world-space coords).
 
-        n = len(overhang_faces)
-        idx = np.arange(n * 3, dtype=np.int32).reshape(-1, 3)
+        Each face is duplicated with reversed winding so it renders from both sides.
+        Vertices are shifted slightly along the face normal (outward = downward for
+        bottom-facing surfaces) to avoid z-fighting with the original object mesh.
+        """
+        verts = []
+        idxs  = []
+
+        for v0, v1, v2 in overhang_faces:
+            # Face normal (already pointing downward for overhang faces)
+            edge1 = v1 - v0
+            edge2 = v2 - v0
+            n = np.cross(edge1, edge2)
+            length = np.linalg.norm(n)
+            n = (n / length) if length > 1e-10 else np.array([0.0, -1.0, 0.0])
+
+            # Push vertices slightly outward to avoid z-fighting
+            dv = n * offset
+            ov0, ov1, ov2 = v0 + dv, v1 + dv, v2 + dv
+
+            base = len(verts)
+            verts.extend([ov0, ov1, ov2])
+            # Front face (normal direction)
+            idxs.extend([base, base + 1, base + 2])
+            # Back face (reversed winding) — visible from any camera angle
+            idxs.extend([base, base + 2, base + 1])
 
         builder = MeshBuilder()
         builder.setVertices(np.array(verts, dtype=np.float32))
-        builder.setIndices(idx)
+        builder.setIndices(np.array(idxs, dtype=np.int32).reshape(-1, 3))
         builder.calculateNormals()
         return builder.build()
 
