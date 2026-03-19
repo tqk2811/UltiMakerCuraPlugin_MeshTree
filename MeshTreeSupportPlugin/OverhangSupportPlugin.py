@@ -31,11 +31,12 @@ _PREF_DIAM         = "overhang_support_visualizer/point_diameter"
 _PREF_OFFSET       = "overhang_support_visualizer/point_offset"
 _PREF_SHOW_OVERLAY = "overhang_support_visualizer/show_overlay"
 
-_PREF_TREE_ANGLE   = "overhang_support_visualizer/tree_branch_angle"
-_PREF_TREE_BASE    = "overhang_support_visualizer/tree_base_dist"
-_PREF_TREE_PER_LVL = "overhang_support_visualizer/tree_dist_per_level"
-_PREF_TREE_GROWTH  = "overhang_support_visualizer/tree_growth_pct"
-_PREF_TREE_STEP    = "overhang_support_visualizer/tree_step_size"
+_PREF_TREE_ANGLE     = "overhang_support_visualizer/tree_branch_angle"
+_PREF_TREE_BASE      = "overhang_support_visualizer/tree_base_dist"
+_PREF_TREE_PER_LVL   = "overhang_support_visualizer/tree_dist_per_level"
+_PREF_TREE_GROWTH    = "overhang_support_visualizer/tree_growth_pct"
+_PREF_TREE_CLEARANCE = "overhang_support_visualizer/tree_clearance"
+_PREF_TREE_STEP      = "overhang_support_visualizer/tree_step_size"
 
 
 class OverhangSupportPlugin(QObject, Extension):
@@ -52,6 +53,7 @@ class OverhangSupportPlugin(QObject, Extension):
     treeBaseDistChanged     = pyqtSignal()
     treeDistPerLevelChanged = pyqtSignal()
     treeGrowthPctChanged    = pyqtSignal()
+    treeClearanceChanged    = pyqtSignal()
     treeStepSizeChanged     = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -75,8 +77,9 @@ class OverhangSupportPlugin(QObject, Extension):
         prefs.addPreference(_PREF_TREE_ANGLE,    30)
         prefs.addPreference(_PREF_TREE_BASE,     20)
         prefs.addPreference(_PREF_TREE_PER_LVL,   5)
-        prefs.addPreference(_PREF_TREE_GROWTH,    1)
-        prefs.addPreference(_PREF_TREE_STEP,     1.0)
+        prefs.addPreference(_PREF_TREE_GROWTH,      1)
+        prefs.addPreference(_PREF_TREE_CLEARANCE,   2.0)
+        prefs.addPreference(_PREF_TREE_STEP,        1.0)
 
         self._overhang_angle      = int(prefs.getValue(_PREF_ANGLE))
         self._point_spacing       = round(float(prefs.getValue(_PREF_SPACING)), 2)
@@ -88,6 +91,7 @@ class OverhangSupportPlugin(QObject, Extension):
         self._tree_base_dist      = round(float(prefs.getValue(_PREF_TREE_BASE)), 2)
         self._tree_dist_per_level = round(float(prefs.getValue(_PREF_TREE_PER_LVL)), 2)
         self._tree_growth_pct     = round(float(prefs.getValue(_PREF_TREE_GROWTH)), 2)
+        self._tree_clearance      = round(float(prefs.getValue(_PREF_TREE_CLEARANCE)), 2)
         self._tree_step_size      = round(float(prefs.getValue(_PREF_TREE_STEP)), 2)
 
         self.setMenuName(catalog.i18nc("@item:inmenu", "Overhang Support Visualizer"))
@@ -214,6 +218,18 @@ class OverhangSupportPlugin(QObject, Extension):
             self._tree_growth_pct = value
             Application.getInstance().getPreferences().setValue(_PREF_TREE_GROWTH, value)
             self.treeGrowthPctChanged.emit()
+
+    @pyqtProperty(float, notify=treeClearanceChanged)
+    def treeClearance(self) -> float:
+        return self._tree_clearance
+
+    @treeClearance.setter
+    def treeClearance(self, value: float):
+        value = round(max(0.0, float(value)), 2)
+        if self._tree_clearance != value:
+            self._tree_clearance = value
+            Application.getInstance().getPreferences().setValue(_PREF_TREE_CLEARANCE, value)
+            self.treeClearanceChanged.emit()
 
     @pyqtProperty(float, notify=treeStepSizeChanged)
     def treeStepSize(self) -> float:
@@ -449,6 +465,7 @@ class OverhangSupportPlugin(QObject, Extension):
 
         pt_diam    = self._point_diameter
         growth_fac = pt_diam * self._tree_growth_pct / 100.0
+        clearance  = max(0.0, self._tree_clearance)
 
         def _radius_at(y: float, origin_y: float) -> float:
             """Branch radius at world-Y `y` for a branch whose origin is at `origin_y`."""
@@ -516,13 +533,16 @@ class OverhangSupportPlugin(QObject, Extension):
                         if meet_y < ground_y:
                             continue   # would meet below ground – pairing fails
 
-                        # Pre-check 2: diagonal paths must not intersect any object.
-                        if scene_tris is not None and len(scene_tris):
-                            mid_xz = (a.tip[[0, 2]] + bb.tip[[0, 2]]) / 2.0
+                        # Pre-check 2: diagonal paths must stay >= clearance mm from
+                        # all object surfaces.
+                        if scene_tris is not None and len(scene_tris) and clearance > 0.0:
+                            mid_xz  = (a.tip[[0, 2]] + bb.tip[[0, 2]]) / 2.0
                             meet_pt = np.array([mid_xz[0], meet_y, mid_xz[1]])
-                            if (self._segment_hits_mesh(a.tip,  meet_pt, scene_tris) or
-                                    self._segment_hits_mesh(bb.tip, meet_pt, scene_tris)):
-                                continue   # diagonal blocked by object – pairing fails
+                            if (not self._segment_clearance_ok(
+                                        a.tip, meet_pt, scene_tris, clearance) or
+                                    not self._segment_clearance_ok(
+                                        bb.tip, meet_pt, scene_tris, clearance)):
+                                continue   # too close to object – pairing fails
 
                         cands.append((dxz, i, j))
                 cands.sort()
@@ -736,33 +756,96 @@ class OverhangSupportPlugin(QObject, Extension):
         return np.concatenate(all_tris, axis=0) if all_tris else None
 
     @staticmethod
-    def _segment_hits_mesh(p: np.ndarray, q: np.ndarray,
-                           tris: np.ndarray) -> bool:
+    def _point_tris_min_dist(p: np.ndarray, tris: np.ndarray) -> float:
         """
-        Test whether segment P→Q intersects any triangle in `tris` (shape N×3×3).
-        Uses vectorised Möller–Trumbore; t ∈ (ε, 1] counts as a hit.
+        Minimum distance from point p (shape 3,) to the closest point on any
+        triangle in tris (shape N×3×3).  Uses Ericson's closest-point algorithm
+        vectorised over all triangles simultaneously.
         """
-        d  = q - p
-        v0 = tris[:, 0];  e1 = tris[:, 1] - v0;  e2 = tris[:, 2] - v0
+        a = tris[:, 0]; b = tris[:, 1]; c = tris[:, 2]
+        ab = b - a;  ac = c - a
+        ap = p - a   # (N, 3) via broadcast
 
-        # d is (3,), tris arrays are (N, 3) — use "j,ij->i" for dot with broadcast
-        h = np.cross(d, e2)                            # (N, 3)
-        a = np.einsum("ij,ij->i", e1, h)               # (N,)
-        ok = np.abs(a) > 1e-10
-        f  = np.where(ok, 1.0 / np.where(ok, a, 1.0), 0.0)
+        d1 = np.einsum("ij,ij->i", ab, ap)
+        d2 = np.einsum("ij,ij->i", ac, ap)
+        bp = p - b
+        d3 = np.einsum("ij,ij->i", ab, bp)
+        d4 = np.einsum("ij,ij->i", ac, bp)
+        cp = p - c
+        d5 = np.einsum("ij,ij->i", ab, cp)
+        d6 = np.einsum("ij,ij->i", ac, cp)
 
-        s = p - v0                                     # (N, 3)
-        u = f * np.einsum("ij,ij->i", s, h)
-        ok &= (u >= 0.0) & (u <= 1.0)
+        N       = len(tris)
+        closest = np.empty((N, 3))
+        used    = np.zeros(N, dtype=bool)
 
-        qc = np.cross(s, e1)                           # (N, 3)
-        v  = f * np.einsum("j,ij->i", d, qc)          # d is (3,) → "j,ij->i"
-        ok &= (v >= 0.0) & (u + v <= 1.0)
+        # Vertex A
+        m = (d1 <= 0) & (d2 <= 0)
+        closest[m] = a[m];  used[m] = True
 
-        t  = f * np.einsum("ij,ij->i", e2, qc)
-        ok &= (t > 1e-6) & (t <= 1.0)
+        # Vertex B
+        m = ~used & (d3 >= 0) & (d4 <= d3)
+        closest[m] = b[m];  used[m] = True
 
-        return bool(np.any(ok))
+        # Vertex C
+        m = ~used & (d6 >= 0) & (d5 <= d6)
+        closest[m] = c[m];  used[m] = True
+
+        # Edge AB
+        vc = d1 * d4 - d3 * d2
+        m  = ~used & (vc <= 0) & (d1 >= 0) & (d3 <= 0)
+        if np.any(m):
+            denom = d1[m] - d3[m]
+            t_ab  = np.where(np.abs(denom) > 1e-10, d1[m] / denom, 0.0)
+            closest[m] = a[m] + t_ab[:, np.newaxis] * ab[m]
+            used[m] = True
+
+        # Edge AC
+        vb = d5 * d2 - d1 * d6
+        m  = ~used & (vb <= 0) & (d2 >= 0) & (d6 <= 0)
+        if np.any(m):
+            denom = d2[m] - d6[m]
+            t_ac  = np.where(np.abs(denom) > 1e-10, d2[m] / denom, 0.0)
+            closest[m] = a[m] + t_ac[:, np.newaxis] * ac[m]
+            used[m] = True
+
+        # Edge BC
+        va = d3 * d6 - d5 * d4
+        m  = ~used & (va <= 0) & (d4 >= d3) & (d5 >= d6)
+        if np.any(m):
+            bc    = c - b
+            denom = (d4[m] - d3[m]) + (d5[m] - d6[m])
+            t_bc  = np.where(np.abs(denom) > 1e-10, (d4[m] - d3[m]) / denom, 0.0)
+            closest[m] = b[m] + t_bc[:, np.newaxis] * bc[m]
+            used[m] = True
+
+        # Interior – project onto plane
+        m = ~used
+        if np.any(m):
+            n      = np.cross(ab[m], ac[m])
+            n_len  = np.linalg.norm(n, axis=1, keepdims=True)
+            n_norm = n / np.where(n_len > 1e-10, n_len, 1.0)
+            dot    = np.einsum("ij,ij->i", ap[m], n_norm)
+            closest[m] = p - dot[:, np.newaxis] * n_norm
+
+        return float(np.min(np.linalg.norm(closest - p, axis=1)))
+
+    @staticmethod
+    def _segment_clearance_ok(p: np.ndarray, q: np.ndarray,
+                               tris: np.ndarray, min_dist: float) -> bool:
+        """
+        Return True if every sampled point on segment P→Q is at least min_dist mm
+        away from all triangles.  Samples at intervals ≤ min_dist/2.
+        """
+        seg_len = float(np.linalg.norm(q - p))
+        if seg_len < 1e-6:
+            return True
+        n_samples = max(3, int(math.ceil(seg_len / max(0.01, min_dist / 2.0))) + 1)
+        d = q - p
+        for t in np.linspace(0.0, 1.0, n_samples):
+            if OverhangSupportPlugin._point_tris_min_dist(p + t * d, tris) < min_dist:
+                return False
+        return True
 
     # ------------------------------------------------------------------
     # Overhang detection helpers

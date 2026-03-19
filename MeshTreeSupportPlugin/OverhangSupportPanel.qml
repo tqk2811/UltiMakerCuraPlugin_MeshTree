@@ -265,6 +265,26 @@ Window
                 }
                 UM.Label { text: "mm" }
 
+                // Khoảng cách tối thiểu tới vật thể
+                LabelWithTip
+                {
+                    text: "K.cách tối thiểu tới vật"
+                    tip: "Đường đi chéo của nhánh phải cách bề mặt vật thể ít nhất giá trị này.\nNếu không đủ khoảng cách, cặp bị từ chối và nhánh đi thẳng xuống.\nĐặt 0 để tắt kiểm tra.\nPhạm vi: 0.00 – 50.00 mm | Mặc định: 2 mm"
+                }
+                SpinBox
+                {
+                    id: treeClearanceSpinBox
+                    Layout.fillWidth: true
+                    from: 0; to: 5000
+                    stepSize: 1
+                    editable: true
+                    value: Math.round(manager.treeClearance * 100)
+                    onValueModified: manager.treeClearance = value / 100.0
+                    textFromValue: function(v) { return (v / 100.0).toFixed(2) }
+                    valueFromText: function(t) { return Math.round(parseFloat(t) * 100) }
+                }
+                UM.Label { text: "mm" }
+
                 // Hệ số tăng kích thước
                 LabelWithTip
                 {
