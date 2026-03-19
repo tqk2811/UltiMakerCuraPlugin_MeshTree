@@ -19,15 +19,35 @@ Window
 
     color: UM.Theme.getColor("main_background")
 
+    // Label có tooltip dùng MouseArea (UM.Label không forward ToolTip attached)
+    component LabelWithTip: Item
+    {
+        property alias text: lbl.text
+        property string tip: ""
+        implicitWidth: lbl.implicitWidth
+        implicitHeight: lbl.implicitHeight
+
+        UM.Label { id: lbl; anchors.fill: parent }
+        MouseArea
+        {
+            anchors.fill: parent
+            hoverEnabled: true
+            ToolTip.visible: containsMouse && parent.tip !== ""
+            ToolTip.delay: 400
+            ToolTip.text: parent.tip
+        }
+    }
+
     ColumnLayout
     {
         anchors.fill: parent
         anchors.margins: UM.Theme.getSize("default_margin").width
         spacing: UM.Theme.getSize("default_margin").height
 
-        // ── Cài đặt ───────────────────────────────────────────────────
+        // ── Tiêu đề ───────────────────────────────────────────────────
         UM.Label { text: "⚙  Cài đặt phát hiện"; font.bold: true }
 
+        // ── Lưới cài đặt ──────────────────────────────────────────────
         GridLayout
         {
             columns: 3
@@ -36,12 +56,10 @@ Window
             rowSpacing: UM.Theme.getSize("default_margin").height
 
             // Góc Overhang
-            UM.Label
+            LabelWithTip
             {
                 text: "Góc Overhang"
-                ToolTip.visible: hovered
-                ToolTip.delay: 400
-                ToolTip.text: "Mặt có góc nghiêng lớn hơn giá trị này sẽ bị coi là overhang (cần điểm chống đỡ).\nPhạm vi: 0° – 90° | Khuyến nghị: 45°"
+                tip: "Mặt có góc nghiêng lớn hơn giá trị này sẽ bị coi là overhang (cần điểm chống đỡ).\nPhạm vi: 0° – 90° | Khuyến nghị: 45°"
             }
             SpinBox
             {
@@ -55,18 +73,15 @@ Window
             UM.Label { text: "°" }
 
             // Khoảng cách điểm
-            UM.Label
+            LabelWithTip
             {
                 text: "Khoảng cách điểm"
-                ToolTip.visible: hovered
-                ToolTip.delay: 400
-                ToolTip.text: "Khoảng cách tối thiểu giữa hai điểm chống đỡ liền kề.\nGiá trị nhỏ → nhiều điểm hơn.\nPhạm vi: 0.01 – 200.00 mm | Khuyến nghị: 5 – 15 mm"
+                tip: "Khoảng cách tối thiểu giữa hai điểm chống đỡ liền kề.\nGiá trị nhỏ → nhiều điểm hơn.\nPhạm vi: 0.01 – 200.00 mm | Khuyến nghị: 5 – 15 mm"
             }
             SpinBox
             {
                 id: spacingSpinBox
                 Layout.fillWidth: true
-                // Nội bộ lưu integer = giá trị thực × 100 (để có 2 chữ số thập phân)
                 from: 1; to: 20000
                 stepSize: 10        // bước 0.10 mm
                 editable: true
@@ -78,12 +93,10 @@ Window
             UM.Label { text: "mm" }
 
             // Đường kính điểm
-            UM.Label
+            LabelWithTip
             {
                 text: "Đường kính điểm"
-                ToolTip.visible: hovered
-                ToolTip.delay: 400
-                ToolTip.text: "Kích thước hình cầu hiển thị cho mỗi điểm chống đỡ trên khung nhìn 3D.\nChỉ ảnh hưởng hiển thị, không thay đổi bản in.\nPhạm vi: 0.01 – 50.00 mm"
+                tip: "Kích thước hình cầu hiển thị cho mỗi điểm chống đỡ trên khung nhìn 3D.\nChỉ ảnh hưởng hiển thị, không thay đổi bản in.\nPhạm vi: 0.01 – 50.00 mm"
             }
             SpinBox
             {
