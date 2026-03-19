@@ -10,9 +10,9 @@ Window
     title: "Overhang Support Visualizer – Phát hiện vùng Overhang"
 
     width: 500
-    height: 640
+    height: 760
     minimumWidth: 420
-    minimumHeight: 540
+    minimumHeight: 660
 
     modality: Qt.NonModal
     flags: Qt.Window | Qt.WindowSystemMenuHint | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | Qt.WindowStaysOnTopHint
