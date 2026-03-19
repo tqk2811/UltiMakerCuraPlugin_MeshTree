@@ -384,11 +384,12 @@ class OverhangSupportPlugin(QObject, Extension):
         scene = Application.getInstance().getController().getScene()
         active_plate = Application.getInstance().getMultiBuildPlateModel().activeBuildPlate
 
-        node = SceneNode()
+        node = CuraSceneNode()
         node.setName(_TREE_NODE_TAG)
         node.setMeshData(mesh)
-        node.setSelectable(False)
+        node.setSelectable(True)
         node.addDecorator(BuildPlateDecorator(active_plate))
+        node.addDecorator(SliceableObjectDecorator())
 
         self._tree_nodes.append(node)
 
