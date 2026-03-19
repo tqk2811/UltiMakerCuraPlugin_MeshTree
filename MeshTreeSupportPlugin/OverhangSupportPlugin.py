@@ -148,9 +148,14 @@ class OverhangSupportPlugin(QObject, Extension):
     def _openPanel(self):
         if self._panel is None:
             qml_path = os.path.join(os.path.dirname(__file__), "OverhangSupportPanel.qml")
-            self._panel = Application.getInstance().createQmlSubWindow(
-                qml_path, {"manager": self}
-            )
+            app = Application.getInstance()
+            self._panel = app.createQmlComponent(qml_path, {"manager": self})
+            if self._panel:
+                # Đặt cửa sổ chính là transient parent (cửa sổ con của Cura)
+                # createQmlComponent không tự làm điều này (khác createQmlSubWindow)
+                main_window = app.getMainWindow()
+                if main_window:
+                    self._panel.setTransientParent(main_window)
         if self._panel:
             self._panel.show()
 
