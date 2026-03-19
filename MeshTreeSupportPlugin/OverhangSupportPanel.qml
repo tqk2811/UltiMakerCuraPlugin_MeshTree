@@ -133,6 +133,18 @@ Window
             UM.Label { text: "mm" }
         }
 
+        // ── Tùy chọn hiển thị ────────────────────────────────────────
+        CheckBox
+        {
+            id: overlayCheckBox
+            text: "Hiển thị vùng overhang"
+            checked: manager.showOverlay
+            onCheckedChanged: manager.showOverlay = checked
+            ToolTip.visible: hovered
+            ToolTip.delay: 400
+            ToolTip.text: "Tô màu riêng các mặt tam giác được xác định là vùng overhang\ntrên khung nhìn 3D. Không ảnh hưởng đến bản in."
+        }
+
         // ── Divider ───────────────────────────────────────────────────
         Rectangle
         {

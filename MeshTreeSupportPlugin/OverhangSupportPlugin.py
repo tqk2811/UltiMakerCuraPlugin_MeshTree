@@ -18,12 +18,14 @@ from UM.i18n import i18nCatalog
 
 catalog = i18nCatalog("cura")
 
-_SUPPORT_NODE_TAG = "__overhang_support_point__"
+_SUPPORT_NODE_TAG  = "__overhang_support_point__"
+_OVERLAY_NODE_TAG  = "__overhang_overlay__"
 
-_PREF_ANGLE   = "overhang_support_visualizer/overhang_angle"
-_PREF_SPACING = "overhang_support_visualizer/point_spacing"
-_PREF_DIAM    = "overhang_support_visualizer/point_diameter"
-_PREF_OFFSET  = "overhang_support_visualizer/point_offset"
+_PREF_ANGLE        = "overhang_support_visualizer/overhang_angle"
+_PREF_SPACING      = "overhang_support_visualizer/point_spacing"
+_PREF_DIAM         = "overhang_support_visualizer/point_diameter"
+_PREF_OFFSET       = "overhang_support_visualizer/point_offset"
+_PREF_SHOW_OVERLAY = "overhang_support_visualizer/show_overlay"
 
 
 class OverhangSupportPlugin(QObject, Extension):
@@ -33,6 +35,7 @@ class OverhangSupportPlugin(QObject, Extension):
     pointSpacingChanged = pyqtSignal()
     pointDiameterChanged = pyqtSignal()
     pointOffsetChanged = pyqtSignal()
+    showOverlayChanged = pyqtSignal()
     statusChanged = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -40,21 +43,24 @@ class OverhangSupportPlugin(QObject, Extension):
         Extension.__init__(self)
 
         self._support_point_nodes: List[SceneNode] = []
+        self._overlay_nodes: List[SceneNode] = []
         self._status_message = ""
         self._panel = None
 
         # Register preferences with defaults; Cura persists them automatically.
         prefs = Application.getInstance().getPreferences()
-        prefs.addPreference(_PREF_ANGLE,   45)
-        prefs.addPreference(_PREF_SPACING,  5)
-        prefs.addPreference(_PREF_DIAM,     2)
-        prefs.addPreference(_PREF_OFFSET,   0)
+        prefs.addPreference(_PREF_ANGLE,        45)
+        prefs.addPreference(_PREF_SPACING,        5)
+        prefs.addPreference(_PREF_DIAM,           2)
+        prefs.addPreference(_PREF_OFFSET,         0)
+        prefs.addPreference(_PREF_SHOW_OVERLAY, True)
 
         # Load saved values
         self._overhang_angle  = int(prefs.getValue(_PREF_ANGLE))
         self._point_spacing   = round(float(prefs.getValue(_PREF_SPACING)), 2)
         self._point_diameter  = round(float(prefs.getValue(_PREF_DIAM)), 2)
         self._point_offset    = round(float(prefs.getValue(_PREF_OFFSET)), 2)
+        self._show_overlay    = bool(prefs.getValue(_PREF_SHOW_OVERLAY))
 
         self.setMenuName(catalog.i18nc("@item:inmenu", "Overhang Support Visualizer"))
         self.addMenuItem(
@@ -114,6 +120,20 @@ class OverhangSupportPlugin(QObject, Extension):
             Application.getInstance().getPreferences().setValue(_PREF_OFFSET, value)
             self.pointOffsetChanged.emit()
 
+    @pyqtProperty(bool, notify=showOverlayChanged)
+    def showOverlay(self) -> bool:
+        return self._show_overlay
+
+    @showOverlay.setter
+    def showOverlay(self, value: bool):
+        value = bool(value)
+        if self._show_overlay != value:
+            self._show_overlay = value
+            Application.getInstance().getPreferences().setValue(_PREF_SHOW_OVERLAY, value)
+            for node in self._overlay_nodes:
+                node.setVisible(value)
+            self.showOverlayChanged.emit()
+
     @pyqtProperty(str, notify=statusChanged)
     def statusMessage(self) -> str:
         return self._status_message
@@ -137,7 +157,7 @@ class OverhangSupportPlugin(QObject, Extension):
 
     @pyqtSlot()
     def detectAndVisualize(self):
-        """Detect overhang areas on all scene objects and create visual support markers."""
+        """Detect overhang areas on all scene objects, create overlay + support markers."""
         self.clearSupportPoints()
 
         scene = Application.getInstance().getController().getScene()
@@ -184,6 +204,16 @@ class OverhangSupportPlugin(QObject, Extension):
             if not overhang_faces:
                 continue
 
+            # ── Overlay mesh (tô màu vùng overhang) ──────────────────
+            overlay = SceneNode()
+            overlay.setName(_OVERLAY_NODE_TAG)
+            overlay.setMeshData(self._buildOverhangMesh(overhang_faces))
+            overlay.setSelectable(False)
+            overlay.setVisible(self._show_overlay)
+            self._overlay_nodes.append(overlay)
+            operations.append(AddSceneNodeOperation(overlay, scene.getRoot()))
+
+            # ── Điểm chống đỡ ────────────────────────────────────────
             points = self._sampleSupportPoints(overhang_faces, float(self._point_spacing))
             total_points += len(points)
 
@@ -216,16 +246,18 @@ class OverhangSupportPlugin(QObject, Extension):
 
     @pyqtSlot()
     def clearSupportPoints(self):
-        """Remove all support-point marker nodes from the scene."""
-        if not self._support_point_nodes:
+        """Remove all overlay and support-point marker nodes from the scene."""
+        all_nodes = self._support_point_nodes + self._overlay_nodes
+        if not all_nodes:
             return
 
         op = GroupedOperation()
-        for node in self._support_point_nodes:
+        for node in all_nodes:
             if node.getParent() is not None:
                 op.addOperation(RemoveSceneNodeOperation(node))
         op.push()
         self._support_point_nodes.clear()
+        self._overlay_nodes.clear()
         self._setStatus("Support point markers cleared.")
 
     # ------------------------------------------------------------------
@@ -339,6 +371,22 @@ class OverhangSupportPlugin(QObject, Extension):
             points.append(pt)
 
         return points
+
+    @staticmethod
+    def _buildOverhangMesh(overhang_faces: List[Tuple]):
+        """Build a flat MeshData from the overhang triangle list (world-space coords)."""
+        verts = []
+        for v0, v1, v2 in overhang_faces:
+            verts.extend([v0, v1, v2])
+
+        n = len(overhang_faces)
+        idx = np.arange(n * 3, dtype=np.int32).reshape(-1, 3)
+
+        builder = MeshBuilder()
+        builder.setVertices(np.array(verts, dtype=np.float32))
+        builder.setIndices(idx)
+        builder.calculateNormals()
+        return builder.build()
 
     @staticmethod
     def _buildSphereMesh(radius: float, segments: int = 16, rings: int = 10):
