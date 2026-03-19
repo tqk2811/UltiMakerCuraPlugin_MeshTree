@@ -17,6 +17,7 @@ from UM.Operations.GroupedOperation import GroupedOperation
 from UM.i18n import i18nCatalog
 from cura.Scene.BuildPlateDecorator import BuildPlateDecorator
 from cura.Scene.SliceableObjectDecorator import SliceableObjectDecorator
+from cura.Scene.CuraSceneNode import CuraSceneNode
 
 catalog = i18nCatalog("cura")
 
@@ -209,18 +210,15 @@ class OverhangSupportPlugin(QObject, Extension):
 
             # ── Overlay mesh (tô màu vùng overhang) ──────────────────
             active_plate = Application.getInstance().getMultiBuildPlateModel().activeBuildPlate
-            overlay = SceneNode()
+            # Dùng CuraSceneNode để SolidView nhận ra và render với màu extruder
+            overlay = CuraSceneNode()
             overlay.setName(_OVERLAY_NODE_TAG)
             overlay.setMeshData(self._buildOverhangMesh(overhang_faces, offset=max(0.15, self._point_offset)))
             overlay.setSelectable(False)
             overlay.setVisible(self._show_overlay)
-            # BuildPlateDecorator + SliceableObjectDecorator để Cura render node này;
-            # anti_overhang_mesh = True qua SettingOverrideDecorator sẽ cho màu riêng
-            # và ngăn không bị đưa vào slice engine như object thật.
             overlay.addDecorator(BuildPlateDecorator(active_plate))
             overlay.addDecorator(SliceableObjectDecorator())
-            # support_mesh = True → Cura hiển thị màu xanh dương đặc trưng
-            # Overlay sẽ bị slicer bỏ qua vì mesh rỗng (không phải solid)
+            # support_mesh = True → ngăn slicer xử lý như object thật
             stack = overlay.callDecoration("getStack")
             if stack:
                 from UM.Settings.SettingInstance import SettingInstance
@@ -231,6 +229,11 @@ class OverhangSupportPlugin(QObject, Extension):
                     inst.setProperty("value", True)
                     inst.resetState()
                     settings.addInstance(inst)
+            # Gán sang extruder 1 → SolidView render màu extruder 1 (khác object thật)
+            try:
+                overlay.callDecoration("setActiveExtruder", "1")
+            except Exception:
+                pass
             self._overlay_nodes.append(overlay)
             operations.append(AddSceneNodeOperation(overlay, scene.getRoot()))
 
@@ -349,14 +352,19 @@ class OverhangSupportPlugin(QObject, Extension):
         """
         Distribute support points on overhang faces using area-weighted random
         sampling with a Poisson-disk minimum-distance filter.
+
+        Faces with a lower centroid Y (thấp hơn trên trục đứng) get higher
+        sampling priority so contact points are preferentially placed on the
+        lowest overhanging surfaces first.
         """
         rng = np.random.default_rng(seed=0)   # reproducible
 
-        # --- compute per-face areas -----------------------------------------
-        areas = np.array([
-            0.5 * np.linalg.norm(np.cross(v1 - v0, v2 - v0))
-            for v0, v1, v2 in overhang_faces
-        ], dtype=np.float64)
+        # --- per-face metrics ------------------------------------------------
+        areas    = np.empty(len(overhang_faces), dtype=np.float64)
+        center_y = np.empty(len(overhang_faces), dtype=np.float64)
+        for i, (v0, v1, v2) in enumerate(overhang_faces):
+            areas[i]    = 0.5 * np.linalg.norm(np.cross(v1 - v0, v2 - v0))
+            center_y[i] = (v0[1] + v1[1] + v2[1]) / 3.0
 
         total_area = areas.sum()
         if total_area < 1e-6:
@@ -366,7 +374,19 @@ class OverhangSupportPlugin(QObject, Extension):
         num_target = max(1, int(total_area / (spacing * spacing)))
         num_target = min(num_target, 1000)   # safety cap
 
-        weights = areas / total_area
+        # --- Z-priority weight ----------------------------------------------
+        # Cura dùng Y là trục đứng: Y thấp hơn = gần mặt bàn hơn = ưu tiên cao
+        y_min, y_max = center_y.min(), center_y.max()
+        if y_max > y_min:
+            # lowness ∈ [0, 1]: 1 = vùng thấp nhất, 0 = vùng cao nhất
+            lowness = (y_max - center_y) / (y_max - y_min)
+        else:
+            lowness = np.ones(len(overhang_faces))
+
+        # Kết hợp diện tích × hệ số ưu tiên độ cao (mũ 2 để khuếch đại chênh lệch)
+        weights = areas * (lowness ** 2 + 0.05)
+        weights /= weights.sum()
+
         points: List[np.ndarray] = []
 
         max_attempts = num_target * 30
