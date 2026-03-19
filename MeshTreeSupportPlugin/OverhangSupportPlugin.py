@@ -552,7 +552,8 @@ class OverhangSupportPlugin(QObject, Extension):
 
         active: List[_Branch] = []
         y_cur    = float(pending[0][1]) if pending else 0.0
-        ground_y = 0.01
+        ground_y     = 0.01
+        min_meet_y   = 20.0   # điểm hội tụ phải cao hơn mặt đất ít nhất 20 mm
         max_iters = int(y_cur / step) + 500
 
         for _ in range(max_iters):
@@ -586,7 +587,7 @@ class OverhangSupportPlugin(QObject, Extension):
                             continue
                         avg_y  = (a.tip[1] + bb.tip[1]) / 2.0
                         meet_y = avg_y - (dxz / 2.0) / tan_a
-                        if meet_y < ground_y:
+                        if meet_y < min_meet_y:
                             continue
                         raw_cands.append((dxz, i, j, meet_y,
                                           a.tip.copy(), bb.tip.copy()))
