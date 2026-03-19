@@ -745,6 +745,7 @@ class OverhangSupportPlugin(QObject, Extension):
         d  = q - p
         v0 = tris[:, 0];  e1 = tris[:, 1] - v0;  e2 = tris[:, 2] - v0
 
+        # d is (3,), tris arrays are (N, 3) — use "j,ij->i" for dot with broadcast
         h = np.cross(d, e2)                            # (N, 3)
         a = np.einsum("ij,ij->i", e1, h)               # (N,)
         ok = np.abs(a) > 1e-10
@@ -755,7 +756,7 @@ class OverhangSupportPlugin(QObject, Extension):
         ok &= (u >= 0.0) & (u <= 1.0)
 
         qc = np.cross(s, e1)                           # (N, 3)
-        v  = f * np.einsum("ij,ij->i", d, qc)
+        v  = f * np.einsum("j,ij->i", d, qc)          # d is (3,) → "j,ij->i"
         ok &= (v >= 0.0) & (u + v <= 1.0)
 
         t  = f * np.einsum("ij,ij->i", e2, qc)
