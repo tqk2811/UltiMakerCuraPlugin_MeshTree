@@ -83,7 +83,7 @@ Window
                 id: spacingSpinBox
                 Layout.fillWidth: true
                 from: 1; to: 20000
-                stepSize: 10        // bước 0.10 mm
+                stepSize: 1         // bước 0.01 mm
                 editable: true
                 value: Math.round(manager.pointSpacing * 100)
                 onValueModified: manager.pointSpacing = value / 100.0
@@ -103,7 +103,7 @@ Window
                 id: diameterSpinBox
                 Layout.fillWidth: true
                 from: 1; to: 5000
-                stepSize: 10        // bước 0.10 mm
+                stepSize: 1         // bước 0.01 mm
                 editable: true
                 value: Math.round(manager.pointDiameter * 100)
                 onValueModified: manager.pointDiameter = value / 100.0
@@ -123,7 +123,7 @@ Window
                 id: offsetSpinBox
                 Layout.fillWidth: true
                 from: 0; to: 10000
-                stepSize: 10        // bước 0.10 mm
+                stepSize: 1         // bước 0.01 mm
                 editable: true
                 value: Math.round(manager.pointOffset * 100)
                 onValueModified: manager.pointOffset = value / 100.0
