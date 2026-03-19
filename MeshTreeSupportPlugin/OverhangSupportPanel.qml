@@ -265,25 +265,25 @@ Window
                 }
                 UM.Label { text: "mm" }
 
-                // Bán kính nhánh
+                // Hệ số tăng kích thước
                 LabelWithTip
                 {
-                    text: "Bán kính nhánh"
-                    tip: "Bán kính hình trụ của mỗi nhánh cây chống đỡ.\nPhạm vi: 0.01 – 20.00 mm | Khuyến nghị: 0.3 – 1.5 mm"
+                    text: "Hệ số tăng kích thước"
+                    tip: "Đường kính nhánh tăng dần khi xuống thấp hơn contact point.\nCông thức: Ø_điểm + (Y_contact_cao_nhất − Y_hiện_tại) × Ø_điểm × hệ_số\nVí dụ 1%: mỗi 10 mm xuống thêm, đường kính tăng thêm 10% × Ø_điểm.\nPhạm vi: 0.00 – 100.00% | Khuyến nghị: 0.5 – 3%"
                 }
                 SpinBox
                 {
-                    id: treeRadiusSpinBox
+                    id: treeGrowthSpinBox
                     Layout.fillWidth: true
-                    from: 1; to: 2000
+                    from: 0; to: 10000
                     stepSize: 1
                     editable: true
-                    value: Math.round(manager.treeBranchRadius * 100)
-                    onValueModified: manager.treeBranchRadius = value / 100.0
+                    value: Math.round(manager.treeGrowthPct * 100)
+                    onValueModified: manager.treeGrowthPct = value / 100.0
                     textFromValue: function(v) { return (v / 100.0).toFixed(2) }
                     valueFromText: function(t) { return Math.round(parseFloat(t) * 100) }
                 }
-                UM.Label { text: "mm" }
+                UM.Label { text: "%" }
 
                 // Bước mô phỏng
                 LabelWithTip

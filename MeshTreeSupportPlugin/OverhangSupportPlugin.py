@@ -34,7 +34,7 @@ _PREF_SHOW_OVERLAY = "overhang_support_visualizer/show_overlay"
 _PREF_TREE_ANGLE   = "overhang_support_visualizer/tree_branch_angle"
 _PREF_TREE_BASE    = "overhang_support_visualizer/tree_base_dist"
 _PREF_TREE_PER_LVL = "overhang_support_visualizer/tree_dist_per_level"
-_PREF_TREE_RADIUS  = "overhang_support_visualizer/tree_branch_radius"
+_PREF_TREE_GROWTH  = "overhang_support_visualizer/tree_growth_pct"
 _PREF_TREE_STEP    = "overhang_support_visualizer/tree_step_size"
 
 
@@ -51,7 +51,7 @@ class OverhangSupportPlugin(QObject, Extension):
     treeBranchAngleChanged  = pyqtSignal()
     treeBaseDistChanged     = pyqtSignal()
     treeDistPerLevelChanged = pyqtSignal()
-    treeBranchRadiusChanged = pyqtSignal()
+    treeGrowthPctChanged    = pyqtSignal()
     treeStepSizeChanged     = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -75,7 +75,7 @@ class OverhangSupportPlugin(QObject, Extension):
         prefs.addPreference(_PREF_TREE_ANGLE,    30)
         prefs.addPreference(_PREF_TREE_BASE,     20)
         prefs.addPreference(_PREF_TREE_PER_LVL,   5)
-        prefs.addPreference(_PREF_TREE_RADIUS,   0.5)
+        prefs.addPreference(_PREF_TREE_GROWTH,    1)
         prefs.addPreference(_PREF_TREE_STEP,     1.0)
 
         self._overhang_angle      = int(prefs.getValue(_PREF_ANGLE))
@@ -87,7 +87,7 @@ class OverhangSupportPlugin(QObject, Extension):
         self._tree_branch_angle   = int(prefs.getValue(_PREF_TREE_ANGLE))
         self._tree_base_dist      = round(float(prefs.getValue(_PREF_TREE_BASE)), 2)
         self._tree_dist_per_level = round(float(prefs.getValue(_PREF_TREE_PER_LVL)), 2)
-        self._tree_branch_radius  = round(float(prefs.getValue(_PREF_TREE_RADIUS)), 2)
+        self._tree_growth_pct     = round(float(prefs.getValue(_PREF_TREE_GROWTH)), 2)
         self._tree_step_size      = round(float(prefs.getValue(_PREF_TREE_STEP)), 2)
 
         self.setMenuName(catalog.i18nc("@item:inmenu", "Overhang Support Visualizer"))
@@ -203,17 +203,17 @@ class OverhangSupportPlugin(QObject, Extension):
             Application.getInstance().getPreferences().setValue(_PREF_TREE_PER_LVL, value)
             self.treeDistPerLevelChanged.emit()
 
-    @pyqtProperty(float, notify=treeBranchRadiusChanged)
-    def treeBranchRadius(self) -> float:
-        return self._tree_branch_radius
+    @pyqtProperty(float, notify=treeGrowthPctChanged)
+    def treeGrowthPct(self) -> float:
+        return self._tree_growth_pct
 
-    @treeBranchRadius.setter
-    def treeBranchRadius(self, value: float):
-        value = round(max(0.01, float(value)), 2)
-        if self._tree_branch_radius != value:
-            self._tree_branch_radius = value
-            Application.getInstance().getPreferences().setValue(_PREF_TREE_RADIUS, value)
-            self.treeBranchRadiusChanged.emit()
+    @treeGrowthPct.setter
+    def treeGrowthPct(self, value: float):
+        value = round(max(0.0, float(value)), 2)
+        if self._tree_growth_pct != value:
+            self._tree_growth_pct = value
+            Application.getInstance().getPreferences().setValue(_PREF_TREE_GROWTH, value)
+            self.treeGrowthPctChanged.emit()
 
     @pyqtProperty(float, notify=treeStepSizeChanged)
     def treeStepSize(self) -> float:
@@ -376,7 +376,7 @@ class OverhangSupportPlugin(QObject, Extension):
             self._setStatus("Không tạo được đường cây chống đỡ.")
             return
 
-        mesh = self._buildTreeMesh(segments, self._tree_branch_radius)
+        mesh = self._buildTreeMesh(segments, self._point_diameter, self._tree_growth_pct)
         if mesh is None:
             self._setStatus("Không xây dựng được mesh cây chống đỡ.")
             return
@@ -444,11 +444,14 @@ class OverhangSupportPlugin(QObject, Extension):
         merge_dist = step * 1.5
 
         class _Branch:
-            __slots__ = ["tip", "direction", "level", "waypoints", "active", "partner"]
-            def __init__(self, tip, level):
+            __slots__ = ["tip", "direction", "level", "waypoints", "active", "partner", "origin_y"]
+            def __init__(self, tip, level, origin_y=None):
                 self.tip       = np.array(tip, dtype=np.float64)
                 self.direction = np.array([0.0, -1.0, 0.0])
                 self.level     = level
+                # origin_y: highest contact-point Y among all branches merged into this one.
+                # Used for the taper formula: diameter grows as we descend from origin_y.
+                self.origin_y  = float(tip[1]) if origin_y is None else float(origin_y)
                 self.waypoints = [self.tip.copy()]   # list of recorded XYZ waypoints
                 self.active    = True
                 self.partner   = None                # type: Optional[_Branch]
@@ -543,7 +546,8 @@ class OverhangSupportPlugin(QObject, Extension):
                     b.active = False
                     p.active = False
 
-                    new_b = _Branch(meet, max(b.level, p.level) + 1)
+                    new_b = _Branch(meet, max(b.level, p.level) + 1,
+                                    origin_y=max(b.origin_y, p.origin_y))
                     all_branches.append(new_b)
                     new_branches.append(new_b)
 
@@ -570,25 +574,39 @@ class OverhangSupportPlugin(QObject, Extension):
             end_pt[1] = ground_y
             b.waypoints.append(end_pt)
 
-        # Convert waypoints → segments
+        # Convert waypoints → segments (carry origin_y for taper calculation)
         segments = []
         for b in all_branches:
             wps = b.waypoints
             for i in range(len(wps) - 1):
                 s, e = wps[i], wps[i + 1]
                 if np.linalg.norm(s - e) > 1e-6:
-                    segments.append((s, e, b.level))
+                    segments.append((s, e, b.level, b.origin_y))
 
         return segments
 
     @staticmethod
-    def _buildTreeMesh(segments: List[Tuple], branch_radius: float):
-        """Build a combined cylinder mesh for all tree support segments."""
-        SEG_SIDES = 8
+    def _buildTreeMesh(segments: List[Tuple], point_diameter: float, growth_pct: float):
+        """
+        Build a combined frustum (tapered cylinder) mesh for all tree support segments.
+
+        Radius at any Y position along a branch:
+            r(y) = (point_diameter + (origin_y - y) * point_diameter * growth_pct/100) / 2
+
+        So at the contact point (y == origin_y) the branch starts at exactly
+        point_diameter thickness, and grows wider as it descends.
+        """
+        SEG_SIDES  = 8
+        factor     = point_diameter * growth_pct / 100.0   # pre-compute constant
+
+        def radius_at(y: float, origin_y: float) -> float:
+            drop = max(0.0, origin_y - y)
+            return max(0.01, (point_diameter + drop * factor) / 2.0)
+
         all_verts = []
         all_idxs  = []
 
-        for start, end, _level in segments:
+        for start, end, _level, origin_y in segments:
             d      = end - start
             length = float(np.linalg.norm(d))
             if length < 1e-6:
@@ -600,28 +618,31 @@ class OverhangSupportPlugin(QObject, Extension):
             u   = np.cross(d_norm, ref);  u /= np.linalg.norm(u)
             v   = np.cross(d_norm, u)
 
+            r_start = radius_at(start[1], origin_y)
+            r_end   = radius_at(end[1],   origin_y)
+
             base = len(all_verts)
 
-            # Two rings: bottom (start) and top (end)
-            for ring_pt in (start, end):
+            # Bottom ring at start (r_start), top ring at end (r_end)
+            for ring_pt, r in ((start, r_start), (end, r_end)):
                 for i in range(SEG_SIDES):
                     angle = 2.0 * math.pi * i / SEG_SIDES
-                    all_verts.append(ring_pt + branch_radius * (math.cos(angle) * u + math.sin(angle) * v))
+                    all_verts.append(ring_pt + r * (math.cos(angle) * u + math.sin(angle) * v))
 
             # Side quads
             for i in range(SEG_SIDES):
-                a    = base + i
-                b    = base + (i + 1) % SEG_SIDES
-                c    = base + SEG_SIDES + (i + 1) % SEG_SIDES
-                d_i  = base + SEG_SIDES + i
+                a   = base + i
+                b   = base + (i + 1) % SEG_SIDES
+                c   = base + SEG_SIDES + (i + 1) % SEG_SIDES
+                d_i = base + SEG_SIDES + i
                 all_idxs.extend([a, b, c, a, c, d_i])
 
-            # Bottom cap
+            # Bottom cap (start)
             cbot = len(all_verts);  all_verts.append(start.copy())
             for i in range(SEG_SIDES):
                 all_idxs.extend([cbot, base + (i + 1) % SEG_SIDES, base + i])
 
-            # Top cap
+            # Top cap (end)
             ctop = len(all_verts);  all_verts.append(end.copy())
             for i in range(SEG_SIDES):
                 all_idxs.extend([ctop, base + SEG_SIDES + i, base + SEG_SIDES + (i + 1) % SEG_SIDES])
