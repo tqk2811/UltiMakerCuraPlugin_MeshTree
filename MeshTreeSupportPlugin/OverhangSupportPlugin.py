@@ -371,7 +371,8 @@ class OverhangSupportPlugin(QObject, Extension):
 
         self._setStatus(f"Đang tạo cây chống đỡ từ {len(self._contact_points)} điểm…")
 
-        segments = self._buildTreeBranches(self._contact_points)
+        scene_tris = self._collectSceneTris()
+        segments = self._buildTreeBranches(self._contact_points, scene_tris)
         if not segments:
             self._setStatus("Không tạo được đường cây chống đỡ.")
             return
@@ -414,7 +415,8 @@ class OverhangSupportPlugin(QObject, Extension):
     # Tree support simulation
     # ------------------------------------------------------------------
 
-    def _buildTreeBranches(self, contact_points: List[np.ndarray]) -> List[Tuple]:
+    def _buildTreeBranches(self, contact_points: List[np.ndarray],
+                           scene_tris: Optional[np.ndarray] = None) -> List[Tuple]:
         """
         Simulate tree support branch growth from contact points downward.
         Returns list of (start, end, level) segments.
@@ -508,13 +510,20 @@ class OverhangSupportPlugin(QObject, Extension):
                         dxz = float(np.linalg.norm((a.tip - bb.tip)[[0, 2]]))
                         if dxz > thresh:
                             continue
-                        # Pre-check: meeting Y must be above ground.
-                        # Each branch covers dxz/2 horizontally at branch_angle,
-                        # dropping (dxz/2) / tan(angle) vertically.
-                        avg_y     = (a.tip[1] + bb.tip[1]) / 2.0
-                        meet_y    = avg_y - (dxz / 2.0) / tan_a
+                        # Pre-check 1: meeting Y must be above ground.
+                        avg_y  = (a.tip[1] + bb.tip[1]) / 2.0
+                        meet_y = avg_y - (dxz / 2.0) / tan_a
                         if meet_y < ground_y:
                             continue   # would meet below ground – pairing fails
+
+                        # Pre-check 2: diagonal paths must not intersect any object.
+                        if scene_tris is not None and len(scene_tris):
+                            mid_xz = (a.tip[[0, 2]] + bb.tip[[0, 2]]) / 2.0
+                            meet_pt = np.array([mid_xz[0], meet_y, mid_xz[1]])
+                            if (self._segment_hits_mesh(a.tip,  meet_pt, scene_tris) or
+                                    self._segment_hits_mesh(bb.tip, meet_pt, scene_tris)):
+                                continue   # diagonal blocked by object – pairing fails
+
                         cands.append((dxz, i, j))
                 cands.sort()
 
@@ -691,6 +700,68 @@ class OverhangSupportPlugin(QObject, Extension):
         builder.setIndices(np.array(all_idxs,  dtype=np.int32).reshape(-1, 3))
         builder.calculateNormals()
         return builder.build()
+
+    # ------------------------------------------------------------------
+    # Scene geometry helpers
+    # ------------------------------------------------------------------
+
+    def _collectSceneTris(self) -> Optional[np.ndarray]:
+        """Return world-space triangles of all printable objects as (N, 3, 3) array."""
+        scene = Application.getInstance().getController().getScene()
+        _SPECIAL = ("support_mesh", "anti_overhang_mesh", "cutting_mesh", "infill_mesh")
+        all_tris = []
+        for node in scene.getRoot().getAllChildren():
+            md = node.getMeshData()
+            if md is None:
+                continue
+            if node.getName() in (_SUPPORT_NODE_TAG, _OVERLAY_NODE_TAG, _TREE_NODE_TAG):
+                continue
+            if not node.callDecoration("isSliceable"):
+                continue
+            stack = node.callDecoration("getStack")
+            if stack and any(stack.getProperty(k, "value") for k in _SPECIAL):
+                continue
+            verts = md.getVertices()
+            if verts is None:
+                continue
+            mat  = node.getWorldTransformation().getData()
+            ones = np.ones((len(verts), 1), dtype=np.float32)
+            wv   = (np.hstack([verts, ones]) @ mat.T)[:, :3].astype(np.float64)
+            idx  = md.getIndices()
+            if idx is not None:
+                idx = idx.reshape(-1, 3).astype(np.int32)
+            else:
+                idx = np.arange(len(wv)).reshape(-1, 3)
+            all_tris.append(wv[idx])
+        return np.concatenate(all_tris, axis=0) if all_tris else None
+
+    @staticmethod
+    def _segment_hits_mesh(p: np.ndarray, q: np.ndarray,
+                           tris: np.ndarray) -> bool:
+        """
+        Test whether segment P→Q intersects any triangle in `tris` (shape N×3×3).
+        Uses vectorised Möller–Trumbore; t ∈ (ε, 1] counts as a hit.
+        """
+        d  = q - p
+        v0 = tris[:, 0];  e1 = tris[:, 1] - v0;  e2 = tris[:, 2] - v0
+
+        h = np.cross(d, e2)                            # (N, 3)
+        a = np.einsum("ij,ij->i", e1, h)               # (N,)
+        ok = np.abs(a) > 1e-10
+        f  = np.where(ok, 1.0 / np.where(ok, a, 1.0), 0.0)
+
+        s = p - v0                                     # (N, 3)
+        u = f * np.einsum("ij,ij->i", s, h)
+        ok &= (u >= 0.0) & (u <= 1.0)
+
+        qc = np.cross(s, e1)                           # (N, 3)
+        v  = f * np.einsum("ij,ij->i", d, qc)
+        ok &= (v >= 0.0) & (u + v <= 1.0)
+
+        t  = f * np.einsum("ij,ij->i", e2, qc)
+        ok &= (t > 1e-6) & (t <= 1.0)
+
+        return bool(np.any(ok))
 
     # ------------------------------------------------------------------
     # Overhang detection helpers
