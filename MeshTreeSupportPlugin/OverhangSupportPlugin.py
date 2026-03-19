@@ -472,18 +472,15 @@ class OverhangSupportPlugin(QObject, Extension):
             drop = max(0.0, origin_y - y)
             return max(0.01, (pt_diam + drop * growth_fac) / 2.0)
 
+        # ── Branch data class ────────────────────────────────────────────────────
         class _Branch:
-            __slots__ = ["tip", "direction", "level", "waypoints", "active", "partner", "origin_y"]
+            __slots__ = ["tip", "level", "waypoints", "active", "origin_y"]
             def __init__(self, tip, level, origin_y=None):
-                self.tip       = np.array(tip, dtype=np.float64)
-                self.direction = np.array([0.0, -1.0, 0.0])
-                self.level     = level
-                # origin_y: highest contact-point Y among all branches merged into this one.
-                # Used for the taper formula: diameter grows as we descend from origin_y.
-                self.origin_y  = float(tip[1]) if origin_y is None else float(origin_y)
-                self.waypoints = [self.tip.copy()]   # list of recorded XYZ waypoints
-                self.active    = True
-                self.partner   = None                # type: Optional[_Branch]
+                self.tip      = np.array(tip, dtype=np.float64)
+                self.level    = level
+                self.origin_y = float(tip[1]) if origin_y is None else float(origin_y)
+                self.waypoints = [self.tip.copy()]
+                self.active   = True
 
         all_branches: List[_Branch] = []
 
@@ -493,33 +490,33 @@ class OverhangSupportPlugin(QObject, Extension):
             key=lambda p: -p[1]
         )
 
-        active:  List[_Branch] = []
-        y_cur = float(pending[0][1]) if pending else 0.0
+        active: List[_Branch] = []
+        y_cur    = float(pending[0][1]) if pending else 0.0
         ground_y = 0.01
-
         max_iters = int(y_cur / step) + 500
 
         for _ in range(max_iters):
-            # ── Activate contact-point branches whose Y we've just reached ──────
+            # ── Activate contact-point branches whose Y we've just reached ───────
             while pending and pending[0][1] >= y_cur - step * 0.01:
-                pt = pending.pop(0)
-                b  = _Branch(pt, 0)
+                b = _Branch(pending.pop(0), 0)
                 all_branches.append(b)
                 active.append(b)
 
             if not active and not pending:
                 break
 
-            # ── Pair ONLY unpaired branches (partner is None) ────────────────────
-            # Branches already bending toward a partner are skipped entirely.
-            unpaired = [b for b in active if b.partner is None]
-            if len(unpaired) >= 2:
-                # Collect candidate pairs sorted by XZ distance (greedy closest-first)
+            # ── Try to pair unpaired branches ANALYTICALLY ───────────────────────
+            # When a valid pair is found:
+            #   • compute meeting point analytically (no step-by-step convergence)
+            #   • immediately deactivate both and create the merged branch
+            #   • eliminates oscillation / deadloop from simulation-based merging
+            if len(active) >= 2:
                 cands = []
-                for i in range(len(unpaired)):
-                    for j in range(i + 1, len(unpaired)):
-                        a, bb = unpaired[i], unpaired[j]
-                        # Only consider branches at similar heights (within 4 steps)
+                n = len(active)
+                for i in range(n):
+                    for j in range(i + 1, n):
+                        a, bb = active[i], active[j]
+                        # Only pair at similar heights (within 4 steps)
                         if abs(a.tip[1] - bb.tip[1]) > step * 4:
                             continue
                         eff_level = max(a.level, bb.level)
@@ -527,14 +524,12 @@ class OverhangSupportPlugin(QObject, Extension):
                         dxz = float(np.linalg.norm((a.tip - bb.tip)[[0, 2]]))
                         if dxz > thresh:
                             continue
-                        # Pre-check 1: meeting Y must be above ground.
+                        # Pre-check 1: meeting Y above ground
                         avg_y  = (a.tip[1] + bb.tip[1]) / 2.0
                         meet_y = avg_y - (dxz / 2.0) / tan_a
                         if meet_y < ground_y:
-                            continue   # would meet below ground – pairing fails
-
-                        # Pre-check 2: diagonal paths must stay >= clearance mm from
-                        # all object surfaces.
+                            continue
+                        # Pre-check 2: clearance from object surfaces
                         if scene_tris is not None and len(scene_tris) and clearance > 0.0:
                             mid_xz  = (a.tip[[0, 2]] + bb.tip[[0, 2]]) / 2.0
                             meet_pt = np.array([mid_xz[0], meet_y, mid_xz[1]])
@@ -542,81 +537,57 @@ class OverhangSupportPlugin(QObject, Extension):
                                         a.tip, meet_pt, scene_tris, clearance) or
                                     not self._segment_clearance_ok(
                                         bb.tip, meet_pt, scene_tris, clearance)):
-                                continue   # too close to object – pairing fails
-
-                        cands.append((dxz, i, j))
+                                continue
+                        cands.append((dxz, i, j, meet_y))
                 cands.sort()
 
                 used = set()
-                for dxz, i, j in cands:
+                new_branches: List[_Branch] = []
+                for dxz, i, j, meet_y in cands:
                     if i in used or j in used:
                         continue
-                    a, bb = unpaired[i], unpaired[j]
                     used.add(i); used.add(j)
+                    a, bb = active[i], active[j]
 
-                    a.partner  = bb
-                    bb.partner = a
+                    # Compute meeting point analytically
+                    mid_xz  = (a.tip[[0, 2]] + bb.tip[[0, 2]]) / 2.0
+                    meet_pt = np.array([mid_xz[0], meet_y, mid_xz[1]])
 
-                    # Record direction-change waypoint at current tip
-                    a.waypoints.append(a.tip.copy())
-                    bb.waypoints.append(bb.tip.copy())
-
-                    # Set converging directions toward XZ midpoint at branch_angle
+                    # xz_d: unit vector from a toward bb in XZ plane
                     xz_diff = (bb.tip - a.tip)[[0, 2]]
                     norm    = float(np.linalg.norm(xz_diff))
-                    if norm > 1e-6:
-                        xz_d = xz_diff / norm
-                        a.direction  = np.array([ xz_d[0]*sin_a, -cos_a,  xz_d[1]*sin_a])
-                        bb.direction = np.array([-xz_d[0]*sin_a, -cos_a, -xz_d[1]*sin_a])
+                    xz_d    = xz_diff / norm if norm > 1e-6 else np.array([1.0, 0.0])
 
-                    # For level ≥ 1: RIGHT AFTER the bend, add a short stub going UP.
-                    # The stub is a separate mini-branch so the main branch tip is
-                    # unchanged and the diagonal continues unaffected.
-                    # Extension length = tan(branch_angle) / radius_at_pairing_point
-                    # For level ≥ 1: stub goes in the MIRROR of the diagonal direction
-                    # (same angle, opposite horizontal + upward) so stub and diagonal
-                    # form a straight rod through the bend point.
+                    # Record bend waypoint + diagonal segment to meeting point
+                    a.waypoints.append(a.tip.copy())
+                    a.waypoints.append(meet_pt.copy())
+                    bb.waypoints.append(bb.tip.copy())
+                    bb.waypoints.append(meet_pt.copy())
+                    a.active = bb.active = False
+
+                    # Upward stub for level ≥ 1 (mirrored diagonal direction)
                     for br, xz_dir_toward in ((a, xz_d), (bb, -xz_d)):
                         if br.level >= 1:
-                            ext_len    = tan_a * _radius_at(br.tip[1], br.origin_y)
-                            stub_dir   = np.array([-xz_dir_toward[0]*sin_a, cos_a,
-                                                   -xz_dir_toward[1]*sin_a])
-                            up_pt      = br.tip + stub_dir * ext_len
-                            stub       = _Branch(br.tip, br.level, origin_y=br.origin_y)
+                            ext_len  = tan_a * _radius_at(br.tip[1], br.origin_y)
+                            stub_dir = np.array([-xz_dir_toward[0]*sin_a, cos_a,
+                                                 -xz_dir_toward[1]*sin_a])
+                            up_pt    = br.tip + stub_dir * ext_len
+                            stub     = _Branch(br.tip, br.level, origin_y=br.origin_y)
                             stub.waypoints = [br.tip.copy(), up_pt]
                             stub.active    = False
                             all_branches.append(stub)
 
-            # ── Move all active branches one step ────────────────────────────────
-            for b in active:
-                b.tip += b.direction * step
-
-            # ── Detect merges: paired branches whose XZ gap closed ───────────────
-            checked_ids  = set()
-            new_branches: List[_Branch] = []
-            for b in list(active):
-                if b.partner is None or id(b) in checked_ids:
-                    continue
-                p = b.partner
-                if p not in active:
-                    continue
-                checked_ids.add(id(b))
-                checked_ids.add(id(p))
-
-                dxz = float(np.linalg.norm((b.tip - p.tip)[[0, 2]]))
-                if dxz < merge_dist:
-                    meet = (b.tip + p.tip) / 2.0
-                    b.waypoints.append(meet.copy())
-                    p.waypoints.append(meet.copy())
-                    b.active = False
-                    p.active = False
-
-                    new_b = _Branch(meet, max(b.level, p.level) + 1,
-                                    origin_y=max(b.origin_y, p.origin_y))
+                    # Merged branch continues straight down from meeting point
+                    new_b = _Branch(meet_pt, max(a.level, bb.level) + 1,
+                                    origin_y=max(a.origin_y, bb.origin_y))
                     all_branches.append(new_b)
                     new_branches.append(new_b)
 
-            active = [b for b in active if b.active] + new_branches
+                active = [b for b in active if b.active] + new_branches
+
+            # ── Move all active branches one step straight down ──────────────────
+            for b in active:
+                b.tip[1] -= step
 
             # ── Ground collision ─────────────────────────────────────────────────
             for b in list(active):
@@ -624,18 +595,13 @@ class OverhangSupportPlugin(QObject, Extension):
                     b.tip[1] = ground_y
                     b.waypoints.append(b.tip.copy())
                     b.active = False
-                    # Free the partner so it can try new pairings
-                    if b.partner is not None and b.partner.active:
-                        b.partner.partner   = None
-                        b.partner.direction = np.array([0.0, -1.0, 0.0])
-                        b.partner.waypoints.append(b.partner.tip.copy())
-
             active = [b for b in active if b.active]
+
             y_cur -= step
 
         # Close branches still above ground
         for b in active:
-            end_pt = b.tip.copy()
+            end_pt    = b.tip.copy()
             end_pt[1] = ground_y
             b.waypoints.append(end_pt)
 
@@ -834,16 +800,36 @@ class OverhangSupportPlugin(QObject, Extension):
     def _segment_clearance_ok(p: np.ndarray, q: np.ndarray,
                                tris: np.ndarray, min_dist: float) -> bool:
         """
-        Return True if every sampled point on segment P→Q is at least min_dist mm
-        away from all triangles.  Samples at intervals ≤ min_dist/2.
+        Return True if the segment P→Q stays at least min_dist mm away from all
+        triangles.
+
+        Optimisations:
+          1. AABB pre-filter: discard triangles whose bounding box does not overlap
+             the capsule around the segment (segment AABB expanded by min_dist).
+          2. Sample count capped at 8 to avoid O(length/clearance) blowup on long
+             segments with small clearance values.
         """
         seg_len = float(np.linalg.norm(q - p))
         if seg_len < 1e-6:
             return True
-        n_samples = max(3, int(math.ceil(seg_len / max(0.01, min_dist / 2.0))) + 1)
+
+        # ── AABB pre-filter ──────────────────────────────────────────────────
+        seg_min = np.minimum(p, q) - min_dist
+        seg_max = np.maximum(p, q) + min_dist
+        tri_min = tris.min(axis=1)   # (N, 3)
+        tri_max = tris.max(axis=1)   # (N, 3)
+        mask    = (np.all(tri_min <= seg_max, axis=1) &
+                   np.all(tri_max >= seg_min, axis=1))
+        nearby  = tris[mask]
+        if len(nearby) == 0:
+            return True   # no triangles in the neighbourhood
+
+        # ── Sample segment (capped) ──────────────────────────────────────────
+        n_samples = min(8, max(3,
+                        int(math.ceil(seg_len / max(0.01, min_dist / 2.0))) + 1))
         d = q - p
         for t in np.linspace(0.0, 1.0, n_samples):
-            if OverhangSupportPlugin._point_tris_min_dist(p + t * d, tris) < min_dist:
+            if OverhangSupportPlugin._point_tris_min_dist(p + t * d, nearby) < min_dist:
                 return False
         return True
 
