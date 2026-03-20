@@ -653,6 +653,7 @@ class OverhangSupportPlugin(QObject, Extension):
 
         pt_diam    = self._point_diameter
         growth_fac = pt_diam * self._tree_growth_pct / 100.0  # mm tăng đường kính per mm xuống
+        clearance  = max(0.0, self._tree_clearance)            # Khoảng cách tối thiểu tới vật thể (mm)
 
         def _radius_at(y: float, origin_y: float) -> float:
             """
@@ -692,8 +693,17 @@ class OverhangSupportPlugin(QObject, Extension):
 
         for _ in range(max_iters):
             # ── Kích hoạt nhánh mới khi sweep đến độ cao Y của chúng ────────
+            # Snap tip về y_cur để tất cả active branches luôn cùng độ cao,
+            # đảm bảo việc ghép cặp nhất quán không phụ thuộc vào thứ tự kích hoạt.
+            # Đoạn thẳng đứng từ contact point xuống y_cur được ghi vào waypoints.
             while pending and pending[0][1] >= y_cur - step * 0.01:
-                b = _Branch(pending.pop(0), 0)
+                cp = pending.pop(0)
+                b = _Branch(cp, 0)
+                if b.tip[1] > y_cur + 1e-6:
+                    # Ghi đoạn thẳng từ contact point xuống mức sweep hiện tại
+                    snap = np.array([cp[0], y_cur, cp[2]], dtype=np.float64)
+                    b.waypoints.append(snap.copy())
+                    b.tip = snap.copy()
                 all_branches.append(b)
                 active.append(b)
 
@@ -711,17 +721,19 @@ class OverhangSupportPlugin(QObject, Extension):
                         # Bỏ qua nhánh đang trong giai đoạn đi thẳng sau gộp
                         if a.straight_left > 0 or bb.straight_left > 0:
                             continue
-                        # Hai nhánh phải ở độ cao gần nhau (trong vòng 4 bước)
-                        if abs(a.tip[1] - bb.tip[1]) > step * 4:
-                            continue
+                        # Tất cả active branches đều được snap về y_cur khi kích hoạt,
+                        # nên tip[1] luôn xấp xỉ nhau – không cần lọc theo độ cao nữa.
                         # Ngưỡng ghép cặp tăng theo cấp cao hơn của hai nhánh
                         eff_level = max(a.level, bb.level)
                         thresh    = base_dist + eff_level * dist_per_lvl
                         dxz = float(np.linalg.norm((a.tip - bb.tip)[[0, 2]]))
                         if dxz > thresh:
                             continue
-                        # Tính điểm hội tụ Y bằng công thức giải tích
-                        # meet_y = avg_y - (dxz/2) / tan(angle)
+                        # Tính điểm hội tụ Y bằng công thức giải tích.
+                        # Dùng avg_y của hai tips thực tế (không phải y_cur) vì:
+                        # • Nhánh contact point đã snap về y_cur → avg_y ≈ y_cur (đúng)
+                        # • Nhánh gộp (level ≥ 1) có thể có tip thấp hơn y_cur →
+                        #   avg_y tự động bù cho sự lệch này, tránh tính sai góc.
                         avg_y  = (a.tip[1] + bb.tip[1]) / 2.0
                         meet_y = avg_y - (dxz / 2.0) / tan_a
                         if meet_y < min_meet_y:
