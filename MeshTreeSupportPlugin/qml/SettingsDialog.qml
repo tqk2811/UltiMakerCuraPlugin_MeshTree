@@ -21,7 +21,7 @@ import QtQuick.Layouts 1.15
 
 Window {
     id: root
-    title: "Mesh Tree Support"
+    title: "Mesh Tree Support - Cài đặt"
     width: 530
     height: 780
     minimumWidth: 480
@@ -42,7 +42,7 @@ Window {
 
         // === Tiêu đề ===
         Label {
-            text: "Tree Support - Cai dat"
+            text: "Cây chống đỡ hữu cơ - Cài đặt"
             font.pixelSize: 18
             font.bold: true
             color: "#333333"
@@ -64,7 +64,7 @@ Window {
 
                 // ─── NHÓM 1: PHÁT HIỆN VÙNG LƠ LỬNG ───
                 GroupBox {
-                    title: "  Phat hien vung lo lung (Overhang)  "
+                    title: "  Phát hiện vùng lơ lửng (Overhang)  "
                     Layout.fillWidth: true
 
                     GridLayout {
@@ -73,7 +73,7 @@ Window {
                         rowSpacing: 6
                         anchors.fill: parent
 
-                        Label { text: "Goc overhang:"; Layout.preferredWidth: 180 }
+                        Label { text: "Góc overhang:"; Layout.preferredWidth: 180 }
                         TextField {
                             id: fOverhangAngle
                             Layout.preferredWidth: 80
@@ -81,9 +81,9 @@ Window {
                             validator: DoubleValidator { bottom: 5; top: 85; decimals: 1 }
                             onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("overhang_angle", v) }
                         }
-                        Label { text: "do" }
+                        Label { text: "độ" }
 
-                        Label { text: "Chieu cao toi thieu:"; Layout.preferredWidth: 180 }
+                        Label { text: "Chiều cao tối thiểu:"; Layout.preferredWidth: 180 }
                         TextField {
                             id: fMinHeight
                             Layout.preferredWidth: 80
@@ -97,7 +97,7 @@ Window {
 
                 // ─── NHÓM 2: GOM CỤM ĐIỂM ───
                 GroupBox {
-                    title: "  Gom cum diem (KD-Tree Clustering)  "
+                    title: "  Gom cụm điểm (KD-Tree Clustering)  "
                     Layout.fillWidth: true
 
                     GridLayout {
@@ -106,7 +106,7 @@ Window {
                         rowSpacing: 6
                         anchors.fill: parent
 
-                        Label { text: "Ban kinh gom cum:"; Layout.preferredWidth: 180 }
+                        Label { text: "Bán kính gom cụm:"; Layout.preferredWidth: 180 }
                         TextField {
                             id: fClusterRadius
                             Layout.preferredWidth: 80
@@ -120,7 +120,7 @@ Window {
 
                 // ─── NHÓM 3: NHÁNH CÂY (Space Colonization) ───
                 GroupBox {
-                    title: "  Nhanh cay (Space Colonization)  "
+                    title: "  Nhánh cây (Space Colonization)  "
                     Layout.fillWidth: true
 
                     GridLayout {
@@ -129,7 +129,7 @@ Window {
                         rowSpacing: 6
                         anchors.fill: parent
 
-                        Label { text: "Ban kinh ngon:"; Layout.preferredWidth: 180 }
+                        Label { text: "Bán kính ngọn:"; Layout.preferredWidth: 180 }
                         TextField {
                             id: fTipRadius
                             Layout.preferredWidth: 80
@@ -139,7 +139,7 @@ Window {
                         }
                         Label { text: "mm" }
 
-                        Label { text: "Buoc di chuyen:"; Layout.preferredWidth: 180 }
+                        Label { text: "Bước di chuyển:"; Layout.preferredWidth: 180 }
                         TextField {
                             id: fStepSize
                             Layout.preferredWidth: 80
@@ -149,7 +149,7 @@ Window {
                         }
                         Label { text: "mm" }
 
-                        Label { text: "K/c merge nhanh:"; Layout.preferredWidth: 180 }
+                        Label { text: "Khoảng cách gộp nhánh:"; Layout.preferredWidth: 180 }
                         TextField {
                             id: fMergeDistance
                             Layout.preferredWidth: 80
@@ -159,7 +159,7 @@ Window {
                         }
                         Label { text: "mm" }
 
-                        Label { text: "Chieu cao merge min:"; Layout.preferredWidth: 180 }
+                        Label { text: "Chiều cao gộp tối thiểu:"; Layout.preferredWidth: 180 }
                         TextField {
                             id: fMinMergeHeight
                             Layout.preferredWidth: 80
@@ -169,7 +169,7 @@ Window {
                         }
                         Label { text: "mm" }
 
-                        Label { text: "Luc hoi tu:"; Layout.preferredWidth: 180 }
+                        Label { text: "Lực hội tụ:"; Layout.preferredWidth: 180 }
                         TextField {
                             id: fConvergence
                             Layout.preferredWidth: 80
@@ -179,7 +179,7 @@ Window {
                         }
                         Label { text: "" }
 
-                        Label { text: "Chieu cao roi thang:"; Layout.preferredWidth: 180 }
+                        Label { text: "Chiều cao rơi thẳng:"; Layout.preferredWidth: 180 }
                         TextField {
                             id: fStraightDrop
                             Layout.preferredWidth: 80
@@ -193,7 +193,7 @@ Window {
 
                 // ─── NHÓM 4: TRÁNH VA CHẠM (BVH + SDF) ───
                 GroupBox {
-                    title: "  Tranh va cham (BVH + SDF)  "
+                    title: "  Tránh va chạm (BVH + SDF)  "
                     Layout.fillWidth: true
 
                     GridLayout {
@@ -202,7 +202,7 @@ Window {
                         rowSpacing: 6
                         anchors.fill: parent
 
-                        Label { text: "K/c an toan:"; Layout.preferredWidth: 180 }
+                        Label { text: "Khoảng cách an toàn:"; Layout.preferredWidth: 180 }
                         TextField {
                             id: fMinClearance
                             Layout.preferredWidth: 80
@@ -212,7 +212,7 @@ Window {
                         }
                         Label { text: "mm" }
 
-                        Label { text: "Do phan giai SDF:"; Layout.preferredWidth: 180 }
+                        Label { text: "Độ phân giải SDF:"; Layout.preferredWidth: 180 }
                         TextField {
                             id: fSdfResolution
                             Layout.preferredWidth: 80
@@ -222,7 +222,7 @@ Window {
                         }
                         Label { text: "mm" }
 
-                        Label { text: "Padding SDF:"; Layout.preferredWidth: 180 }
+                        Label { text: "Phần mở rộng SDF:"; Layout.preferredWidth: 180 }
                         TextField {
                             id: fSdfPadding
                             Layout.preferredWidth: 80
@@ -234,9 +234,9 @@ Window {
                     }
                 }
 
-                // ─── NHÓM 5: MESH ───
+                // ─── NHÓM 5: MESH ỐNG TRỤ ───
                 GroupBox {
-                    title: "  Mesh ong tru  "
+                    title: "  Lưới ống trụ  "
                     Layout.fillWidth: true
 
                     GridLayout {
@@ -245,7 +245,7 @@ Window {
                         rowSpacing: 6
                         anchors.fill: parent
 
-                        Label { text: "So mat ong tru:"; Layout.preferredWidth: 180 }
+                        Label { text: "Số mặt ống trụ:"; Layout.preferredWidth: 180 }
                         TextField {
                             id: fCylinderSegments
                             Layout.preferredWidth: 80
@@ -260,7 +260,7 @@ Window {
         }
 
         // =====================================================================
-        // PROGRESS BAR + STATUS
+        // THANH TIẾN TRÌNH + TRẠNG THÁI
         // =====================================================================
         Rectangle { height: 1; Layout.fillWidth: true; color: "#cccccc" }
 
@@ -277,7 +277,7 @@ Window {
             }
 
             Label {
-                text: manager ? manager.statusText : "San sang"
+                text: manager ? manager.statusText : "Sẵn sàng"
                 color: "#666666"
                 font.pixelSize: 12
                 elide: Text.ElideRight
@@ -286,14 +286,14 @@ Window {
         }
 
         // =====================================================================
-        // BUTTONS
+        // CÁC NÚT ĐIỀU KHIỂN
         // =====================================================================
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
 
             Button {
-                text: "Mac dinh"
+                text: "Mặc định"
                 onClicked: manager.resetSettings()
                 enabled: manager ? !manager.isRunning : true
             }
@@ -301,21 +301,21 @@ Window {
             Item { Layout.fillWidth: true }
 
             Button {
-                text: (manager && manager.isRunning) ? "Dang chay..." : "Bat dau"
+                text: (manager && manager.isRunning) ? "Đang chạy..." : "Bắt đầu"
                 enabled: manager ? !manager.isRunning : true
                 highlighted: true
                 onClicked: manager.startGeneration()
             }
 
             Button {
-                text: "Dong"
+                text: "Đóng"
                 onClicked: root.close()
             }
         }
     }
 
     // =========================================================================
-    // LOAD / RELOAD SETTINGS
+    // NẠP / TẢI LẠI THÔNG SỐ
     // =========================================================================
 
     // Nạp giá trị ban đầu từ Python khi dialog mở

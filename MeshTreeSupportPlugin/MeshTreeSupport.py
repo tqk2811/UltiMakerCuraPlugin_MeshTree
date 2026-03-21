@@ -132,7 +132,7 @@ class MeshTreeSupport(QObject, Extension):
 
         # Trạng thái tiến độ cho QML
         self._progress_value = 0.0      # 0-100
-        self._status_text = "San sang"
+        self._status_text = "Sẵn sàng"
         self._is_running = False
 
         # Tham chiếu đến Job đang chạy và dialog QML
@@ -141,7 +141,7 @@ class MeshTreeSupport(QObject, Extension):
 
         # Đăng ký menu item trong Extensions menu
         self.setMenuName("Mesh Tree Support")
-        self.addMenuItem("Cai dat && Sinh Support", self._show_dialog)
+        self.addMenuItem("Cài đặt && Sinh Support", self._show_dialog)
 
         Logger.log("i", "MeshTreeSupport Extension da khoi tao (settings loaded)")
 
@@ -251,7 +251,7 @@ class MeshTreeSupport(QObject, Extension):
         # Cập nhật UI: đang chạy
         self._is_running = True
         self._progress_value = 0
-        self._status_text = "Dang trich xuat mesh..."
+        self._status_text = "Đang trích xuất mesh..."
         self.isRunningChanged.emit()
         self.progressChanged.emit()
         self.statusTextChanged.emit()
@@ -310,7 +310,7 @@ class MeshTreeSupport(QObject, Extension):
         if not all_vertices:
             Logger.log("w", "MeshTreeSupport: Khong tim thay mesh nao tren ban in!")
             self._is_running = False
-            self._status_text = "Khong tim thay mesh nao!"
+            self._status_text = "Không tìm thấy mesh nào!"
             self.isRunningChanged.emit()
             self.statusTextChanged.emit()
             return
@@ -354,17 +354,17 @@ class MeshTreeSupport(QObject, Extension):
 
         # Suy ra trạng thái từ giá trị tiến độ
         if value <= 10:
-            self._status_text = "Buoc 1/5: Phat hien vung lo lung..."
+            self._status_text = "Bước 1/5: Phát hiện vùng lơ lửng..."
         elif value <= 18:
-            self._status_text = "Buoc 2/5: Gom cum diem (KD-Tree)..."
+            self._status_text = "Bước 2/5: Gom cụm điểm (KD-Tree)..."
         elif value <= 35:
-            self._status_text = "Buoc 3/5: Tinh truong va cham SDF..."
+            self._status_text = "Bước 3/5: Tính trường va chạm SDF..."
         elif value <= 75:
-            self._status_text = "Buoc 4/5: Sinh nhanh cay..."
+            self._status_text = "Bước 4/5: Sinh nhánh cây..."
         elif value < 100:
-            self._status_text = "Buoc 5/5: Tao mesh ong tru..."
+            self._status_text = "Bước 5/5: Tạo mesh ống trụ..."
         else:
-            self._status_text = "Hoan tat!"
+            self._status_text = "Hoàn tất!"
 
         self.progressChanged.emit()
         self.statusTextChanged.emit()
@@ -386,7 +386,7 @@ class MeshTreeSupport(QObject, Extension):
 
         mesh_data = job.getResultMeshData()
         if mesh_data is None:
-            self._status_text = "Khong tim thay vung lo lung hoac xay ra loi."
+            self._status_text = "Không tìm thấy vùng lơ lửng hoặc xảy ra lỗi."
             self._progress_value = 0
             self.progressChanged.emit()
             self.statusTextChanged.emit()
@@ -398,7 +398,7 @@ class MeshTreeSupport(QObject, Extension):
 
         vertex_count = mesh_data.getVertexCount() if mesh_data else 0
         self._progress_value = 100
-        self._status_text = "Hoan tat! (%d dinh)" % vertex_count
+        self._status_text = "Hoàn tất! (%d đỉnh)" % vertex_count
         self.progressChanged.emit()
         self.statusTextChanged.emit()
 
