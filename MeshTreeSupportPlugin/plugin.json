@@ -1,0 +1,7 @@
+{
+    "name": "Mesh Tree Support",
+    "author": "tqk2811",
+    "version": "1.0.0",
+    "api": 8,
+    "description": "Plugin sinh cấu trúc cây chống đỡ (Tree Support) hữu cơ cho vùng lơ lửng của mô hình 3D"
+}
