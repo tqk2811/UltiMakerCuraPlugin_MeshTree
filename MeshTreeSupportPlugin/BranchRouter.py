@@ -259,9 +259,9 @@ def route_branches(tip_points, collision_field,
             direction = np.array([0.0, 0.0, -1.0])
 
             # Thành phần 2: Lực hội tụ (convergence)
-            # Ramp up: trong 8 bước đầu, convergence tăng dần từ 0 → full
+            # Ramp up: trong 15 bước đầu, convergence tăng dần từ 0 → full
             # để tránh bẻ góc đột ngột ngay sau đoạn departure vuông góc
-            ramp_steps = 8
+            ramp_steps = 15
             ramp_factor = min(1.0, branch.steps_taken / ramp_steps)
             effective_convergence = convergence_strength * ramp_factor
 
@@ -313,10 +313,10 @@ def route_branches(tip_points, collision_field,
 
             # === Smoothing: trộn với hướng bước trước ===
             # Tránh thay đổi hướng đột ngột gây gấp khúc zíc-zắc
-            # Vài bước đầu: smoothing mạnh hơn (50% cũ) để chuyển tiếp mềm
+            # Giai đoạn ramp: smoothing rất mạnh (70% cũ) để chuyển tiếp mềm
             # từ departure → routing. Sau đó: 30% cũ, 70% mới.
             if branch.steps_taken < ramp_steps:
-                old_weight = 0.5
+                old_weight = 0.7
             else:
                 old_weight = 0.3
             smoothed = (1.0 - old_weight) * direction + old_weight * branch.prev_direction
