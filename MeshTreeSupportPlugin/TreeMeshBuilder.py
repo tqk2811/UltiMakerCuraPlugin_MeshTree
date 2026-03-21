@@ -263,14 +263,35 @@ def build_tree_mesh(all_nodes, all_edges, segments=8):
         all_faces_list.append(cap_faces_offset)
         vertex_offset += len(cap_verts)
 
-    # Đóng nắp cho base nodes
+    # Đóng nắp + đế chống đổ cho base nodes
+    # Đế (brim) = hình nón cụt ngắn mở rộng từ bán kính nhánh ra gấp 3x,
+    # cao 0.5mm, tạo chân rộng ổn định trên bàn in.
+    base_brim_multiplier = 3.0   # Đế rộng gấp 3 lần bán kính nhánh
+    base_brim_height = 0.5       # Chiều cao đế (mm)
+
     for base_idx in base_nodes:
         pos, radius = all_nodes[base_idx]
         pos = np.asarray(pos, dtype=np.float64)
 
-        # Hướng nắp: hướng xuống dưới (-Z) cho chân cây
+        # Tạo đế chống đổ: frustum từ (pos) xuống (pos - brim_height)
+        # với bán kính mở rộng dần
+        brim_radius = radius * base_brim_multiplier
+        brim_bottom = pos.copy()
+        brim_bottom[2] = max(0.0, pos[2] - base_brim_height)
+
+        # Frustum: đầu trên = bán kính nhánh, đầu dưới = bán kính brim
+        brim_verts, brim_faces = _build_frustum(
+            pos, brim_bottom, radius, brim_radius, segments
+        )
+        if len(brim_verts) > 0:
+            brim_faces_offset = brim_faces + vertex_offset
+            all_verts_list.append(brim_verts)
+            all_faces_list.append(brim_faces_offset)
+            vertex_offset += len(brim_verts)
+
+        # Nắp đáy của đế (đĩa tròn rộng tại Z=0)
         cap_verts, cap_faces = _build_cap(
-            pos, radius, np.array([0.0, 0.0, -1.0]), segments, flip=True
+            brim_bottom, brim_radius, np.array([0.0, 0.0, -1.0]), segments, flip=True
         )
         cap_faces_offset = cap_faces + vertex_offset
         all_verts_list.append(cap_verts)
