@@ -314,224 +314,250 @@ def query_min_distance(bvh_node, point, vertices, faces, best_dist=float('inf'))
 # Sử dụng thuật toán Möller-Trumbore cho ray-triangle intersection.
 # ==============================================================================
 
-def _ray_triangle_intersect_z(origin_xy, origin_z, v0, v1, v2):
+def _ray_triangle_z_hit(origin_xy, v0, v1, v2):
     """
-    Kiểm tra tia (origin, hướng +Z) có cắt tam giác (v0, v1, v2) không.
+    Tìm tọa độ Z giao điểm của tia (origin_xy, +Z) với tam giác.
 
     Thuật toán Möller-Trumbore đơn giản hóa cho tia song song trục Z:
     - Ray direction = (0, 0, 1)
-    - Chỉ cần kiểm tra tọa độ XY nằm trong tam giác (barycentric)
-    - Rồi kiểm tra giao điểm Z > origin_z (tia đi lên)
+    - Kiểm tra tọa độ XY bằng barycentric
+    - Trả về Z giao điểm (hoặc None nếu không cắt)
 
     Tham số:
         origin_xy : numpy array (2,) - tọa độ XY gốc tia
-        origin_z  : float - tọa độ Z gốc tia
         v0, v1, v2 : numpy array (3,) - 3 đỉnh tam giác
 
     Trả về:
-        bool - True nếu tia cắt tam giác (giao điểm Z > origin_z)
+        float hoặc None - tọa độ Z giao điểm (None nếu không cắt)
     """
-    # Cạnh tam giác
     e1 = v1 - v0
     e2 = v2 - v0
 
-    # Với ray dir = (0,0,1): h = dir × e2 = (-e2[1], e2[0], 0)
-    # a = e1 · h = e1[0]*(-e2[1]) + e1[1]*e2[0] = e1[1]*e2[0] - e1[0]*e2[1]
+    # Với ray dir = (0,0,1): a = e1[1]*e2[0] - e1[0]*e2[1]
     a = e1[1] * e2[0] - e1[0] * e2[1]
 
     if abs(a) < 1e-10:
-        return False  # Tia song song mặt tam giác
+        return None  # Tia song song mặt tam giác
 
     inv_a = 1.0 / a
-    s = np.array([origin_xy[0] - v0[0], origin_xy[1] - v0[1]])
+    sx = origin_xy[0] - v0[0]
+    sy = origin_xy[1] - v0[1]
 
-    # u = s · h * inv_a (với h trên XY)
-    u = (s[0] * (-e2[1]) + s[1] * e2[0]) * inv_a
+    u = (sx * (-e2[1]) + sy * e2[0]) * inv_a
     if u < 0.0 or u > 1.0:
-        return False
+        return None
 
-    # q = s × e1 (chỉ cần thành phần Z cho dot với dir=(0,0,1))
-    # q_z = s[0]*e1[1] - s[1]*e1[0]
-    q_z = s[0] * e1[1] - s[1] * e1[0]
-    v = q_z * inv_a  # v = dir · q * inv_a, dir=(0,0,1) nên = q_z * inv_a
+    q_z = sx * e1[1] - sy * e1[0]
+    v = q_z * inv_a
     if v < 0.0 or u + v > 1.0:
-        return False
+        return None
 
-    # t = e2 · q * inv_a = e2[2] * q_z * inv_a (chỉ thành phần Z)
-    # Thực ra q = (s×e1) full 3D, ta cần e2·q
-    # s_full = origin - v0, nhưng ta đã giản lược. Tính t trực tiếp:
-    # t = giao điểm Z - origin_z
-    # Giao điểm = v0 + u*e1 + v*e2
-    t = v0[2] + u * e1[2] + v * e2[2] - origin_z
-
-    return t > 1e-8  # Chỉ tính giao điểm phía trên
+    # Z giao điểm = v0.z + u*e1.z + v*e2.z
+    return v0[2] + u * e1[2] + v * e2[2]
 
 
-def _count_ray_intersections_z(bvh_node, origin_xy, origin_z, vertices, faces):
+def _collect_ray_z_hits(bvh_node, origin_xy, vertices, faces, hits):
     """
-    Đếm số giao điểm của tia +Z với mesh, dùng BVH để tăng tốc.
+    Thu thập TẤT CẢ tọa độ Z giao điểm của tia +Z với mesh qua BVH.
+
+    Thay vì đếm giao điểm cho từng điểm lưới, ta thu thập 1 lần
+    cho mỗi cột (x,y) rồi dùng lại cho toàn bộ z trong cột đó.
 
     Tham số:
         bvh_node  : AABBNode - nút BVH
         origin_xy : numpy array (2,) - tọa độ XY gốc tia
-        origin_z  : float - tọa độ Z gốc tia
         vertices  : numpy array (N, 3)
         faces     : numpy array (M, 3)
-
-    Trả về:
-        int - số giao điểm
+        hits      : list - danh sách Z giao điểm (output, append vào)
     """
     if bvh_node is None:
-        return 0
+        return
 
-    # Cắt tỉa: kiểm tra tia +Z có đi qua hộp AABB không
-    # Tia (ox, oy, oz → +Z) cắt AABB khi:
-    #   min_x <= ox <= max_x VÀ min_y <= oy <= max_y VÀ max_z >= oz
+    # Cắt tỉa: tia +Z có đi qua hộp AABB không?
+    # Chỉ cần XY nằm trong AABB (Z không giới hạn vì ta thu thập tất cả)
     if (origin_xy[0] < bvh_node.min_corner[0] or
             origin_xy[0] > bvh_node.max_corner[0] or
             origin_xy[1] < bvh_node.min_corner[1] or
-            origin_xy[1] > bvh_node.max_corner[1] or
-            bvh_node.max_corner[2] < origin_z):
-        return 0
+            origin_xy[1] > bvh_node.max_corner[1]):
+        return
 
     # Nút lá: kiểm tra từng tam giác
     if bvh_node.face_indices is not None:
-        count = 0
         for fi in bvh_node.face_indices:
             v0 = vertices[faces[fi, 0]]
             v1 = vertices[faces[fi, 1]]
             v2 = vertices[faces[fi, 2]]
-            if _ray_triangle_intersect_z(origin_xy, origin_z, v0, v1, v2):
-                count += 1
-        return count
+            z_hit = _ray_triangle_z_hit(origin_xy, v0, v1, v2)
+            if z_hit is not None:
+                hits.append(z_hit)
+        return
 
     # Nút trong: đệ quy
-    return (_count_ray_intersections_z(bvh_node.left, origin_xy, origin_z,
-                                       vertices, faces) +
-            _count_ray_intersections_z(bvh_node.right, origin_xy, origin_z,
-                                       vertices, faces))
-
-
-def _is_inside_mesh(point, bvh_root, vertices, faces):
-    """
-    Kiểm tra điểm nằm bên trong mesh hay không bằng ray casting.
-
-    Bắn tia +Z, đếm giao điểm. Số lẻ = bên trong.
-
-    Tham số:
-        point    : numpy array (3,)
-        bvh_root : AABBNode - gốc BVH
-        vertices : numpy array (N, 3)
-        faces    : numpy array (M, 3)
-
-    Trả về:
-        bool - True nếu điểm bên trong mesh
-    """
-    count = _count_ray_intersections_z(
-        bvh_root, point[:2], point[2], vertices, faces
-    )
-    return (count % 2) == 1
+    _collect_ray_z_hits(bvh_node.left, origin_xy, vertices, faces, hits)
+    _collect_ray_z_hits(bvh_node.right, origin_xy, vertices, faces, hits)
 
 
 # ==============================================================================
-# PHẦN 4: TÍNH LƯỚI SDF (Signed Distance Field)
+# PHẦN 4: TÍNH LƯỚI SDF (Signed Distance Field) - ĐA LUỒNG
 #
 # Trường khoảng cách CÓ DẤU (Signed Distance Field):
 # - Bên ngoài mesh: SDF > 0 (khoảng cách dương)
 # - Trên bề mặt mesh: SDF = 0
 # - Bên trong mesh: SDF < 0 (khoảng cách âm)
 #
-# Quy trình:
-# 1. Tính unsigned distance bằng BVH (khoảng cách đến tam giác gần nhất)
-# 2. Xác định inside/outside bằng ray casting (+Z parity test)
-# 3. Đảo dấu cho điểm bên trong → signed distance
+# Tối ưu:
+# 1. Column ray casting: bắn 1 tia/cột (x,y) → thu thập tất cả Z hits
+#    → xác định inside/outside cho toàn bộ z trong cột (bisect O(log K))
+#    Giảm từ O(nx*ny*nz*logM) xuống O(nx*ny*logM) cho phần ray casting
 #
-# Ưu điểm: collision avoidance phát hiện được nhánh xuyên qua mesh
-# (SDF < 0) và đẩy ra ngoài đúng hướng.
+# 2. ThreadPoolExecutor: chia lưới thành lát X, mỗi thread xử lý 1 lát
+#    Python GIL giới hạn CPU-bound nhưng vẫn tận dụng được khi numpy
+#    release GIL trong các phép toán mảng
 #
-# Chạy đơn luồng trên worker thread (Job.run())
+# 3. Tránh multiprocessing vì gây deadlock trên Windows/Cura embedded Python
 # ==============================================================================
+
+import bisect
+import os
+from concurrent.futures import ThreadPoolExecutor
+
+
+def _process_sdf_slice(ix, x_coord, y_coords, z_coords, bvh_root, vertices, faces):
+    """
+    Tính 1 lát X của lưới SDF (đa luồng an toàn).
+
+    Mỗi lát xử lý tất cả (iy, iz) cho 1 giá trị ix.
+    Tối ưu: column ray casting — 1 tia/cột (x,y) thay vì 1 tia/điểm.
+
+    Tham số:
+        ix        : int - chỉ số X
+        x_coord   : float - tọa độ X
+        y_coords  : numpy array - tọa độ Y
+        z_coords  : numpy array - tọa độ Z
+        bvh_root  : AABBNode - gốc BVH
+        vertices  : numpy array (N, 3)
+        faces     : numpy array (M, 3)
+
+    Trả về:
+        slice_data   : numpy array (ny, nz) - khoảng cách có dấu
+        inside_count : int - số điểm bên trong mesh
+    """
+    ny = len(y_coords)
+    nz = len(z_coords)
+    slice_data = np.zeros((ny, nz), dtype=np.float64)
+    inside_count = 0
+
+    for iy in range(ny):
+        origin_xy = np.array([x_coord, y_coords[iy]])
+
+        # === Column ray casting ===
+        # Bắn 1 tia +Z cho cột (x,y) → thu thập TẤT CẢ Z giao điểm
+        # Thay vì bắn nz tia riêng lẻ → giảm O(nz*logM) xuống O(logM)
+        z_hits = []
+        _collect_ray_z_hits(bvh_root, origin_xy, vertices, faces, z_hits)
+        z_hits.sort()  # Sắp xếp Z tăng dần cho bisect
+
+        for iz in range(nz):
+            point = np.array([x_coord, y_coords[iy], z_coords[iz]])
+
+            # Khoảng cách unsigned đến tam giác gần nhất
+            dist = query_min_distance(bvh_root, point, vertices, faces)
+
+            # Xác định inside/outside từ Z hits đã tính sẵn
+            # Số giao điểm phía trên điểm hiện tại (Z > z_coords[iz])
+            # bisect_right: vị trí chèn → số hits phía trên = tổng - vị trí
+            above_count = len(z_hits) - bisect.bisect_right(z_hits, z_coords[iz])
+            if above_count % 2 == 1:
+                dist = -dist  # Bên trong mesh
+                inside_count += 1
+
+            slice_data[iy, iz] = dist
+
+    return slice_data, inside_count
+
 
 def compute_sdf_grid(vertices, faces, resolution=3.0, padding=10.0, cancel_check=None):
     """
-    Tính lưới Signed Distance Field 3D đơn luồng bằng BVH + ray casting.
+    Tính lưới Signed Distance Field 3D đa luồng bằng BVH + column ray casting.
 
-    Quy trình:
-    1. Tính bounding box mở rộng (thêm padding)
-    2. Tạo lưới 3D đều với bước = resolution (mm)
-    3. Xây BVH từ mesh
-    4. Duyệt từng điểm lưới:
-       a. Truy vấn khoảng cách unsigned qua BVH
-       b. Ray cast +Z để xác định inside/outside
-       c. Đảo dấu nếu bên trong mesh
-    5. Trả về mảng SDF 3D (có dấu)
+    Tối ưu so với phiên bản đơn luồng:
+    1. Column ray casting: O(nx*ny*logM) thay vì O(nx*ny*nz*logM)
+    2. ThreadPoolExecutor: xử lý song song các lát X
 
     Tham số:
         vertices     : numpy array (N, 3) - tọa độ đỉnh mesh
         faces        : numpy array (M, 3) - chỉ số tam giác
-        resolution   : float - bước lưới (mm), nhỏ hơn = chính xác hơn nhưng chậm hơn
+        resolution   : float - bước lưới (mm)
         padding      : float - padding quanh mesh (mm)
         cancel_check : callable hoặc None - trả về True nếu cần huỷ
 
     Trả về:
-        sdf_grid   : numpy array (Nx, Ny, Nz) - khoảng cách có dấu tại mỗi điểm lưới
-                     Dương = bên ngoài, Âm = bên trong mesh
-        origin     : numpy array (3,) - tọa độ góc nhỏ nhất của lưới
+        sdf_grid   : numpy array (Nx, Ny, Nz) - khoảng cách có dấu
+        origin     : numpy array (3,) - góc nhỏ nhất lưới
         resolution : float - bước lưới
-        grid_dims  : tuple (Nx, Ny, Nz) - kích thước lưới
+        grid_dims  : tuple (Nx, Ny, Nz)
 
     Raises:
         InterruptedError: khi cancel_check() trả về True
     """
 
     # --- Bước 1: Tính bounding box mở rộng ---
-    # Thêm padding để nhánh cây có thể đi vòng quanh mesh
-    origin = vertices.min(axis=0) - padding       # Góc nhỏ nhất
-    max_bound = vertices.max(axis=0) + padding     # Góc lớn nhất
+    grid_origin = vertices.min(axis=0) - padding
+    max_bound = vertices.max(axis=0) + padding
 
     # --- Bước 2: Tạo lưới 3D ---
-    # Số ô lưới trên mỗi trục
-    grid_dims = np.ceil((max_bound - origin) / resolution).astype(int) + 1
+    grid_dims = np.ceil((max_bound - grid_origin) / resolution).astype(int) + 1
     nx, ny, nz = grid_dims
 
     total_points = int(nx) * int(ny) * int(nz)
-    Logger.log("d", "SDF grid: %d x %d x %d = %d diem (signed)", nx, ny, nz, total_points)
+    num_threads = min(os.cpu_count() or 4, int(nx))
+    Logger.log("d", "SDF grid: %d x %d x %d = %d diem (signed, %d threads)",
+               nx, ny, nz, total_points, num_threads)
 
-    # Tọa độ trên mỗi trục
-    x_coords = np.linspace(origin[0], origin[0] + (nx - 1) * resolution, nx)
-    y_coords = np.linspace(origin[1], origin[1] + (ny - 1) * resolution, ny)
-    z_coords = np.linspace(origin[2], origin[2] + (nz - 1) * resolution, nz)
+    x_coords = np.linspace(grid_origin[0], grid_origin[0] + (nx - 1) * resolution, nx)
+    y_coords = np.linspace(grid_origin[1], grid_origin[1] + (ny - 1) * resolution, ny)
+    z_coords = np.linspace(grid_origin[2], grid_origin[2] + (nz - 1) * resolution, nz)
 
     # --- Bước 3: Xây BVH ---
     bvh_root = build_bvh(vertices, faces)
 
-    # --- Bước 4: Tính khoảng cách có dấu cho từng điểm lưới ---
+    # --- Bước 4: Tính SDF đa luồng ---
+    # Chia lưới thành lát X, mỗi thread xử lý 1 lát
+    # BVH là read-only → chia sẻ an toàn giữa các thread
     sdf_grid = np.zeros((nx, ny, nz), dtype=np.float64)
+    total_inside = 0
 
-    inside_count = 0
-    for ix in range(nx):
-        # Kiểm tra huỷ mỗi lát X
-        if cancel_check is not None and cancel_check():
-            raise InterruptedError("SDF computation cancelled")
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        # Submit tất cả lát X
+        futures = {}
+        for ix in range(nx):
+            # Kiểm tra huỷ trước khi submit
+            if cancel_check is not None and cancel_check():
+                raise InterruptedError("SDF computation cancelled")
 
-        for iy in range(ny):
-            for iz in range(nz):
-                point = np.array([x_coords[ix], y_coords[iy], z_coords[iz]])
+            future = executor.submit(
+                _process_sdf_slice,
+                ix, x_coords[ix], y_coords, z_coords,
+                bvh_root, vertices, faces
+            )
+            futures[future] = ix
 
-                # Khoảng cách unsigned đến tam giác gần nhất
-                dist = query_min_distance(bvh_root, point, vertices, faces)
+        # Thu thập kết quả theo thứ tự hoàn thành
+        for future in futures:
+            # Kiểm tra huỷ khi chờ kết quả
+            if cancel_check is not None and cancel_check():
+                executor.shutdown(wait=False)
+                raise InterruptedError("SDF computation cancelled")
 
-                # Xác định inside/outside bằng ray casting
-                if _is_inside_mesh(point, bvh_root, vertices, faces):
-                    dist = -dist  # Bên trong → khoảng cách âm
-                    inside_count += 1
-
-                sdf_grid[ix, iy, iz] = dist
+            slice_data, inside_count = future.result()
+            ix = futures[future]
+            sdf_grid[ix] = slice_data
+            total_inside += inside_count
 
     Logger.log("d", "SDF signed: %d/%d diem ben trong mesh",
-               inside_count, total_points)
+               total_inside, total_points)
 
-    return sdf_grid, origin, resolution, tuple(grid_dims)
+    return sdf_grid, grid_origin, resolution, tuple(grid_dims)
 
 
 # ==============================================================================
