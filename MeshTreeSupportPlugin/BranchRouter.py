@@ -53,6 +53,7 @@ class BranchTip:
         self.node_index = node_index
         self.tip_count = tip_count
         self.prev_direction = np.array([0.0, 0.0, -1.0])  # Mặc định: đi xuống
+        self.steps_taken = 0  # Đếm số bước routing (dùng để ramp up convergence)
 
 
 def _murray_radius(r1, r2):
@@ -237,6 +238,13 @@ def route_branches(tip_points, collision_field,
             # Thành phần 2: Lực hội tụ (convergence)
             # Kéo nhánh về phía trọng tâm XY của tất cả nhánh
             # Càng xa trọng tâm → lực kéo càng mạnh (nhưng giới hạn)
+            #
+            # Ramp up: trong 8 bước đầu, convergence tăng dần từ 0 → full
+            # để tránh bẻ góc đột ngột ngay sau đoạn departure vuông góc
+            ramp_steps = 8
+            ramp_factor = min(1.0, branch.steps_taken / ramp_steps)
+            effective_convergence = convergence_strength * ramp_factor
+
             to_center = np.zeros(3)
             to_center[0] = centroid_xy[0] - pos[0]
             to_center[1] = centroid_xy[1] - pos[1]
@@ -247,7 +255,7 @@ def route_branches(tip_points, collision_field,
                 # Chuẩn hóa hướng kéo
                 to_center[:2] /= center_dist_xy
                 # Lực kéo tỷ lệ với khoảng cách nhưng giới hạn
-                pull = min(convergence_strength, 0.05 * center_dist_xy)
+                pull = min(effective_convergence, 0.05 * center_dist_xy)
                 direction[:2] += to_center[:2] * pull
 
             # Thành phần 3: Tránh va chạm (collision avoidance)
@@ -272,8 +280,13 @@ def route_branches(tip_points, collision_field,
 
             # === Smoothing: trộn với hướng bước trước ===
             # Tránh thay đổi hướng đột ngột gây gấp khúc zíc-zắc
-            # Hệ số 0.3 = 30% hướng cũ, 70% hướng mới
-            smoothed = 0.7 * direction + 0.3 * branch.prev_direction
+            # Vài bước đầu: smoothing mạnh hơn (50% cũ) để chuyển tiếp mềm
+            # từ departure → routing. Sau đó: 30% cũ, 70% mới.
+            if branch.steps_taken < ramp_steps:
+                old_weight = 0.5
+            else:
+                old_weight = 0.3
+            smoothed = (1.0 - old_weight) * direction + old_weight * branch.prev_direction
             sm_len = np.linalg.norm(smoothed)
             if sm_len > 1e-6:
                 smoothed /= sm_len
@@ -303,6 +316,7 @@ def route_branches(tip_points, collision_field,
 
             # Lưu hướng cho smoothing bước sau
             branch.prev_direction = smoothed.copy()
+            branch.steps_taken += 1
 
             new_positions[idx] = new_pos
 
