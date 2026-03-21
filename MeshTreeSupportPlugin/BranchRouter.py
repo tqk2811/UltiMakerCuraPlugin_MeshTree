@@ -417,11 +417,13 @@ def route_branches(tip_points, collision_field,
             survivor = branches[survivor_idx]
             victim = branches[victim_idx]
 
-            # Điểm merge = trung điểm giữa 2 nhánh
-            merge_pos = (
-                new_positions.get(survivor_idx, survivor.position) +
-                new_positions.get(victim_idx, victim.position)
-            ) / 2.0
+            # Điểm merge: XY = trung điểm, Z = min(Z1, Z2)
+            # Z lấy min để cả 2 cạnh nối vào merge point luôn đi XUỐNG,
+            # tránh cạnh dốc ngược lên gây lỗi in 3D.
+            pos_s = new_positions.get(survivor_idx, survivor.position)
+            pos_v = new_positions.get(victim_idx, victim.position)
+            merge_pos = (pos_s + pos_v) / 2.0
+            merge_pos[2] = min(pos_s[2], pos_v[2])
 
             # Cập nhật vị trí survivor về điểm merge
             new_positions[survivor_idx] = merge_pos
