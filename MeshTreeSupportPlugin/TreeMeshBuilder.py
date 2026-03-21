@@ -180,7 +180,8 @@ def _build_cap(center, radius, direction, segments, flip=False):
 # Xuất ra MeshData cho Cura.
 # ==============================================================================
 
-def build_tree_mesh(all_nodes, all_edges, segments=8):
+def build_tree_mesh(all_nodes, all_edges, segments=8,
+                    base_brim_multiplier=3.0, base_brim_height=0.5):
     """
     Tạo mesh 3D hoàn chỉnh từ skeleton cây support.
 
@@ -264,10 +265,8 @@ def build_tree_mesh(all_nodes, all_edges, segments=8):
         vertex_offset += len(cap_verts)
 
     # Đóng nắp + đế chống đổ cho base nodes
-    # Đế (brim) = hình nón cụt ngắn mở rộng từ bán kính nhánh ra gấp 3x,
-    # cao 0.5mm, tạo chân rộng ổn định trên bàn in.
-    base_brim_multiplier = 3.0   # Đế rộng gấp 3 lần bán kính nhánh
-    base_brim_height = 0.5       # Chiều cao đế (mm)
+    # Đế (brim) = hình nón cụt ngắn mở rộng từ bán kính nhánh,
+    # tạo chân rộng ổn định trên bàn in.
 
     for base_idx in base_nodes:
         pos, radius = all_nodes[base_idx]

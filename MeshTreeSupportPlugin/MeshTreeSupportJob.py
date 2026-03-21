@@ -250,7 +250,9 @@ class MeshTreeSupportJob(Job):
 
         mesh_data = TreeMeshBuilder.build_tree_mesh(
             all_nodes, all_edges,
-            segments=int(s["cylinder_segments"])
+            segments=int(s["cylinder_segments"]),
+            base_brim_multiplier=s.get("base_brim_multiplier", 3.0),
+            base_brim_height=s.get("base_brim_height", 0.5)
         )
 
         # Lưu kết quả để Extension lấy qua getResultMeshData()

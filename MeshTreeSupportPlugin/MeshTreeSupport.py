@@ -63,6 +63,8 @@ _DEFAULT_SETTINGS = {
     "min_clearance": 2.0,            # Khoảng cách an toàn đến mesh (mm)
     "sdf_resolution": 3.0,           # Độ phân giải lưới SDF (mm)
     "sdf_padding": 10.0,             # Padding quanh mesh cho SDF (mm)
+    "base_brim_multiplier": 3.0,     # Đế rộng gấp bao nhiêu lần bán kính nhánh
+    "base_brim_height": 0.5,         # Chiều cao đế chống đổ (mm)
     "cylinder_segments": 8,          # Số mặt bao ống trụ
 }
 

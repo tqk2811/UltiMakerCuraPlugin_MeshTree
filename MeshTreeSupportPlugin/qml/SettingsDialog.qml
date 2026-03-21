@@ -264,6 +264,26 @@ Window {
                             onEditingFinished: { var v = parseInt(text); if (!isNaN(v)) manager.updateSetting("cylinder_segments", v) }
                         }
                         Label { text: "" }
+
+                        Label { text: "Hệ số rộng đế:"; Layout.preferredWidth: 180 }
+                        TextField {
+                            id: fBrimMultiplier
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 1; top: 10; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("base_brim_multiplier", v) }
+                        }
+                        Label { text: "×" }
+
+                        Label { text: "Chiều cao đế:"; Layout.preferredWidth: 180 }
+                        TextField {
+                            id: fBrimHeight
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.1; top: 5; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("base_brim_height", v) }
+                        }
+                        Label { text: "mm" }
                     }
                 }
             }
@@ -360,6 +380,8 @@ Window {
         fMinClearance.text      = manager.getSetting("min_clearance").toFixed(1)
         fSdfResolution.text     = manager.getSetting("sdf_resolution").toFixed(1)
         fSdfPadding.text        = manager.getSetting("sdf_padding").toFixed(1)
+        fBrimMultiplier.text    = manager.getSetting("base_brim_multiplier").toFixed(1)
+        fBrimHeight.text        = manager.getSetting("base_brim_height").toFixed(1)
         fCylinderSegments.text  = Math.round(manager.getSetting("cylinder_segments")).toString()
     }
 }
