@@ -163,7 +163,7 @@ def query_radius(node, target, radius, results=None):
 # Gom chúng thành 1 cụm, lấy trọng tâm làm điểm đại diện.
 # ==============================================================================
 
-def cluster_points(points, cluster_radius=5.0):
+def cluster_points(points, normals=None, cluster_radius=5.0):
     """
     Gom cụm các điểm lơ lửng gần nhau bằng KD-Tree + thuật toán tham lam.
 
@@ -177,19 +177,25 @@ def cluster_points(points, cluster_radius=5.0):
        a. Truy vấn KD-Tree tìm mọi láng giềng trong cluster_radius
        b. Đánh dấu tất cả láng giềng là "đã ghé thăm"
        c. Tính trọng tâm cụm → đây là 1 tip point cho cây support
-    4. Trả về mảng trọng tâm các cụm
+       d. Tính pháp tuyến trung bình cụm (nếu có normals)
+    4. Trả về mảng trọng tâm các cụm (và pháp tuyến nếu có)
 
     Tham số:
         points         : numpy array (N, 3) - tọa độ điểm overhang
+        normals        : numpy array (N, 3) hoặc None - pháp tuyến tại mỗi điểm
         cluster_radius : float - bán kính gom cụm (mm)
 
     Trả về:
-        numpy array (K, 3) - trọng tâm các cụm, K << N
+        Nếu normals is None:
+            numpy array (K, 3) - trọng tâm các cụm
+        Nếu normals không None:
+            (numpy array (K, 3), numpy array (K, 3)) - (trọng tâm, pháp tuyến trung bình)
     """
 
     # Trường hợp đặc biệt: không có điểm nào
     if len(points) == 0:
-        return np.zeros((0, 3), dtype=np.float64)
+        empty = np.zeros((0, 3), dtype=np.float64)
+        return (empty, empty) if normals is not None else empty
 
     # Bước 1: Xây dựng KD-Tree từ toàn bộ điểm overhang
     kdtree = build_kdtree(points)
@@ -203,6 +209,7 @@ def cluster_points(points, cluster_radius=5.0):
 
     # Danh sách trọng tâm các cụm
     clusters = []
+    cluster_normals = []
 
     # Bước 3: Duyệt từng điểm theo thứ tự Z giảm dần
     for idx in sorted_indices:
@@ -228,8 +235,23 @@ def cluster_points(points, cluster_radius=5.0):
         cluster_centroid = np.mean(points[new_neighbors], axis=0)
         clusters.append(cluster_centroid)
 
+        # Tính pháp tuyến trung bình cụm (nếu có)
+        if normals is not None:
+            avg_normal = np.mean(normals[new_neighbors], axis=0)
+            n_len = np.linalg.norm(avg_normal)
+            if n_len > 1e-6:
+                avg_normal /= n_len
+            else:
+                avg_normal = np.array([0.0, 0.0, -1.0])
+            cluster_normals.append(avg_normal)
+
     # Chuyển danh sách thành numpy array
     if clusters:
-        return np.array(clusters, dtype=np.float64)
+        result_points = np.array(clusters, dtype=np.float64)
+        if normals is not None:
+            result_normals = np.array(cluster_normals, dtype=np.float64)
+            return result_points, result_normals
+        return result_points
     else:
-        return np.zeros((0, 3), dtype=np.float64)
+        empty = np.zeros((0, 3), dtype=np.float64)
+        return (empty, empty) if normals is not None else empty

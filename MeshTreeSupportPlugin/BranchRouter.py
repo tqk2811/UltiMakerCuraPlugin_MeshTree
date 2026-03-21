@@ -94,7 +94,8 @@ def _murray_radius(r1, r2):
 def route_branches(tip_points, collision_field,
                    step_size=1.0, merge_distance=5.0, min_clearance=2.0,
                    tip_radius=0.5, min_merge_height=20.0,
-                   straight_drop_height=10.0, convergence_strength=0.3):
+                   straight_drop_height=10.0, convergence_strength=0.3,
+                   tip_normals=None):
     """
     Sinh nhánh cây support bằng Space Colonization bottom-up.
 
@@ -109,6 +110,9 @@ def route_branches(tip_points, collision_field,
                           Dưới mức này, nhánh chỉ rơi thẳng, không merge
         straight_drop_height : float - chiều cao Z bắt đầu rơi thẳng đứng (mm)
         convergence_strength : float - lực hút về trọng tâm (0-1)
+        tip_normals   : numpy array (K, 3) hoặc None - pháp tuyến bề mặt tại mỗi tip
+                        (inward normal từ OverhangDetector). Dùng để tạo đoạn departure
+                        vuông góc bề mặt, giúp dễ bẻ support sau khi in.
 
     Trả về:
         all_nodes : list of (position, radius) - tất cả nút trong skeleton
@@ -119,6 +123,30 @@ def route_branches(tip_points, collision_field,
     if len(tip_points) == 0:
         return [], []
 
+    # --- Tính hướng departure cho mỗi tip ---
+    # Pháp tuyến từ OverhangDetector là INWARD normal (do left-handed coords).
+    # Outward normal = -inward_normal = hướng vuông góc ra xa bề mặt.
+    # Đoạn departure đi theo outward normal để tạo chân vuông góc dễ bẻ.
+    departure_dirs = []
+    if tip_normals is not None and len(tip_normals) == len(tip_points):
+        for i in range(len(tip_normals)):
+            # Outward normal = đảo chiều inward normal
+            outward = -tip_normals[i]
+            n_len = np.linalg.norm(outward)
+            if n_len > 1e-6:
+                outward /= n_len
+            else:
+                outward = np.array([0.0, 0.0, -1.0])
+            departure_dirs.append(outward)
+    else:
+        # Không có normal → departure mặc định đi xuống
+        for i in range(len(tip_points)):
+            departure_dirs.append(np.array([0.0, 0.0, -1.0]))
+
+    # Số bước departure: đi vuông góc bề mặt trước khi bắt đầu routing
+    # Khoảng 2-3 bước (2-3mm với step_size mặc định) đủ để tạo chân bẻ
+    departure_steps = 3
+
     # --- Khởi tạo skeleton ---
     # all_nodes: danh sách (position, radius) cho mỗi nút
     # all_edges: danh sách (idx_parent, idx_child) cho mỗi cạnh
@@ -126,16 +154,30 @@ def route_branches(tip_points, collision_field,
     all_edges = []  # [(int, int), ...]
 
     # --- Khởi tạo các nhánh từ tip points ---
+    # Mỗi nhánh bắt đầu bằng đoạn departure vuông góc bề mặt
     branches = []
     for i in range(len(tip_points)):
-        # Tạo nút gốc cho mỗi tip
+        # Tạo nút gốc tại điểm overhang (tip)
         node_pos = tip_points[i].copy()
         node_radius = tip_radius
         node_idx = len(all_nodes)
         all_nodes.append((node_pos.copy(), node_radius))
 
-        # Tạo BranchTip tương ứng
-        branch = BranchTip(node_pos, node_radius, node_idx, tip_count=1)
+        # Tạo đoạn departure: vài nút đi theo outward normal
+        dep_dir = departure_dirs[i]
+        prev_idx = node_idx
+        current_pos = node_pos.copy()
+        for step in range(departure_steps):
+            current_pos = current_pos + dep_dir * step_size
+            current_pos[2] = max(0.0, current_pos[2])
+            new_idx = len(all_nodes)
+            all_nodes.append((current_pos.copy(), node_radius))
+            all_edges.append((prev_idx, new_idx))
+            prev_idx = new_idx
+
+        # Tạo BranchTip bắt đầu từ cuối đoạn departure
+        branch = BranchTip(current_pos, node_radius, prev_idx, tip_count=1)
+        branch.prev_direction = dep_dir.copy()  # Khởi tạo smoothing từ hướng departure
         branches.append(branch)
 
     # --- Danh sách chỉ số nhánh đang hoạt động ---

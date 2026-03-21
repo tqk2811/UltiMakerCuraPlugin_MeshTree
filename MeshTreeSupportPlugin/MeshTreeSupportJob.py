@@ -153,8 +153,9 @@ class MeshTreeSupportJob(Job):
         Logger.log("d", "Buoc 2/5: Gom cum diem (cluster radius = %.1fmm)...",
                    s["cluster_radius"])
 
-        tip_points = PointClusterer.cluster_points(
+        tip_points, tip_normals = PointClusterer.cluster_points(
             overhang_points,
+            normals=overhang_normals,
             cluster_radius=s["cluster_radius"]
         )
 
@@ -217,7 +218,8 @@ class MeshTreeSupportJob(Job):
             tip_radius=s["branch_tip_radius"],
             min_merge_height=s["min_merge_height"],
             straight_drop_height=s["straight_drop_height"],
-            convergence_strength=s["convergence_strength"]
+            convergence_strength=s["convergence_strength"],
+            tip_normals=tip_normals
         )
 
         Logger.log("i", "  -> Skeleton: %d nut, %d canh",
