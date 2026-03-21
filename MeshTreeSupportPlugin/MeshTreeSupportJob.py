@@ -82,7 +82,7 @@ class MeshTreeSupportJob(Job):
     Job chạy nền để sinh cây support hữu cơ.
 
     Kế thừa UM.Job.Job → chạy trên worker thread, không block UI Cura.
-    Báo tiến độ qua setProgress() → UI hiển thị thanh tiến trình.
+    Báo tiến độ qua progress.emit() → UI hiển thị thanh tiến trình.
 
     Thuộc tính:
         _vertices        : numpy array (N, 3) - tọa độ đỉnh mesh (world coords)
@@ -136,7 +136,7 @@ class MeshTreeSupportJob(Job):
         # Đầu vào: mesh (vertices, faces)
         # Đầu ra: tọa độ trọng tâm + pháp tuyến các mặt lơ lửng
         # =====================================================================
-        self.setProgress(5)
+        self.progress.emit(5)
         Logger.log("d", "Bước 1/5: Phát hiện vùng lơ lửng (overhang angle = %.1f°)...",
                    OVERHANG_ANGLE)
 
@@ -151,7 +151,7 @@ class MeshTreeSupportJob(Job):
         # Kiểm tra: nếu không có overhang → không cần support
         if len(overhang_points) == 0:
             Logger.log("i", "MeshTreeSupport: Không tìm thấy vùng lơ lửng. Hoàn tất.")
-            self.setProgress(100)
+            self.progress.emit(100)
             return
 
         # =====================================================================
@@ -160,7 +160,7 @@ class MeshTreeSupportJob(Job):
         # Đầu vào: điểm overhang (có thể hàng nghìn)
         # Đầu ra: trọng tâm cụm (vài chục → vài trăm tip points)
         # =====================================================================
-        self.setProgress(15)
+        self.progress.emit(15)
         Logger.log("d", "Bước 2/5: Gom cụm điểm (cluster radius = %.1fmm)...",
                    CLUSTER_RADIUS)
 
@@ -173,7 +173,7 @@ class MeshTreeSupportJob(Job):
 
         if len(tip_points) == 0:
             Logger.log("w", "MeshTreeSupport: Gom cụm cho 0 tip. Hoàn tất.")
-            self.setProgress(100)
+            self.progress.emit(100)
             return
 
         # =====================================================================
@@ -185,7 +185,7 @@ class MeshTreeSupportJob(Job):
         # Đây là bước tốn thời gian nhất. multiprocessing.Pool phân phối
         # việc tính SDF trên lưới 3D cho nhiều CPU core song song.
         # =====================================================================
-        self.setProgress(20)
+        self.progress.emit(20)
         Logger.log("d", "Bước 3/5: Xây dựng trường va chạm SDF "
                    "(resolution = %.1fmm, multiprocessing)...", SDF_RESOLUTION)
 
@@ -207,7 +207,7 @@ class MeshTreeSupportJob(Job):
         # Nhánh gần nhau merge (định luật Murray). Tránh va chạm mesh.
         # Giai đoạn cuối rơi thẳng đứng tạo chân đế.
         # =====================================================================
-        self.setProgress(40)
+        self.progress.emit(40)
         Logger.log("d", "Bước 4/5: Sinh nhánh cây (Space Colonization bottom-up)...")
 
         all_nodes, all_edges = BranchRouter.route_branches(
@@ -227,7 +227,7 @@ class MeshTreeSupportJob(Job):
 
         if not all_edges:
             Logger.log("w", "MeshTreeSupport: Không tạo được nhánh nào. Hoàn tất.")
-            self.setProgress(100)
+            self.progress.emit(100)
             return
 
         # =====================================================================
@@ -239,7 +239,7 @@ class MeshTreeSupportJob(Job):
         # Mỗi cạnh → 1 hình nón cụt với bán kính 2 đầu khác nhau.
         # Đỉnh cây và chân cây được đóng nắp cho kín nước.
         # =====================================================================
-        self.setProgress(80)
+        self.progress.emit(80)
         Logger.log("d", "Bước 5/5: Tạo mesh ống trụ (%d segments)...",
                    CYLINDER_SEGMENTS)
 
@@ -251,6 +251,6 @@ class MeshTreeSupportJob(Job):
         # Lưu kết quả để Extension lấy qua getResultMeshData()
         self._result_mesh_data = mesh_data
 
-        self.setProgress(100)
+        self.progress.emit(100)
         Logger.log("i", "MeshTreeSupport: Hoàn tất! Mesh support có %d đỉnh.",
                    mesh_data.getVertexCount() if mesh_data else 0)
