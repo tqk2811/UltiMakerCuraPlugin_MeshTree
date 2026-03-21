@@ -314,7 +314,7 @@ def query_min_distance(bvh_node, point, vertices, faces, best_dist=float('inf'))
 # process con.
 # ==============================================================================
 
-def compute_sdf_grid(vertices, faces, resolution=3.0, padding=10.0):
+def compute_sdf_grid(vertices, faces, resolution=3.0, padding=10.0, cancel_check=None):
     """
     Tính lưới SDF 3D đơn luồng bằng BVH.
 
@@ -326,16 +326,20 @@ def compute_sdf_grid(vertices, faces, resolution=3.0, padding=10.0):
     5. Trả về mảng SDF 3D
 
     Tham số:
-        vertices    : numpy array (N, 3) - tọa độ đỉnh mesh
-        faces       : numpy array (M, 3) - chỉ số tam giác
-        resolution  : float - bước lưới (mm), nhỏ hơn = chính xác hơn nhưng chậm hơn
-        padding     : float - padding quanh mesh (mm)
+        vertices     : numpy array (N, 3) - tọa độ đỉnh mesh
+        faces        : numpy array (M, 3) - chỉ số tam giác
+        resolution   : float - bước lưới (mm), nhỏ hơn = chính xác hơn nhưng chậm hơn
+        padding      : float - padding quanh mesh (mm)
+        cancel_check : callable hoặc None - trả về True nếu cần huỷ
 
     Trả về:
         sdf_grid   : numpy array (Nx, Ny, Nz) - khoảng cách tại mỗi điểm lưới
         origin     : numpy array (3,) - tọa độ góc nhỏ nhất của lưới
         resolution : float - bước lưới
         grid_dims  : tuple (Nx, Ny, Nz) - kích thước lưới
+
+    Raises:
+        InterruptedError: khi cancel_check() trả về True
     """
 
     # --- Bước 1: Tính bounding box mở rộng ---
@@ -361,9 +365,14 @@ def compute_sdf_grid(vertices, faces, resolution=3.0, padding=10.0):
 
     # --- Bước 4: Tính khoảng cách cho từng điểm lưới ---
     # Duyệt theo thứ tự x → y → z (tương ứng indexing='ij' của meshgrid)
+    # Kiểm tra cancel mỗi lát x để phản hồi nhanh (< 1 giây)
     sdf_grid = np.zeros((nx, ny, nz), dtype=np.float64)
 
     for ix in range(nx):
+        # Kiểm tra huỷ mỗi lát X
+        if cancel_check is not None and cancel_check():
+            raise InterruptedError("SDF computation cancelled")
+
         for iy in range(ny):
             for iz in range(nz):
                 point = np.array([x_coords[ix], y_coords[iy], z_coords[iz]])
@@ -482,23 +491,27 @@ class CollisionField:
         self._dims = dims
 
     @staticmethod
-    def build(vertices, faces, resolution=3.0, padding=10.0):
+    def build(vertices, faces, resolution=3.0, padding=10.0, cancel_check=None):
         """
         Factory method: tính SDF grid + gradient, trả về CollisionField.
 
         Tham số:
-            vertices    : numpy array (N, 3)
-            faces       : numpy array (M, 3)
-            resolution  : float - bước lưới SDF (mm)
-            padding     : float - padding quanh mesh (mm)
+            vertices     : numpy array (N, 3)
+            faces        : numpy array (M, 3)
+            resolution   : float - bước lưới SDF (mm)
+            padding      : float - padding quanh mesh (mm)
+            cancel_check : callable hoặc None - trả về True nếu cần huỷ
 
         Trả về:
             CollisionField instance sẵn sàng tra cứu
+
+        Raises:
+            InterruptedError: khi cancel_check() trả về True
         """
 
         # Tính lưới SDF đơn luồng
         sdf_grid, origin, res, dims = compute_sdf_grid(
-            vertices, faces, resolution, padding
+            vertices, faces, resolution, padding, cancel_check
         )
 
         # Tính gradient SDF bằng sai phân hữu hạn (finite differences)

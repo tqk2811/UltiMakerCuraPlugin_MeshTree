@@ -212,6 +212,17 @@ class MeshTreeSupport(QObject, Extension):
             return
         self._start_generation()
 
+    @pyqtSlot()
+    def cancelGeneration(self):
+        """
+        QML gọi khi nhấn nút "Huỷ".
+        Gửi yêu cầu huỷ đến Job đang chạy (cooperative cancellation).
+        """
+        if self._job is not None and self._is_running:
+            self._job.requestCancel()
+            self._status_text = "Đang huỷ..."
+            self.statusTextChanged.emit()
+
     # ==========================================================================
     # QUẢN LÝ DIALOG QML
     # ==========================================================================
@@ -383,6 +394,15 @@ class MeshTreeSupport(QObject, Extension):
         """
         self._is_running = False
         self.isRunningChanged.emit()
+
+        # Kiểm tra nếu Job bị huỷ
+        if job.isCancelled():
+            self._status_text = "Đã huỷ."
+            self._progress_value = 0
+            self.progressChanged.emit()
+            self.statusTextChanged.emit()
+            Logger.log("i", "MeshTreeSupport: Job da bi huy boi nguoi dung.")
+            return
 
         mesh_data = job.getResultMeshData()
         if mesh_data is None:

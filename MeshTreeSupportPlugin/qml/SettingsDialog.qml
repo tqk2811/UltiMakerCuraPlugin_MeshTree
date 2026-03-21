@@ -301,7 +301,13 @@ Window {
             Item { Layout.fillWidth: true }
 
             Button {
-                text: (manager && manager.isRunning) ? "Đang chạy..." : "Bắt đầu"
+                text: "Huỷ"
+                visible: manager ? manager.isRunning : false
+                onClicked: manager.cancelGeneration()
+            }
+
+            Button {
+                text: "Bắt đầu"
                 enabled: manager ? !manager.isRunning : true
                 highlighted: true
                 onClicked: manager.startGeneration()

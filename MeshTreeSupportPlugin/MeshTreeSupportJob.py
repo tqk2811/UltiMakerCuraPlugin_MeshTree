@@ -71,6 +71,17 @@ class MeshTreeSupportJob(Job):
         # Kết quả: MeshData chứa cây support
         self._result_mesh_data = None
 
+        # Cờ huỷ: cooperative cancellation (main thread set, worker thread kiểm tra)
+        self._cancelled = False
+
+    def requestCancel(self):
+        """Main thread gọi để yêu cầu huỷ Job."""
+        self._cancelled = True
+
+    def isCancelled(self):
+        """Kiểm tra cờ huỷ. Worker thread gọi tại mỗi bước."""
+        return self._cancelled
+
     def getResultMeshData(self):
         """Lấy kết quả mesh sau khi Job hoàn thành."""
         return self._result_mesh_data
@@ -96,6 +107,14 @@ class MeshTreeSupportJob(Job):
         vertices = self._vertices
         faces = self._faces
 
+        try:
+            self._run_pipeline(s, vertices, faces)
+        except InterruptedError:
+            Logger.log("i", "MeshTreeSupport: Job da bi huy.")
+
+    def _run_pipeline(self, s, vertices, faces):
+        """Chạy pipeline 5 bước. Raise InterruptedError nếu bị huỷ."""
+
         # =====================================================================
         # BƯỚC 1: PHÁT HIỆN VÙNG LƠ LỬNG (Overhang Detection)
         # Thuật toán: Facet Normal Angle Detection
@@ -113,6 +132,10 @@ class MeshTreeSupportJob(Job):
         )
 
         Logger.log("i", "  -> Tim thay %d mat lo lung", len(overhang_points))
+
+        if self._cancelled:
+            Logger.log("i", "MeshTreeSupport: Da huy tai buoc 1.")
+            return
 
         # Kiểm tra: nếu không có overhang → không cần support
         if len(overhang_points) == 0:
@@ -137,6 +160,10 @@ class MeshTreeSupportJob(Job):
 
         Logger.log("i", "  -> Gom thanh %d cum (tip points)", len(tip_points))
 
+        if self._cancelled:
+            Logger.log("i", "MeshTreeSupport: Da huy tai buoc 2.")
+            return
+
         if len(tip_points) == 0:
             Logger.log("w", "MeshTreeSupport: Gom cum cho 0 tip. Hoan tat.")
             self.progress.emit(100)
@@ -158,10 +185,15 @@ class MeshTreeSupportJob(Job):
         collision_field = CollisionField.build(
             vertices, faces,
             resolution=s["sdf_resolution"],
-            padding=s["sdf_padding"]
+            padding=s["sdf_padding"],
+            cancel_check=self.isCancelled
         )
 
         Logger.log("i", "  -> Truong va cham SDF da san sang")
+
+        if self._cancelled:
+            Logger.log("i", "MeshTreeSupport: Da huy tai buoc 3.")
+            return
 
         # =====================================================================
         # BƯỚC 4: SINH NHÁNH CÂY (Branch Routing)
@@ -190,6 +222,10 @@ class MeshTreeSupportJob(Job):
 
         Logger.log("i", "  -> Skeleton: %d nut, %d canh",
                    len(all_nodes), len(all_edges))
+
+        if self._cancelled:
+            Logger.log("i", "MeshTreeSupport: Da huy tai buoc 4.")
+            return
 
         if not all_edges:
             Logger.log("w", "MeshTreeSupport: Khong tao duoc nhanh nao. Hoan tat.")
