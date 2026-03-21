@@ -144,7 +144,7 @@ class MeshTreeSupport(QObject, Extension):
 
         # Đăng ký menu item trong Extensions menu
         self.setMenuName("Mesh Tree Support")
-        self.addMenuItem("Cài đặt && Sinh Support", self._show_dialog)
+        self.addMenuItem("Cài đặt và Sinh Support", self._show_dialog)
 
         Logger.log("i", "MeshTreeSupport Extension da khoi tao (settings loaded)")
 
