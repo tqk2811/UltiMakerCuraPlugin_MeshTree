@@ -96,15 +96,20 @@ def _build_frustum(p1, p2, r1, r2, segments):
 
     # --- Sinh tam giác nối 2 vòng ---
     # Mỗi cặp đỉnh liền kề trên 2 vòng tạo thành 1 quad = 2 triangles
+    #
+    # Winding order đảo ngược so với right-handed thông thường vì:
+    # Mesh được build trong Z-up left-handed, sau đó swap Y↔Z (det=-1)
+    # về Y-up right-handed cho Cura. Swap đảo winding → cần xây ngược
+    # để sau swap ra đúng chiều (CCW = outward trong right-handed).
     faces = np.zeros((2 * segments, 3), dtype=np.int32)
     for i in range(segments):
         j = (i + 1) % segments  # Đỉnh kế tiếp (vòng lại)
 
-        # Tam giác 1: bottom[i] → bottom[j] → top[j]
-        faces[2 * i] = [i, j, segments + j]
+        # Tam giác 1: bottom[i] → top[j] → bottom[j]  (winding đảo)
+        faces[2 * i] = [i, segments + j, j]
 
-        # Tam giác 2: bottom[i] → top[j] → top[i]
-        faces[2 * i + 1] = [i, segments + j, segments + i]
+        # Tam giác 2: bottom[i] → top[i] → top[j]  (winding đảo)
+        faces[2 * i + 1] = [i, segments + i, segments + j]
 
     return vertices, faces
 
@@ -155,13 +160,14 @@ def _build_cap(center, radius, direction, segments, flip=False):
         vertices[i + 1] = center + offset
 
     # Tam giác hình quạt: tâm → chu vi[i] → chu vi[i+1]
+    # Winding đảo cho left-handed Z-up → sau swap Y↔Z ra đúng chiều
     faces = np.zeros((segments, 3), dtype=np.int32)
     for i in range(segments):
         j = (i + 1) % segments
         if flip:
-            faces[i] = [0, j + 1, i + 1]  # Ngược chiều → pháp tuyến hướng xuống
+            faces[i] = [0, i + 1, j + 1]  # Đảo: pháp tuyến hướng xuống sau swap
         else:
-            faces[i] = [0, i + 1, j + 1]  # Thuận chiều → pháp tuyến hướng lên
+            faces[i] = [0, j + 1, i + 1]  # Đảo: pháp tuyến hướng lên sau swap
 
     return vertices, faces
 
