@@ -426,7 +426,10 @@ class MeshTreeSupport(QObject, Extension):
     def _add_support_to_scene(self, mesh_data):
         """
         Thêm mesh cây support vào scene Cura.
-        Chuyển vertices Z-up → Y-up, tạo CuraSceneNode, đánh dấu support_mesh.
+        Chuyển vertices Z-up → Y-up, tạo CuraSceneNode.
+        Mesh được thêm như object thường (không dùng support_mesh vì flag đó
+        khiến CuraEngine tự sinh support pattern lấp đầy thể tích, thay vì
+        in đúng hình dạng cây).
         Chạy trên: Main thread
         """
 
@@ -466,18 +469,6 @@ class MeshTreeSupport(QObject, Extension):
         scene = CuraApplication.getInstance().getController().getScene()
         op = AddSceneNodeOperation(support_node, scene.getRoot())
         op.push()
-
-        # Đánh dấu support_mesh = True
-        stack = support_node.callDecoration("getStack")
-        if stack:
-            settings = stack.getTop()
-            definition = stack.getSettingDefinition("support_mesh")
-            if definition:
-                from UM.Settings.SettingInstance import SettingInstance
-                instance = SettingInstance(definition, settings)
-                instance.setProperty("value", True)
-                instance.resetState()
-                settings.addInstance(instance)
 
         Logger.log("i", "MeshTreeSupport: Da them mesh cay support vao scene! (%d dinh)",
                    cura_mesh_data.getVertexCount())
