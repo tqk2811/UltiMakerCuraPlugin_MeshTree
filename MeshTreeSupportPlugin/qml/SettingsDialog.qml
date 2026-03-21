@@ -26,7 +26,10 @@ Window {
     height: 780
     minimumWidth: 480
     minimumHeight: 650
+    // Gắn làm cửa sổ con của Cura (luôn nổi trên Cura, đóng khi Cura đóng)
+    transientParent: mainWindow
     flags: Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
+    modality: Qt.NonModal
     color: "#f5f5f5"
 
     // =========================================================================

@@ -227,8 +227,10 @@ class MeshTreeSupport(QObject, Extension):
                 os.path.dirname(os.path.abspath(__file__)),
                 "qml", "SettingsDialog.qml"
             )
+            # Truyền mainWindow để QML dùng làm transientParent (cửa sổ con của Cura)
+            main_window = CuraApplication.getInstance().getMainWindow()
             self._dialog = CuraApplication.getInstance().createQmlComponent(
-                qml_path, {"manager": self}
+                qml_path, {"manager": self, "mainWindow": main_window}
             )
         if self._dialog:
             self._dialog.show()
