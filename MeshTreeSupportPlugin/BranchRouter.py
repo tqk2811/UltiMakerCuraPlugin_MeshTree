@@ -186,6 +186,9 @@ def route_branches(tip_points, collision_field,
         branch.prev_direction = dep_dir.copy()  # Khởi tạo smoothing từ hướng departure
         branches.append(branch)
 
+    # --- Chiều cao Z ban đầu lớn nhất (dùng cho adaptive merge) ---
+    initial_max_z = float(np.max(tip_points[:, 2])) if len(tip_points) > 0 else 100.0
+
     # --- Danh sách chỉ số nhánh đang hoạt động ---
     active_indices = list(range(len(branches)))
 
@@ -210,6 +213,26 @@ def route_branches(tip_points, collision_field,
         # Dùng làm "attraction point" cho lực hội tụ
         active_positions = np.array([branches[i].position for i in active_indices])
         centroid_xy = np.mean(active_positions[:, :2], axis=0)  # Trọng tâm XY
+
+        # --- Tìm nearest neighbor cho mỗi nhánh (dùng cho convergence) ---
+        # Tính 1 lần cho toàn bộ active, dùng cho tất cả nhánh trong bước này
+        nearest_neighbor = {}  # idx → (neighbor_idx, distance)
+        if len(active_indices) > 1:
+            active_pos_array = np.array([branches[i].position for i in active_indices])
+            for ai in range(len(active_indices)):
+                idx_i = active_indices[ai]
+                pos_i = active_pos_array[ai]
+                best_dist = float('inf')
+                best_idx = -1
+                for aj in range(len(active_indices)):
+                    if ai == aj:
+                        continue
+                    d = np.linalg.norm(pos_i[:2] - active_pos_array[aj][:2])
+                    if d < best_dist:
+                        best_dist = d
+                        best_idx = active_indices[aj]
+                if best_idx >= 0:
+                    nearest_neighbor[idx_i] = (best_idx, best_dist)
 
         # --- Tính vị trí mới cho mỗi nhánh ---
         new_positions = {}    # idx → new_position
@@ -236,27 +259,37 @@ def route_branches(tip_points, collision_field,
             direction = np.array([0.0, 0.0, -1.0])
 
             # Thành phần 2: Lực hội tụ (convergence)
-            # Kéo nhánh về phía trọng tâm XY của tất cả nhánh
-            # Càng xa trọng tâm → lực kéo càng mạnh (nhưng giới hạn)
-            #
             # Ramp up: trong 8 bước đầu, convergence tăng dần từ 0 → full
             # để tránh bẻ góc đột ngột ngay sau đoạn departure vuông góc
             ramp_steps = 8
             ramp_factor = min(1.0, branch.steps_taken / ramp_steps)
             effective_convergence = convergence_strength * ramp_factor
 
+            # 2a: Lực kéo về trọng tâm chung (global centroid)
             to_center = np.zeros(3)
             to_center[0] = centroid_xy[0] - pos[0]
             to_center[1] = centroid_xy[1] - pos[1]
-            # Giữ thành phần Z = 0 (chỉ hội tụ trên mặt phẳng XY)
 
             center_dist_xy = np.linalg.norm(to_center[:2])
             if center_dist_xy > 0.1:
-                # Chuẩn hóa hướng kéo
                 to_center[:2] /= center_dist_xy
-                # Lực kéo tỷ lệ với khoảng cách nhưng giới hạn
-                pull = min(effective_convergence, 0.05 * center_dist_xy)
+                pull = min(effective_convergence * 0.5, 0.03 * center_dist_xy)
                 direction[:2] += to_center[:2] * pull
+
+            # 2b: Lực kéo về nhánh gần nhất (nearest-neighbor convergence)
+            # Mạnh hơn centroid → 2 nhánh gần nhau sẽ nhanh chóng hội tụ
+            if idx in nearest_neighbor:
+                nn_idx, nn_dist = nearest_neighbor[idx]
+                nn_pos = branches[nn_idx].position
+                to_nn = np.zeros(3)
+                to_nn[0] = nn_pos[0] - pos[0]
+                to_nn[1] = nn_pos[1] - pos[1]
+                nn_dist_xy = np.linalg.norm(to_nn[:2])
+                if nn_dist_xy > 0.1:
+                    to_nn[:2] /= nn_dist_xy
+                    # Lực kéo NN mạnh hơn khi gần, yếu khi xa
+                    nn_pull = min(effective_convergence * 0.7, 0.04 * nn_dist_xy)
+                    direction[:2] += to_nn[:2] * nn_pull
 
             # Thành phần 3: Tránh va chạm (collision avoidance)
             # Dùng CollisionField (SDF + gradient) để kiểm tra
@@ -348,6 +381,14 @@ def route_branches(tip_points, collision_field,
                 if pos_i[2] <= min_merge_height:
                     continue
 
+                # Adaptive merge distance: càng xuống thấp, khoảng cách merge càng lớn
+                # Tại Z cao (gần tip): dùng merge_distance gốc
+                # Tại Z thấp (gần bàn): merge_distance * 3 (gộp mạnh hơn)
+                # Công thức: effective = base * (1 + 2 * (1 - z/max_z))
+                height_ratio = pos_i[2] / initial_max_z if initial_max_z > 0 else 0
+                height_ratio = min(1.0, max(0.0, height_ratio))
+                effective_merge_dist = merge_distance * (1.0 + 2.0 * (1.0 - height_ratio))
+
                 for aj in range(ai + 1, len(active_indices)):
                     idx_j = active_indices[aj]
                     if idx_j in merged_set:
@@ -361,7 +402,7 @@ def route_branches(tip_points, collision_field,
                     # Tính khoảng cách 3D giữa 2 nhánh
                     dist = np.linalg.norm(pos_i - pos_j)
 
-                    if dist < merge_distance:
+                    if dist < effective_merge_dist:
                         # Merge: nhánh có nhiều tip hơn sống sót
                         if branches[idx_i].tip_count >= branches[idx_j].tip_count:
                             survivor, victim = idx_i, idx_j
