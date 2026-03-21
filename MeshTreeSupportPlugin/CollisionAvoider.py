@@ -301,29 +301,170 @@ def query_min_distance(bvh_node, point, vertices, faces, best_dist=float('inf'))
 
 
 # ==============================================================================
-# PHẦN 3: TÍNH LƯỚI SDF (Signed Distance Field)
+# PHẦN 3: RAY CASTING - XÁC ĐỊNH BÊN TRONG / BÊN NGOÀI MESH
 #
-# Trường khoảng cách (SDF) là lưới 3D lưu trữ khoảng cách từ mỗi điểm
-# lưới đến bề mặt mesh gần nhất.
+# Để chuyển từ unsigned distance sang signed distance, cần xác định
+# mỗi điểm nằm bên trong hay bên ngoài mesh.
 #
-# Ưu điểm: sau khi tính xong lưới, tra cứu khoảng cách tại bất kỳ điểm
-# nào chỉ cần nội suy ba chiều → O(1) thay vì O(log M) cho BVH.
+# Thuật toán: Parity Test (Jordan Curve Theorem mở rộng 3D)
+# - Bắn tia từ điểm theo hướng +Z
+# - Đếm số giao điểm với mesh
+# - Số lẻ = bên trong, số chẵn = bên ngoài
 #
-# Chạy đơn luồng trên worker thread (Job.run()) — không dùng multiprocessing
-# vì môi trường nhúng Python của Cura trên Windows gây deadlock khi spawn
-# process con.
+# Sử dụng thuật toán Möller-Trumbore cho ray-triangle intersection.
+# ==============================================================================
+
+def _ray_triangle_intersect_z(origin_xy, origin_z, v0, v1, v2):
+    """
+    Kiểm tra tia (origin, hướng +Z) có cắt tam giác (v0, v1, v2) không.
+
+    Thuật toán Möller-Trumbore đơn giản hóa cho tia song song trục Z:
+    - Ray direction = (0, 0, 1)
+    - Chỉ cần kiểm tra tọa độ XY nằm trong tam giác (barycentric)
+    - Rồi kiểm tra giao điểm Z > origin_z (tia đi lên)
+
+    Tham số:
+        origin_xy : numpy array (2,) - tọa độ XY gốc tia
+        origin_z  : float - tọa độ Z gốc tia
+        v0, v1, v2 : numpy array (3,) - 3 đỉnh tam giác
+
+    Trả về:
+        bool - True nếu tia cắt tam giác (giao điểm Z > origin_z)
+    """
+    # Cạnh tam giác
+    e1 = v1 - v0
+    e2 = v2 - v0
+
+    # Với ray dir = (0,0,1): h = dir × e2 = (-e2[1], e2[0], 0)
+    # a = e1 · h = e1[0]*(-e2[1]) + e1[1]*e2[0] = e1[1]*e2[0] - e1[0]*e2[1]
+    a = e1[1] * e2[0] - e1[0] * e2[1]
+
+    if abs(a) < 1e-10:
+        return False  # Tia song song mặt tam giác
+
+    inv_a = 1.0 / a
+    s = np.array([origin_xy[0] - v0[0], origin_xy[1] - v0[1]])
+
+    # u = s · h * inv_a (với h trên XY)
+    u = (s[0] * (-e2[1]) + s[1] * e2[0]) * inv_a
+    if u < 0.0 or u > 1.0:
+        return False
+
+    # q = s × e1 (chỉ cần thành phần Z cho dot với dir=(0,0,1))
+    # q_z = s[0]*e1[1] - s[1]*e1[0]
+    q_z = s[0] * e1[1] - s[1] * e1[0]
+    v = q_z * inv_a  # v = dir · q * inv_a, dir=(0,0,1) nên = q_z * inv_a
+    if v < 0.0 or u + v > 1.0:
+        return False
+
+    # t = e2 · q * inv_a = e2[2] * q_z * inv_a (chỉ thành phần Z)
+    # Thực ra q = (s×e1) full 3D, ta cần e2·q
+    # s_full = origin - v0, nhưng ta đã giản lược. Tính t trực tiếp:
+    # t = giao điểm Z - origin_z
+    # Giao điểm = v0 + u*e1 + v*e2
+    t = v0[2] + u * e1[2] + v * e2[2] - origin_z
+
+    return t > 1e-8  # Chỉ tính giao điểm phía trên
+
+
+def _count_ray_intersections_z(bvh_node, origin_xy, origin_z, vertices, faces):
+    """
+    Đếm số giao điểm của tia +Z với mesh, dùng BVH để tăng tốc.
+
+    Tham số:
+        bvh_node  : AABBNode - nút BVH
+        origin_xy : numpy array (2,) - tọa độ XY gốc tia
+        origin_z  : float - tọa độ Z gốc tia
+        vertices  : numpy array (N, 3)
+        faces     : numpy array (M, 3)
+
+    Trả về:
+        int - số giao điểm
+    """
+    if bvh_node is None:
+        return 0
+
+    # Cắt tỉa: kiểm tra tia +Z có đi qua hộp AABB không
+    # Tia (ox, oy, oz → +Z) cắt AABB khi:
+    #   min_x <= ox <= max_x VÀ min_y <= oy <= max_y VÀ max_z >= oz
+    if (origin_xy[0] < bvh_node.min_corner[0] or
+            origin_xy[0] > bvh_node.max_corner[0] or
+            origin_xy[1] < bvh_node.min_corner[1] or
+            origin_xy[1] > bvh_node.max_corner[1] or
+            bvh_node.max_corner[2] < origin_z):
+        return 0
+
+    # Nút lá: kiểm tra từng tam giác
+    if bvh_node.face_indices is not None:
+        count = 0
+        for fi in bvh_node.face_indices:
+            v0 = vertices[faces[fi, 0]]
+            v1 = vertices[faces[fi, 1]]
+            v2 = vertices[faces[fi, 2]]
+            if _ray_triangle_intersect_z(origin_xy, origin_z, v0, v1, v2):
+                count += 1
+        return count
+
+    # Nút trong: đệ quy
+    return (_count_ray_intersections_z(bvh_node.left, origin_xy, origin_z,
+                                       vertices, faces) +
+            _count_ray_intersections_z(bvh_node.right, origin_xy, origin_z,
+                                       vertices, faces))
+
+
+def _is_inside_mesh(point, bvh_root, vertices, faces):
+    """
+    Kiểm tra điểm nằm bên trong mesh hay không bằng ray casting.
+
+    Bắn tia +Z, đếm giao điểm. Số lẻ = bên trong.
+
+    Tham số:
+        point    : numpy array (3,)
+        bvh_root : AABBNode - gốc BVH
+        vertices : numpy array (N, 3)
+        faces    : numpy array (M, 3)
+
+    Trả về:
+        bool - True nếu điểm bên trong mesh
+    """
+    count = _count_ray_intersections_z(
+        bvh_root, point[:2], point[2], vertices, faces
+    )
+    return (count % 2) == 1
+
+
+# ==============================================================================
+# PHẦN 4: TÍNH LƯỚI SDF (Signed Distance Field)
+#
+# Trường khoảng cách CÓ DẤU (Signed Distance Field):
+# - Bên ngoài mesh: SDF > 0 (khoảng cách dương)
+# - Trên bề mặt mesh: SDF = 0
+# - Bên trong mesh: SDF < 0 (khoảng cách âm)
+#
+# Quy trình:
+# 1. Tính unsigned distance bằng BVH (khoảng cách đến tam giác gần nhất)
+# 2. Xác định inside/outside bằng ray casting (+Z parity test)
+# 3. Đảo dấu cho điểm bên trong → signed distance
+#
+# Ưu điểm: collision avoidance phát hiện được nhánh xuyên qua mesh
+# (SDF < 0) và đẩy ra ngoài đúng hướng.
+#
+# Chạy đơn luồng trên worker thread (Job.run())
 # ==============================================================================
 
 def compute_sdf_grid(vertices, faces, resolution=3.0, padding=10.0, cancel_check=None):
     """
-    Tính lưới SDF 3D đơn luồng bằng BVH.
+    Tính lưới Signed Distance Field 3D đơn luồng bằng BVH + ray casting.
 
     Quy trình:
     1. Tính bounding box mở rộng (thêm padding)
     2. Tạo lưới 3D đều với bước = resolution (mm)
     3. Xây BVH từ mesh
-    4. Duyệt từng điểm lưới, truy vấn khoảng cách qua BVH
-    5. Trả về mảng SDF 3D
+    4. Duyệt từng điểm lưới:
+       a. Truy vấn khoảng cách unsigned qua BVH
+       b. Ray cast +Z để xác định inside/outside
+       c. Đảo dấu nếu bên trong mesh
+    5. Trả về mảng SDF 3D (có dấu)
 
     Tham số:
         vertices     : numpy array (N, 3) - tọa độ đỉnh mesh
@@ -333,7 +474,8 @@ def compute_sdf_grid(vertices, faces, resolution=3.0, padding=10.0, cancel_check
         cancel_check : callable hoặc None - trả về True nếu cần huỷ
 
     Trả về:
-        sdf_grid   : numpy array (Nx, Ny, Nz) - khoảng cách tại mỗi điểm lưới
+        sdf_grid   : numpy array (Nx, Ny, Nz) - khoảng cách có dấu tại mỗi điểm lưới
+                     Dương = bên ngoài, Âm = bên trong mesh
         origin     : numpy array (3,) - tọa độ góc nhỏ nhất của lưới
         resolution : float - bước lưới
         grid_dims  : tuple (Nx, Ny, Nz) - kích thước lưới
@@ -353,7 +495,7 @@ def compute_sdf_grid(vertices, faces, resolution=3.0, padding=10.0, cancel_check
     nx, ny, nz = grid_dims
 
     total_points = int(nx) * int(ny) * int(nz)
-    Logger.log("d", "SDF grid: %d x %d x %d = %d diem", nx, ny, nz, total_points)
+    Logger.log("d", "SDF grid: %d x %d x %d = %d diem (signed)", nx, ny, nz, total_points)
 
     # Tọa độ trên mỗi trục
     x_coords = np.linspace(origin[0], origin[0] + (nx - 1) * resolution, nx)
@@ -363,11 +505,10 @@ def compute_sdf_grid(vertices, faces, resolution=3.0, padding=10.0, cancel_check
     # --- Bước 3: Xây BVH ---
     bvh_root = build_bvh(vertices, faces)
 
-    # --- Bước 4: Tính khoảng cách cho từng điểm lưới ---
-    # Duyệt theo thứ tự x → y → z (tương ứng indexing='ij' của meshgrid)
-    # Kiểm tra cancel mỗi lát x để phản hồi nhanh (< 1 giây)
+    # --- Bước 4: Tính khoảng cách có dấu cho từng điểm lưới ---
     sdf_grid = np.zeros((nx, ny, nz), dtype=np.float64)
 
+    inside_count = 0
     for ix in range(nx):
         # Kiểm tra huỷ mỗi lát X
         if cancel_check is not None and cancel_check():
@@ -376,15 +517,25 @@ def compute_sdf_grid(vertices, faces, resolution=3.0, padding=10.0, cancel_check
         for iy in range(ny):
             for iz in range(nz):
                 point = np.array([x_coords[ix], y_coords[iy], z_coords[iz]])
-                sdf_grid[ix, iy, iz] = query_min_distance(
-                    bvh_root, point, vertices, faces
-                )
+
+                # Khoảng cách unsigned đến tam giác gần nhất
+                dist = query_min_distance(bvh_root, point, vertices, faces)
+
+                # Xác định inside/outside bằng ray casting
+                if _is_inside_mesh(point, bvh_root, vertices, faces):
+                    dist = -dist  # Bên trong → khoảng cách âm
+                    inside_count += 1
+
+                sdf_grid[ix, iy, iz] = dist
+
+    Logger.log("d", "SDF signed: %d/%d diem ben trong mesh",
+               inside_count, total_points)
 
     return sdf_grid, origin, resolution, tuple(grid_dims)
 
 
 # ==============================================================================
-# PHẦN 4: NỘI SUY BA CHIỀU (TRILINEAR INTERPOLATION)
+# PHẦN 5: NỘI SUY BA CHIỀU (TRILINEAR INTERPOLATION)
 #
 # Tra cứu SDF tại bất kỳ điểm nào (không chỉ điểm lưới) bằng cách
 # nội suy tuyến tính giữa 8 đỉnh của ô lưới chứa điểm đó.
@@ -454,7 +605,7 @@ def _trilinear_interpolate(grid, point, origin, resolution, dims):
 
 
 # ==============================================================================
-# PHẦN 5: COLLISION FIELD
+# PHẦN 6: COLLISION FIELD
 #
 # Lớp bọc (wrapper) cung cấp API đơn giản cho BranchRouter:
 # - get_distance(point): khoảng cách xấp xỉ đến mesh
@@ -541,16 +692,18 @@ class CollisionField:
         """
         Tính vector bẻ hướng để tránh va chạm với mesh.
 
-        Nếu điểm cách mesh >= min_clearance → trả về vector 0 (an toàn).
-        Nếu điểm quá gần mesh → trả về vector hướng ra xa mesh,
-        cường độ tỷ lệ nghịch với khoảng cách (càng gần → đẩy càng mạnh).
+        SDF có dấu (signed):
+        - distance > 0: bên ngoài mesh
+        - distance < 0: BÊN TRONG mesh (cần đẩy ra mạnh)
+        - distance >= min_clearance: an toàn, không cần bẻ hướng
 
         Thuật toán:
-        1. Tra cứu SDF tại điểm → khoảng cách d
+        1. Tra cứu SDF tại điểm → khoảng cách d (có dấu)
         2. Nếu d >= min_clearance → không cần bẻ hướng
-        3. Tra cứu gradient SDF tại điểm → hướng tăng khoảng cách
-        4. Chuẩn hóa gradient → vector đơn vị hướng ra xa mesh
-        5. Nhân với cường độ = (min_clearance - d) / min_clearance
+        3. Tra cứu gradient SDF → hướng tăng khoảng cách (ra xa mesh)
+        4. Tính cường độ:
+           - Bên ngoài gần mesh (0 < d < min_clearance): strength nhẹ
+           - Bên trong mesh (d < 0): strength = 1.0 (đẩy mạnh nhất)
 
         Tham số:
             point         : numpy array (3,) - tọa độ cần kiểm tra
@@ -558,10 +711,10 @@ class CollisionField:
 
         Trả về:
             avoidance : numpy array (3,) - vector bẻ hướng (0 nếu an toàn)
-            distance  : float - khoảng cách hiện tại đến mesh
+            distance  : float - khoảng cách hiện tại đến mesh (có dấu)
         """
 
-        # Tra cứu khoảng cách
+        # Tra cứu khoảng cách (có dấu: âm = bên trong mesh)
         distance = self.get_distance(point)
 
         # An toàn: không cần bẻ hướng
@@ -589,15 +742,21 @@ class CollisionField:
             # Gradient quá nhỏ (vùng phẳng) → đẩy lên trên (hướng Z dương)
             gradient = np.array([0.0, 0.0, 1.0])
 
-        # Cường độ bẻ hướng: tỷ lệ nghịch với khoảng cách
-        # Khi d → 0: strength → 1.0 (đẩy mạnh nhất)
-        # Khi d → min_clearance: strength → 0.0 (gần như không đẩy)
-        strength = (min_clearance - distance) / min_clearance
-        strength = np.clip(strength, 0.0, 1.0)
+        # Cường độ bẻ hướng
+        if distance < 0:
+            # BÊN TRONG mesh → đẩy ra mạnh nhất
+            strength = 1.0
+        else:
+            # Bên ngoài nhưng gần mesh → tỷ lệ nghịch với khoảng cách
+            strength = (min_clearance - distance) / min_clearance
+            strength = np.clip(strength, 0.0, 1.0)
 
         # Vector bẻ hướng = hướng × cường độ
-        # Giới hạn magnitude ở 0.5 để avoidance chỉ nhẹ nhàng bẻ hướng,
-        # không chi phối direction (tránh dao động zíc-zắc)
-        avoidance = gradient * strength * 0.5
+        # Bên trong mesh: magnitude = 1.0 (chi phối hoàn toàn direction)
+        # Bên ngoài gần mesh: magnitude ≤ 0.5 (nhẹ nhàng bẻ hướng)
+        if distance < 0:
+            avoidance = gradient * strength * 1.0
+        else:
+            avoidance = gradient * strength * 0.5
 
         return avoidance, distance

@@ -300,17 +300,23 @@ def route_branches(tip_points, collision_field,
             new_pos[2] = max(0.0, new_pos[2])
 
             # === Kiểm tra collision SAU khi di chuyển ===
-            # Nếu vị trí mới quá gần mesh → đẩy ra theo gradient
+            # SDF có dấu: âm = bên trong mesh, dương = bên ngoài
+            # Nếu vị trí mới quá gần hoặc bên trong mesh → đẩy ra theo gradient
             post_dist = collision_field.get_distance(new_pos)
             if post_dist < min_clearance:
                 # Lấy vector đẩy ra xa mesh
                 push_vec, _ = collision_field.get_avoidance_vector(
                     new_pos, min_clearance
                 )
-                # Đẩy ra đủ xa (nhưng giới hạn để không nhảy quá xa)
-                push_amount = min(min_clearance - post_dist + 0.2, step_size)
                 push_len = np.linalg.norm(push_vec)
                 if push_len > 1e-6:
+                    if post_dist < 0:
+                        # BÊN TRONG mesh: đẩy ra mạnh hơn
+                        # Cần đẩy ít nhất |post_dist| + min_clearance để ra ngoài
+                        push_amount = min(abs(post_dist) + min_clearance, step_size * 3)
+                    else:
+                        # Bên ngoài nhưng gần: đẩy nhẹ
+                        push_amount = min(min_clearance - post_dist + 0.2, step_size)
                     new_pos += (push_vec / push_len) * push_amount
                     new_pos[2] = max(0.0, new_pos[2])
 
