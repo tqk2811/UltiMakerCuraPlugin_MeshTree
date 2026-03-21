@@ -188,6 +188,16 @@ Window {
                             onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("straight_drop_height", v) }
                         }
                         Label { text: "mm" }
+
+                        Label { text: "Hệ số mập dần:"; Layout.preferredWidth: 180 }
+                        TextField {
+                            id: fRadiusGrowth
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0; top: 0.1; decimals: 3 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("radius_growth_rate", v) }
+                        }
+                        Label { text: "" }
                     }
                 }
 
@@ -346,6 +356,7 @@ Window {
         fMinMergeHeight.text    = manager.getSetting("min_merge_height").toFixed(1)
         fConvergence.text       = manager.getSetting("convergence_strength").toFixed(2)
         fStraightDrop.text      = manager.getSetting("straight_drop_height").toFixed(1)
+        fRadiusGrowth.text      = manager.getSetting("radius_growth_rate").toFixed(3)
         fMinClearance.text      = manager.getSetting("min_clearance").toFixed(1)
         fSdfResolution.text     = manager.getSetting("sdf_resolution").toFixed(1)
         fSdfPadding.text        = manager.getSetting("sdf_padding").toFixed(1)

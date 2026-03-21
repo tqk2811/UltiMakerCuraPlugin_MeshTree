@@ -59,6 +59,7 @@ _DEFAULT_SETTINGS = {
     "min_merge_height": 20.0,        # Chiều cao tối thiểu để merge (mm)
     "convergence_strength": 0.3,     # Lực hội tụ về trọng tâm (0-1)
     "straight_drop_height": 10.0,    # Chiều cao bắt đầu rơi thẳng đứng (mm)
+    "radius_growth_rate": 0.02,      # Hệ số tăng bán kính mỗi bước (0-0.1)
     "min_clearance": 2.0,            # Khoảng cách an toàn đến mesh (mm)
     "sdf_resolution": 3.0,           # Độ phân giải lưới SDF (mm)
     "sdf_padding": 10.0,             # Padding quanh mesh cho SDF (mm)

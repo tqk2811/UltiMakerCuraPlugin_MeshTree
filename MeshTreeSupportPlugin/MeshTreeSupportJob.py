@@ -219,7 +219,8 @@ class MeshTreeSupportJob(Job):
             min_merge_height=s["min_merge_height"],
             straight_drop_height=s["straight_drop_height"],
             convergence_strength=s["convergence_strength"],
-            tip_normals=tip_normals
+            tip_normals=tip_normals,
+            radius_growth_rate=s.get("radius_growth_rate", 0.02)
         )
 
         Logger.log("i", "  -> Skeleton: %d nut, %d canh",

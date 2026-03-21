@@ -95,7 +95,7 @@ def route_branches(tip_points, collision_field,
                    step_size=1.0, merge_distance=5.0, min_clearance=2.0,
                    tip_radius=0.5, min_merge_height=20.0,
                    straight_drop_height=10.0, convergence_strength=0.3,
-                   tip_normals=None):
+                   tip_normals=None, radius_growth_rate=0.02):
     """
     Sinh nhánh cây support bằng Space Colonization bottom-up.
 
@@ -113,6 +113,11 @@ def route_branches(tip_points, collision_field,
         tip_normals   : numpy array (K, 3) hoặc None - pháp tuyến bề mặt tại mỗi tip
                         (inward normal từ OverhangDetector). Dùng để tạo đoạn departure
                         vuông góc bề mặt, giúp dễ bẻ support sau khi in.
+        radius_growth_rate : float - hệ số tăng bán kính mỗi bước (0-0.1)
+                        Mỗi bước: radius *= (1 + growth_rate)
+                        0 = chỉ tăng khi merge (Murray thuần túy)
+                        0.02 = tăng 2%/bước → nhánh 50 bước mập gấp ~2.7x
+                        0.05 = tăng 5%/bước → nhánh 50 bước mập gấp ~11x
 
     Trả về:
         all_nodes : list of (position, radius) - tất cả nút trong skeleton
@@ -385,6 +390,10 @@ def route_branches(tip_points, collision_field,
 
             branch = branches[idx]
             new_pos = new_positions.get(idx, branch.position)
+
+            # Tăng bán kính mỗi bước (nhánh mập dần xuống dưới)
+            if radius_growth_rate > 0:
+                branch.radius *= (1.0 + radius_growth_rate)
 
             # Tạo nút mới trong skeleton
             new_node_idx = len(all_nodes)
