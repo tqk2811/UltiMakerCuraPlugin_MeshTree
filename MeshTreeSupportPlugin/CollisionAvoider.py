@@ -7,21 +7,16 @@
 # 2. SDF (Signed Distance Field) - trường khoảng cách trên lưới 3D
 #    cho phép tra cứu nhanh bằng nội suy ba chiều (trilinear interpolation)
 #
-# Sử dụng multiprocessing.Pool để song song hóa tính toán SDF trên lưới 3D,
-# vượt qua giới hạn GIL của Python khi xử lý hàng trăm nghìn điểm lưới.
-#
 # Đầu vào: vertices (N,3), faces (M,3)
 # Đầu ra: CollisionField object cung cấp API tra cứu khoảng cách nhanh
 #
 # Luồng thực thi:
-# - build_bvh(): worker thread (trong Job.run())
-# - compute_sdf_grid(): multiprocessing Pool (nhiều process con)
-# - query_sdf(), get_avoidance_vector(): worker thread (trong Job.run())
+# - build_bvh(), compute_sdf_grid(): worker thread (trong Job.run())
+# - get_distance(), get_avoidance_vector(): worker thread (trong Job.run())
 # ==============================================================================
 
 import numpy as np
-import os
-from multiprocessing import Pool
+from UM.Logger import Logger
 
 # Hằng số: số lượng tam giác tối đa trong mỗi nút lá BVH
 _MAX_LEAF_SIZE = 8
@@ -306,91 +301,35 @@ def query_min_distance(bvh_node, point, vertices, faces, best_dist=float('inf'))
 
 
 # ==============================================================================
-# PHẦN 3: SDF GRID + MULTIPROCESSING
+# PHẦN 3: TÍNH LƯỚI SDF (Signed Distance Field)
 #
-# Trường khoảng cách (SDF - Signed Distance Field) là lưới 3D lưu trữ
-# khoảng cách từ mỗi điểm lưới đến bề mặt mesh gần nhất.
+# Trường khoảng cách (SDF) là lưới 3D lưu trữ khoảng cách từ mỗi điểm
+# lưới đến bề mặt mesh gần nhất.
 #
 # Ưu điểm: sau khi tính xong lưới, tra cứu khoảng cách tại bất kỳ điểm
 # nào chỉ cần nội suy ba chiều → O(1) thay vì O(log M) cho BVH.
 #
-# Sử dụng multiprocessing.Pool để song song hóa việc tính SDF:
-# - Chia lưới thành các batch nhỏ
-# - Mỗi worker process xây BVH cục bộ rồi tính khoảng cách cho batch
-# - Kết hợp kết quả từ tất cả worker
-#
-# Lý do dùng multiprocessing (không phải threading):
-# Python GIL ngăn thread chạy song song CPU-bound. Multiprocessing tạo
-# process riêng biệt, mỗi process có GIL riêng → song song thực sự.
+# Chạy đơn luồng trên worker thread (Job.run()) — không dùng multiprocessing
+# vì môi trường nhúng Python của Cura trên Windows gây deadlock khi spawn
+# process con.
 # ==============================================================================
 
-# --- Biến toàn cục cho worker process ---
-# Mỗi worker cần BVH riêng vì BVH là object Python không pickle được.
-# Dùng initializer để xây BVH 1 lần khi worker khởi tạo.
-_worker_bvh = None
-_worker_vertices = None
-_worker_faces = None
-
-
-def _init_sdf_worker(vertices_data, faces_data):
+def compute_sdf_grid(vertices, faces, resolution=3.0, padding=10.0):
     """
-    Hàm khởi tạo (initializer) cho mỗi worker process.
-    Được gọi 1 lần khi worker bắt đầu, KHÔNG gọi lại cho mỗi task.
-
-    Công việc: nhận dữ liệu mesh (numpy arrays, pickle được) rồi
-    xây dựng BVH cục bộ trong process này.
-
-    Tham số:
-        vertices_data : numpy array (N, 3) - tọa độ đỉnh (pickle từ main process)
-        faces_data    : numpy array (M, 3) - chỉ số tam giác
-    """
-    global _worker_bvh, _worker_vertices, _worker_faces
-    _worker_vertices = vertices_data
-    _worker_faces = faces_data
-    # Xây dựng BVH cục bộ trong worker (mỗi worker có bản sao riêng)
-    _worker_bvh = build_bvh(vertices_data, faces_data)
-
-
-def _compute_sdf_batch(query_points):
-    """
-    Worker function: tính khoảng cách SDF cho 1 batch điểm lưới.
-    Chạy trong process con, sử dụng BVH cục bộ đã xây trong _init_sdf_worker.
-
-    Tham số:
-        query_points : numpy array (K, 3) - batch tọa độ điểm lưới
-
-    Trả về:
-        numpy array (K,) - khoảng cách từ mỗi điểm đến mesh gần nhất
-    """
-    global _worker_bvh, _worker_vertices, _worker_faces
-
-    distances = np.zeros(len(query_points), dtype=np.float64)
-    for i in range(len(query_points)):
-        distances[i] = query_min_distance(
-            _worker_bvh, query_points[i],
-            _worker_vertices, _worker_faces
-        )
-    return distances
-
-
-def compute_sdf_grid(vertices, faces, resolution=3.0, padding=10.0, num_workers=None):
-    """
-    Tính lưới SDF 3D song song bằng multiprocessing.Pool.
+    Tính lưới SDF 3D đơn luồng bằng BVH.
 
     Quy trình:
     1. Tính bounding box mở rộng (thêm padding)
     2. Tạo lưới 3D đều với bước = resolution (mm)
-    3. Chia các điểm lưới thành batch
-    4. Gửi mỗi batch đến 1 worker process
-    5. Mỗi worker dùng BVH cục bộ để tính khoảng cách
-    6. Ghép kết quả thành mảng SDF 3D
+    3. Xây BVH từ mesh
+    4. Duyệt từng điểm lưới, truy vấn khoảng cách qua BVH
+    5. Trả về mảng SDF 3D
 
     Tham số:
         vertices    : numpy array (N, 3) - tọa độ đỉnh mesh
         faces       : numpy array (M, 3) - chỉ số tam giác
         resolution  : float - bước lưới (mm), nhỏ hơn = chính xác hơn nhưng chậm hơn
-        padding     : float - phần mở rộng quanh mesh (mm)
-        num_workers : int - số worker process (None = tự động)
+        padding     : float - padding quanh mesh (mm)
 
     Trả về:
         sdf_grid   : numpy array (Nx, Ny, Nz) - khoảng cách tại mỗi điểm lưới
@@ -398,10 +337,6 @@ def compute_sdf_grid(vertices, faces, resolution=3.0, padding=10.0, num_workers=
         resolution : float - bước lưới
         grid_dims  : tuple (Nx, Ny, Nz) - kích thước lưới
     """
-
-    # Xác định số worker: mặc định = số CPU - 1, tối thiểu 1
-    if num_workers is None:
-        num_workers = max(1, (os.cpu_count() or 2) - 1)
 
     # --- Bước 1: Tính bounding box mở rộng ---
     # Thêm padding để nhánh cây có thể đi vòng quanh mesh
@@ -413,41 +348,28 @@ def compute_sdf_grid(vertices, faces, resolution=3.0, padding=10.0, num_workers=
     grid_dims = np.ceil((max_bound - origin) / resolution).astype(int) + 1
     nx, ny, nz = grid_dims
 
+    total_points = int(nx) * int(ny) * int(nz)
+    Logger.log("d", "SDF grid: %d x %d x %d = %d diem", nx, ny, nz, total_points)
+
     # Tọa độ trên mỗi trục
     x_coords = np.linspace(origin[0], origin[0] + (nx - 1) * resolution, nx)
     y_coords = np.linspace(origin[1], origin[1] + (ny - 1) * resolution, ny)
     z_coords = np.linspace(origin[2], origin[2] + (nz - 1) * resolution, nz)
 
-    # Tạo lưới 3D các điểm (meshgrid)
-    gx, gy, gz = np.meshgrid(x_coords, y_coords, z_coords, indexing='ij')
+    # --- Bước 3: Xây BVH ---
+    bvh_root = build_bvh(vertices, faces)
 
-    # Làm phẳng thành mảng điểm (tổng điểm = nx * ny * nz)
-    grid_points = np.column_stack([gx.ravel(), gy.ravel(), gz.ravel()])
-    total_points = len(grid_points)
+    # --- Bước 4: Tính khoảng cách cho từng điểm lưới ---
+    # Duyệt theo thứ tự x → y → z (tương ứng indexing='ij' của meshgrid)
+    sdf_grid = np.zeros((nx, ny, nz), dtype=np.float64)
 
-    # --- Bước 3: Tính SDF bằng multiprocessing ---
-    # Chia điểm lưới thành nhiều batch nhỏ (gấp 4 lần số worker để cân bằng tải)
-    num_batches = num_workers * 4
-    batches = np.array_split(grid_points, num_batches)
-
-    try:
-        # Tạo Pool với initializer: mỗi worker xây BVH cục bộ 1 lần
-        with Pool(
-            processes=num_workers,
-            initializer=_init_sdf_worker,
-            initargs=(vertices, faces)
-        ) as pool:
-            # Gửi tất cả batch đến pool, pool tự phân phối cho các worker
-            results = pool.map(_compute_sdf_batch, batches)
-    except Exception:
-        # Fallback: nếu multiprocessing thất bại (VD: môi trường đóng gói),
-        # chạy tuần tự trên thread hiện tại
-        _init_sdf_worker(vertices, faces)
-        results = [_compute_sdf_batch(batch) for batch in batches]
-
-    # --- Bước 4: Ghép kết quả thành lưới 3D ---
-    sdf_flat = np.concatenate(results)                  # shape (total_points,)
-    sdf_grid = sdf_flat.reshape((nx, ny, nz))           # shape (Nx, Ny, Nz)
+    for ix in range(nx):
+        for iy in range(ny):
+            for iz in range(nz):
+                point = np.array([x_coords[ix], y_coords[iy], z_coords[iz]])
+                sdf_grid[ix, iy, iz] = query_min_distance(
+                    bvh_root, point, vertices, faces
+                )
 
     return sdf_grid, origin, resolution, tuple(grid_dims)
 
@@ -560,26 +482,23 @@ class CollisionField:
         self._dims = dims
 
     @staticmethod
-    def build(vertices, faces, resolution=3.0, padding=10.0, num_workers=None):
+    def build(vertices, faces, resolution=3.0, padding=10.0):
         """
         Factory method: tính SDF grid + gradient, trả về CollisionField.
-
-        Đây là bước tốn thời gian nhất (multiprocessing). Chỉ gọi 1 lần.
 
         Tham số:
             vertices    : numpy array (N, 3)
             faces       : numpy array (M, 3)
             resolution  : float - bước lưới SDF (mm)
             padding     : float - padding quanh mesh (mm)
-            num_workers : int - số process (None = tự động)
 
         Trả về:
             CollisionField instance sẵn sàng tra cứu
         """
 
-        # Tính lưới SDF bằng multiprocessing
+        # Tính lưới SDF đơn luồng
         sdf_grid, origin, res, dims = compute_sdf_grid(
-            vertices, faces, resolution, padding, num_workers
+            vertices, faces, resolution, padding
         )
 
         # Tính gradient SDF bằng sai phân hữu hạn (finite differences)

@@ -153,7 +153,7 @@ class MeshTreeSupportJob(Job):
         # =====================================================================
         self.progress.emit(20)
         Logger.log("d", "Buoc 3/5: Xay dung truong va cham SDF "
-                   "(resolution = %.1fmm, multiprocessing)...", s["sdf_resolution"])
+                   "(resolution = %.1fmm)...", s["sdf_resolution"])
 
         collision_field = CollisionField.build(
             vertices, faces,
