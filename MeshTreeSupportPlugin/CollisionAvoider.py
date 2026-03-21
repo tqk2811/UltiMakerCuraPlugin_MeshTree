@@ -595,7 +595,9 @@ class CollisionField:
         strength = (min_clearance - distance) / min_clearance
         strength = np.clip(strength, 0.0, 1.0)
 
-        # Vector bẻ hướng = hướng × cường độ × khoảng cách an toàn
-        avoidance = gradient * strength * min_clearance
+        # Vector bẻ hướng = hướng × cường độ
+        # Giới hạn magnitude ở 0.5 để avoidance chỉ nhẹ nhàng bẻ hướng,
+        # không chi phối direction (tránh dao động zíc-zắc)
+        avoidance = gradient * strength * 0.5
 
         return avoidance, distance

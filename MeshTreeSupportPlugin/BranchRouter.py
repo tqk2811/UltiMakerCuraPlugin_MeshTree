@@ -38,11 +38,13 @@ class BranchTip:
     Khi hai nhánh merge, 1 nhánh bị hủy, nhánh còn lại kế thừa bán kính.
 
     Thuộc tính:
-        position   : numpy array (3,) - vị trí hiện tại của đầu nhánh
-        radius     : float - bán kính nhánh hiện tại (mm)
-        node_index : int - chỉ số nút cuối cùng trong skeleton
-        tip_count  : int - số lượng tip gốc đã merge vào nhánh này
-                     Dùng để tính bán kính theo định luật Murray
+        position      : numpy array (3,) - vị trí hiện tại của đầu nhánh
+        radius        : float - bán kính nhánh hiện tại (mm)
+        node_index    : int - chỉ số nút cuối cùng trong skeleton
+        tip_count     : int - số lượng tip gốc đã merge vào nhánh này
+                        Dùng để tính bán kính theo định luật Murray
+        prev_direction : numpy array (3,) - hướng di chuyển bước trước
+                        Dùng để smoothing, tránh gấp khúc đột ngột
     """
 
     def __init__(self, position, radius, node_index, tip_count=1):
@@ -50,6 +52,7 @@ class BranchTip:
         self.radius = radius
         self.node_index = node_index
         self.tip_count = tip_count
+        self.prev_direction = np.array([0.0, 0.0, -1.0])  # Mặc định: đi xuống
 
 
 def _murray_radius(r1, r2):
@@ -220,11 +223,39 @@ def route_branches(tip_points, collision_field,
                 if dir_length > 1e-6:
                     direction /= dir_length
 
+            # === Smoothing: trộn với hướng bước trước ===
+            # Tránh thay đổi hướng đột ngột gây gấp khúc zíc-zắc
+            # Hệ số 0.3 = 30% hướng cũ, 70% hướng mới
+            smoothed = 0.7 * direction + 0.3 * branch.prev_direction
+            sm_len = np.linalg.norm(smoothed)
+            if sm_len > 1e-6:
+                smoothed /= sm_len
+            else:
+                smoothed = direction
+
             # Di chuyển 1 bước
-            new_pos = pos + direction * step_size
+            new_pos = pos + smoothed * step_size
 
             # Không cho đi dưới bàn in
             new_pos[2] = max(0.0, new_pos[2])
+
+            # === Kiểm tra collision SAU khi di chuyển ===
+            # Nếu vị trí mới quá gần mesh → đẩy ra theo gradient
+            post_dist = collision_field.get_distance(new_pos)
+            if post_dist < min_clearance:
+                # Lấy vector đẩy ra xa mesh
+                push_vec, _ = collision_field.get_avoidance_vector(
+                    new_pos, min_clearance
+                )
+                # Đẩy ra đủ xa (nhưng giới hạn để không nhảy quá xa)
+                push_amount = min(min_clearance - post_dist + 0.2, step_size)
+                push_len = np.linalg.norm(push_vec)
+                if push_len > 1e-6:
+                    new_pos += (push_vec / push_len) * push_amount
+                    new_pos[2] = max(0.0, new_pos[2])
+
+            # Lưu hướng cho smoothing bước sau
+            branch.prev_direction = smoothed.copy()
 
             new_positions[idx] = new_pos
 
