@@ -62,17 +62,15 @@ def detect_overhangs(vertices, faces, threshold_angle_deg=45.0, min_height=0.5):
     normals = normals / lengths  # shape (M, 3), mỗi hàng có ||n|| = 1
 
     # --- Bước 4: Xác định mặt lơ lửng bằng góc pháp tuyến ---
-    # Hướng xuống dưới: down = [0, 0, -1]
-    # Góc giữa pháp tuyến và hướng xuống:
-    #   cos(angle) = dot(normal, [0,0,-1]) = -nz
-    # Mặt lơ lửng khi: angle < threshold
-    #   ↔ cos(angle) > cos(threshold)
-    #   ↔ -nz > cos(threshold)
-    #   ↔ nz < -cos(threshold)
+    # Lưu ý: dữ liệu đang ở hệ tọa độ Z-up left-handed (sau hoán đổi Y↔Z),
+    # nên cross(edge1, edge2) cho INWARD normal (ngược chiều outward).
+    #
+    # Mặt overhang: outward normal chỉ XUỐNG → inward normal chỉ LÊN (nz > 0)
+    # Điều kiện: nz > cos(threshold)  (inward nz dương, mạnh lên trên)
     #
     # Ví dụ threshold = 45°:
     #   cos(45°) ≈ 0.707
-    #   Điều kiện: nz < -0.707 (pháp tuyến chỉ mạnh xuống dưới)
+    #   Điều kiện: nz > 0.707 (inward normal chỉ mạnh lên → outward chỉ mạnh xuống)
 
     # Thành phần Z của pháp tuyến (chính là cos góc với trục Z)
     nz = normals[:, 2]  # shape (M,)
@@ -80,8 +78,14 @@ def detect_overhangs(vertices, faces, threshold_angle_deg=45.0, min_height=0.5):
     # Ngưỡng cosine tương ứng với góc overhang
     overhang_cos = np.cos(np.radians(threshold_angle_deg))
 
-    # Mặt nạ boolean: True nếu mặt là overhang
-    overhang_mask = nz < -overhang_cos  # shape (M,)
+    # Sau phép hoán đổi Y↔Z để chuyển Cura (Y-up, right-handed) sang Z-up,
+    # hệ tọa độ trở thành left-handed. Do đó cross(edge1, edge2) tính ra
+    # INWARD normal thay vì outward normal.
+    #
+    # Mặt overhang có outward normal chỉ XUỐNG (nz_outward < 0),
+    # tức inward normal chỉ LÊN (nz_inward > 0).
+    # Điều kiện đúng: nz > +cos(threshold) (inward normal mạnh lên trên)
+    overhang_mask = nz > overhang_cos  # shape (M,)
 
     # --- Bước 5: Tính trọng tâm (centroid) của mỗi tam giác ---
     # Trọng tâm = trung bình cộng 3 đỉnh
