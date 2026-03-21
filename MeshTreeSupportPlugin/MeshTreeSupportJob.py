@@ -10,9 +10,11 @@
 #   4. Sinh nhánh cây (BranchRouter - Space Colonization)
 #   5. Tạo mesh ống trụ (TreeMeshBuilder)
 #
+# Nhận settings dict từ Extension (thay vì hằng số cứng) để người dùng
+# có thể tinh chỉnh thông số qua giao diện QML.
+#
 # Kết quả (MeshData) được lưu trong self._result_mesh_data.
-# Khi Job hoàn thành, signal finished được phát → Extension lấy kết quả
-# và gọi callLater() để thêm vào scene trên main thread.
+# Khi Job hoàn thành, signal finished được phát → Extension lấy kết quả.
 #
 # Luồng thực thi: worker thread (Cura JobQueue)
 # ==============================================================================
@@ -30,79 +32,41 @@ from . import BranchRouter
 from . import TreeMeshBuilder
 
 
-# ==============================================================================
-# HẰNG SỐ CẤU HÌNH (Settings)
-# Các tham số mặc định cho toàn bộ pipeline.
-# Có thể điều chỉnh để tối ưu cho từng loại mô hình.
-# ==============================================================================
-
-# Góc overhang (độ): mặt có pháp tuyến lệch > góc này so với -Z → cần support
-OVERHANG_ANGLE = 45.0
-
-# Bán kính gom cụm (mm): điểm overhang trong bán kính này gộp thành 1 tip
-CLUSTER_RADIUS = 5.0
-
-# Bán kính nhánh tại ngọn cây (mm)
-BRANCH_TIP_RADIUS = 0.5
-
-# Bước di chuyển mỗi lần lặp khi sinh nhánh (mm)
-STEP_SIZE = 1.0
-
-# Khoảng cách an toàn tối thiểu từ nhánh đến mesh (mm)
-MIN_CLEARANCE = 2.0
-
-# Khoảng cách để 2 nhánh merge thành 1 (mm)
-MERGE_DISTANCE = 5.0
-
-# Độ phân giải lưới SDF (mm): nhỏ hơn = chính xác hơn, chậm hơn
-SDF_RESOLUTION = 3.0
-
-# Chiều cao tối thiểu để merge nhánh (mm trên bàn in)
-# Dưới mức này, nhánh chỉ rơi thẳng xuống, không merge nữa
-MIN_MERGE_HEIGHT = 20.0
-
-# Chiều cao bắt đầu rơi thẳng đứng (mm): tạo chân đế ổn định
-STRAIGHT_DROP_HEIGHT = 10.0
-
-# Số mặt bao cho ống trụ (8 = bát giác, 12 = mượt hơn)
-CYLINDER_SEGMENTS = 8
-
-# Lực hội tụ về trọng tâm (0.0 - 1.0)
-CONVERGENCE_STRENGTH = 0.3
-
-# Chiều cao tối thiểu trên bàn in để lọc overhang (mm)
-MIN_OVERHANG_HEIGHT = 0.5
-
-# Padding quanh mesh cho lưới SDF (mm)
-SDF_PADDING = 10.0
-
-
 class MeshTreeSupportJob(Job):
     """
     Job chạy nền để sinh cây support hữu cơ.
 
     Kế thừa UM.Job.Job → chạy trên worker thread, không block UI Cura.
-    Báo tiến độ qua progress.emit() → UI hiển thị thanh tiến trình.
+    Báo tiến độ qua progress.emit() → Extension cập nhật UI.
 
     Thuộc tính:
-        _vertices        : numpy array (N, 3) - tọa độ đỉnh mesh (world coords)
+        _vertices        : numpy array (N, 3) - tọa độ đỉnh mesh (world coords, Z-up)
         _faces           : numpy array (M, 3) - chỉ số tam giác
+        _settings        : dict - thông số thuật toán (từ QML dialog)
         _result_mesh_data : MeshData hoặc None - kết quả mesh cây support
     """
 
-    def __init__(self, vertices, faces):
+    def __init__(self, vertices, faces, settings):
         """
         Khởi tạo Job.
 
         Tham số:
-            vertices : numpy array (N, 3) - tọa độ đỉnh đã chuyển về world coords
+            vertices : numpy array (N, 3) - tọa độ đỉnh đã chuyển về world coords (Z-up)
             faces    : numpy array (M, 3) - chỉ số tam giác
+            settings : dict - thông số thuật toán, keys:
+                overhang_angle, min_overhang_height, cluster_radius,
+                branch_tip_radius, step_size, merge_distance, min_merge_height,
+                convergence_strength, straight_drop_height, min_clearance,
+                sdf_resolution, sdf_padding, cylinder_segments
         """
         super().__init__()
 
-        # Dữ liệu mesh đầu vào (đã ở hệ tọa độ thế giới)
+        # Dữ liệu mesh đầu vào (Z-up world coords)
         self._vertices = vertices.astype(np.float64)
         self._faces = faces.astype(np.int32)
+
+        # Thông số thuật toán (bản sao từ Extension, không bị thay đổi giữa chừng)
+        self._settings = settings
 
         # Kết quả: MeshData chứa cây support
         self._result_mesh_data = None
@@ -125,8 +89,10 @@ class MeshTreeSupportJob(Job):
         Luồng thực thi: worker thread (Cura JobQueue)
         """
 
-        Logger.log("i", "MeshTreeSupport: Bắt đầu sinh cây support...")
+        Logger.log("i", "MeshTreeSupport: Bat dau sinh cay support...")
 
+        # Shorthand cho settings
+        s = self._settings
         vertices = self._vertices
         faces = self._faces
 
@@ -137,20 +103,20 @@ class MeshTreeSupportJob(Job):
         # Đầu ra: tọa độ trọng tâm + pháp tuyến các mặt lơ lửng
         # =====================================================================
         self.progress.emit(5)
-        Logger.log("d", "Bước 1/5: Phát hiện vùng lơ lửng (overhang angle = %.1f°)...",
-                   OVERHANG_ANGLE)
+        Logger.log("d", "Buoc 1/5: Phat hien vung lo lung (angle = %.1f)...",
+                   s["overhang_angle"])
 
         overhang_points, overhang_normals = OverhangDetector.detect_overhangs(
             vertices, faces,
-            threshold_angle_deg=OVERHANG_ANGLE,
-            min_height=MIN_OVERHANG_HEIGHT
+            threshold_angle_deg=s["overhang_angle"],
+            min_height=s["min_overhang_height"]
         )
 
-        Logger.log("i", "  → Tìm thấy %d mặt lơ lửng", len(overhang_points))
+        Logger.log("i", "  -> Tim thay %d mat lo lung", len(overhang_points))
 
         # Kiểm tra: nếu không có overhang → không cần support
         if len(overhang_points) == 0:
-            Logger.log("i", "MeshTreeSupport: Không tìm thấy vùng lơ lửng. Hoàn tất.")
+            Logger.log("i", "MeshTreeSupport: Khong tim thay vung lo lung. Hoan tat.")
             self.progress.emit(100)
             return
 
@@ -161,18 +127,18 @@ class MeshTreeSupportJob(Job):
         # Đầu ra: trọng tâm cụm (vài chục → vài trăm tip points)
         # =====================================================================
         self.progress.emit(15)
-        Logger.log("d", "Bước 2/5: Gom cụm điểm (cluster radius = %.1fmm)...",
-                   CLUSTER_RADIUS)
+        Logger.log("d", "Buoc 2/5: Gom cum diem (cluster radius = %.1fmm)...",
+                   s["cluster_radius"])
 
         tip_points = PointClusterer.cluster_points(
             overhang_points,
-            cluster_radius=CLUSTER_RADIUS
+            cluster_radius=s["cluster_radius"]
         )
 
-        Logger.log("i", "  → Gom thành %d cụm (tip points)", len(tip_points))
+        Logger.log("i", "  -> Gom thanh %d cum (tip points)", len(tip_points))
 
         if len(tip_points) == 0:
-            Logger.log("w", "MeshTreeSupport: Gom cụm cho 0 tip. Hoàn tất.")
+            Logger.log("w", "MeshTreeSupport: Gom cum cho 0 tip. Hoan tat.")
             self.progress.emit(100)
             return
 
@@ -186,16 +152,16 @@ class MeshTreeSupportJob(Job):
         # việc tính SDF trên lưới 3D cho nhiều CPU core song song.
         # =====================================================================
         self.progress.emit(20)
-        Logger.log("d", "Bước 3/5: Xây dựng trường va chạm SDF "
-                   "(resolution = %.1fmm, multiprocessing)...", SDF_RESOLUTION)
+        Logger.log("d", "Buoc 3/5: Xay dung truong va cham SDF "
+                   "(resolution = %.1fmm, multiprocessing)...", s["sdf_resolution"])
 
         collision_field = CollisionField.build(
             vertices, faces,
-            resolution=SDF_RESOLUTION,
-            padding=SDF_PADDING
+            resolution=s["sdf_resolution"],
+            padding=s["sdf_padding"]
         )
 
-        Logger.log("i", "  → Trường va chạm SDF đã sẵn sàng")
+        Logger.log("i", "  -> Truong va cham SDF da san sang")
 
         # =====================================================================
         # BƯỚC 4: SINH NHÁNH CÂY (Branch Routing)
@@ -208,25 +174,25 @@ class MeshTreeSupportJob(Job):
         # Giai đoạn cuối rơi thẳng đứng tạo chân đế.
         # =====================================================================
         self.progress.emit(40)
-        Logger.log("d", "Bước 4/5: Sinh nhánh cây (Space Colonization bottom-up)...")
+        Logger.log("d", "Buoc 4/5: Sinh nhanh cay (Space Colonization bottom-up)...")
 
         all_nodes, all_edges = BranchRouter.route_branches(
             tip_points=tip_points,
             collision_field=collision_field,
-            step_size=STEP_SIZE,
-            merge_distance=MERGE_DISTANCE,
-            min_clearance=MIN_CLEARANCE,
-            tip_radius=BRANCH_TIP_RADIUS,
-            min_merge_height=MIN_MERGE_HEIGHT,
-            straight_drop_height=STRAIGHT_DROP_HEIGHT,
-            convergence_strength=CONVERGENCE_STRENGTH
+            step_size=s["step_size"],
+            merge_distance=s["merge_distance"],
+            min_clearance=s["min_clearance"],
+            tip_radius=s["branch_tip_radius"],
+            min_merge_height=s["min_merge_height"],
+            straight_drop_height=s["straight_drop_height"],
+            convergence_strength=s["convergence_strength"]
         )
 
-        Logger.log("i", "  → Skeleton: %d nút, %d cạnh",
+        Logger.log("i", "  -> Skeleton: %d nut, %d canh",
                    len(all_nodes), len(all_edges))
 
         if not all_edges:
-            Logger.log("w", "MeshTreeSupport: Không tạo được nhánh nào. Hoàn tất.")
+            Logger.log("w", "MeshTreeSupport: Khong tao duoc nhanh nao. Hoan tat.")
             self.progress.emit(100)
             return
 
@@ -240,17 +206,17 @@ class MeshTreeSupportJob(Job):
         # Đỉnh cây và chân cây được đóng nắp cho kín nước.
         # =====================================================================
         self.progress.emit(80)
-        Logger.log("d", "Bước 5/5: Tạo mesh ống trụ (%d segments)...",
-                   CYLINDER_SEGMENTS)
+        Logger.log("d", "Buoc 5/5: Tao mesh ong tru (%d segments)...",
+                   int(s["cylinder_segments"]))
 
         mesh_data = TreeMeshBuilder.build_tree_mesh(
             all_nodes, all_edges,
-            segments=CYLINDER_SEGMENTS
+            segments=int(s["cylinder_segments"])
         )
 
         # Lưu kết quả để Extension lấy qua getResultMeshData()
         self._result_mesh_data = mesh_data
 
         self.progress.emit(100)
-        Logger.log("i", "MeshTreeSupport: Hoàn tất! Mesh support có %d đỉnh.",
+        Logger.log("i", "MeshTreeSupport: Hoan tat! Mesh support co %d dinh.",
                    mesh_data.getVertexCount() if mesh_data else 0)

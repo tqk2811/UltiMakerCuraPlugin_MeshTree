@@ -1,22 +1,30 @@
 # ==============================================================================
 # Module: Extension chính của plugin MeshTreeSupport
 #
-# Lớp MeshTreeSupport kế thừa UM.Extension.Extension:
-# - Thêm mục "Sinh cây Support hữu cơ" vào menu Extensions của Cura
-# - Khi người dùng nhấn: trích xuất mesh, khởi chạy Job nền
+# Lớp MeshTreeSupport kế thừa QObject + Extension:
+# - Hiển thị dialog QML để tinh chỉnh thông số + theo dõi tiến độ
+# - Tự động lưu/load thông số từ file settings.json
+# - Khi người dùng nhấn "Bắt đầu": trích xuất mesh, khởi chạy Job nền
 # - Khi Job hoàn thành: dùng callLater() thêm mesh support vào scene
 #
-# Hệ tọa độ:
-# - Cura sử dụng hệ tọa độ Y-up (quy ước OpenGL)
-# - Plugin chuyển sang Z-up khi xử lý (quy ước 3D printing)
-# - Khi thêm mesh vào scene: chuyển ngược Z-up → Y-up
+# Giao tiếp QML ↔ Python:
+# - pyqtProperty: progressValue, statusText, isRunning (reactive)
+# - pyqtSlot: getSetting, updateSetting, resetSettings, startGeneration
+# - pyqtSignal: settingsChanged, progressChanged, statusTextChanged, isRunningChanged
 #
 # Luồng thực thi:
-# - __init__(), _start_generation(), _on_job_finished(): Main thread (Qt)
-# - MeshTreeSupportJob.run(): Worker thread (Cura JobQueue)
+# - Tất cả methods trừ _on_progress: Main thread (Qt event loop)
+# - _on_progress: có thể từ worker thread → dùng callLater()
 # ==============================================================================
 
+import os
+import json
 import numpy as np
+
+try:
+    from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, pyqtProperty
+except ImportError:
+    from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, pyqtProperty
 
 from UM.Extension import Extension
 from UM.Logger import Logger
@@ -33,59 +41,231 @@ from cura.Scene.SliceableObjectDecorator import SliceableObjectDecorator
 from .MeshTreeSupportJob import MeshTreeSupportJob
 
 
-class MeshTreeSupport(Extension):
+# ==============================================================================
+# SETTINGS: Giá trị mặc định và đường dẫn file lưu trữ
+# ==============================================================================
+
+# Đường dẫn file JSON lưu thông số (cùng thư mục plugin)
+_SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+
+# Giá trị mặc định cho tất cả 13 tham số
+_DEFAULT_SETTINGS = {
+    "overhang_angle": 45.0,          # Góc overhang (độ)
+    "min_overhang_height": 0.5,      # Chiều cao tối thiểu trên bàn in (mm)
+    "cluster_radius": 5.0,           # Bán kính gom cụm KD-Tree (mm)
+    "branch_tip_radius": 0.5,        # Bán kính nhánh tại ngọn (mm)
+    "step_size": 1.0,                # Bước di chuyển mỗi lần lặp (mm)
+    "merge_distance": 5.0,           # Khoảng cách merge 2 nhánh (mm)
+    "min_merge_height": 20.0,        # Chiều cao tối thiểu để merge (mm)
+    "convergence_strength": 0.3,     # Lực hội tụ về trọng tâm (0-1)
+    "straight_drop_height": 10.0,    # Chiều cao bắt đầu rơi thẳng đứng (mm)
+    "min_clearance": 2.0,            # Khoảng cách an toàn đến mesh (mm)
+    "sdf_resolution": 3.0,           # Độ phân giải lưới SDF (mm)
+    "sdf_padding": 10.0,             # Padding quanh mesh cho SDF (mm)
+    "cylinder_segments": 8,          # Số mặt bao ống trụ
+}
+
+# Các key là integer (không phải float)
+_INT_SETTINGS = {"cylinder_segments"}
+
+
+def _load_settings():
     """
-    Extension plugin: thêm chức năng sinh cây support hữu cơ vào menu Cura.
+    Đọc thông số từ file settings.json.
+    Nếu file không tồn tại hoặc lỗi → dùng giá trị mặc định.
+    Merge với default để đảm bảo có đủ key (khi thêm setting mới).
+    """
+    settings = _DEFAULT_SETTINGS.copy()
+    try:
+        with open(_SETTINGS_FILE, 'r', encoding='utf-8') as f:
+            saved = json.load(f)
+        # Ghi đè default bằng giá trị đã lưu (chỉ các key hợp lệ)
+        for key in _DEFAULT_SETTINGS:
+            if key in saved:
+                settings[key] = saved[key]
+    except (FileNotFoundError, json.JSONDecodeError, IOError):
+        pass
+    return settings
 
-    Chức năng:
-    1. Quét tất cả mesh trên bàn in
-    2. Phát hiện vùng lơ lửng
-    3. Sinh cấu trúc cây chống đỡ
-    4. Thêm mesh support vào scene
 
-    Thuộc tính:
-        _job : MeshTreeSupportJob - Job đang chạy (hoặc None)
+def _save_settings(settings):
+    """Ghi thông số ra file settings.json."""
+    try:
+        with open(_SETTINGS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+    except IOError as e:
+        Logger.log("w", "MeshTreeSupport: Không thể lưu settings: %s", str(e))
+
+
+# ==============================================================================
+# LỚP CHÍNH: MeshTreeSupport
+#
+# Kế thừa QObject (cho pyqtProperty/Signal/Slot giao tiếp QML)
+# và Extension (cho menu item trong Cura).
+# ==============================================================================
+
+class MeshTreeSupport(QObject, Extension):
+    """
+    Extension + QObject: giao diện chính của plugin.
+
+    - Hiển thị dialog QML với settings + progress
+    - Quản lý lifecycle của MeshTreeSupportJob
+    - Tự động lưu/load thông số
     """
 
-    def __init__(self):
+    # --- Qt Signals cho QML binding ---
+    settingsChanged = pyqtSignal()       # Khi settings thay đổi (update hoặc reset)
+    progressChanged = pyqtSignal()       # Khi tiến độ Job thay đổi
+    statusTextChanged = pyqtSignal()     # Khi trạng thái thay đổi
+    isRunningChanged = pyqtSignal()      # Khi Job bắt đầu/kết thúc
+
+    def __init__(self, parent=None):
         """
-        Khởi tạo Extension: đăng ký menu item trong Cura.
+        Khởi tạo Extension: load settings, đăng ký menu item.
         Chạy trên Main thread khi Cura khởi động.
         """
-        super().__init__()
+        QObject.__init__(self, parent)
+        Extension.__init__(self)
 
-        # Đặt tên menu và thêm mục
-        self.setMenuName("Mesh Tree Support")
-        self.addMenuItem("Sinh cây Support hữu cơ", self._start_generation)
+        # Load thông số từ file (hoặc dùng mặc định)
+        self._settings = _load_settings()
 
-        # Tham chiếu đến Job đang chạy (nếu có)
+        # Trạng thái tiến độ cho QML
+        self._progress_value = 0.0      # 0-100
+        self._status_text = "San sang"
+        self._is_running = False
+
+        # Tham chiếu đến Job đang chạy và dialog QML
         self._job = None
+        self._dialog = None
 
-        Logger.log("i", "MeshTreeSupport Extension đã khởi tạo")
+        # Đăng ký menu item trong Extensions menu
+        self.setMenuName("Mesh Tree Support")
+        self.addMenuItem("Cai dat && Sinh Support", self._show_dialog)
+
+        Logger.log("i", "MeshTreeSupport Extension da khoi tao (settings loaded)")
+
+    # ==========================================================================
+    # PYQT PROPERTIES - để QML binding reactive
+    # ==========================================================================
+
+    @pyqtProperty(float, notify=progressChanged)
+    def progressValue(self):
+        """Tiến độ hiện tại (0-100), QML ProgressBar bind vào đây."""
+        return self._progress_value
+
+    @pyqtProperty(str, notify=statusTextChanged)
+    def statusText(self):
+        """Mô tả trạng thái hiện tại, QML Label bind vào đây."""
+        return self._status_text
+
+    @pyqtProperty(bool, notify=isRunningChanged)
+    def isRunning(self):
+        """True nếu Job đang chạy, QML dùng để disable/enable nút."""
+        return self._is_running
+
+    # ==========================================================================
+    # PYQT SLOTS - QML gọi các hàm này
+    # ==========================================================================
+
+    @pyqtSlot(str, result=float)
+    def getSetting(self, key):
+        """
+        QML gọi để lấy giá trị setting theo key.
+        Luôn trả về float (QML tự format bằng .toFixed()).
+        """
+        return float(self._settings.get(key, 0))
+
+    @pyqtSlot(str, float)
+    def updateSetting(self, key, value):
+        """
+        QML gọi khi người dùng thay đổi 1 setting.
+        Tự động lưu ra file JSON.
+        """
+        if key not in _DEFAULT_SETTINGS:
+            return
+        if key in _INT_SETTINGS:
+            self._settings[key] = int(value)
+        else:
+            self._settings[key] = float(value)
+        _save_settings(self._settings)
+        self.settingsChanged.emit()
+
+    @pyqtSlot()
+    def resetSettings(self):
+        """
+        QML gọi khi nhấn nút "Mặc định".
+        Khôi phục tất cả settings về giá trị ban đầu, lưu file, cập nhật UI.
+        """
+        self._settings = _DEFAULT_SETTINGS.copy()
+        _save_settings(self._settings)
+        self.settingsChanged.emit()
+        Logger.log("i", "MeshTreeSupport: Da khoi phuc settings mac dinh")
+
+    @pyqtSlot()
+    def startGeneration(self):
+        """
+        QML gọi khi nhấn nút "Bắt đầu".
+        Kiểm tra không chạy trùng, rồi bắt đầu pipeline.
+        """
+        if self._is_running:
+            return
+        self._start_generation()
+
+    # ==========================================================================
+    # QUẢN LÝ DIALOG QML
+    # ==========================================================================
+
+    def _show_dialog(self):
+        """
+        Hiển thị dialog cài đặt QML.
+        Tạo dialog lần đầu (lazy init), sau đó tái sử dụng.
+        Truyền self (QObject) làm "manager" cho QML truy cập.
+        """
+        if self._dialog is None:
+            qml_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "qml", "SettingsDialog.qml"
+            )
+            self._dialog = CuraApplication.getInstance().createQmlComponent(
+                qml_path, {"manager": self}
+            )
+        if self._dialog:
+            self._dialog.show()
+        else:
+            Logger.log("e", "MeshTreeSupport: Khong the tao dialog QML!")
+
+    # ==========================================================================
+    # LOGIC SINH CÂY SUPPORT
+    # ==========================================================================
 
     def _start_generation(self):
         """
-        Callback khi người dùng nhấn menu item.
-        Trích xuất mesh từ scene → khởi chạy Job nền.
-
-        Chạy trên: Main thread (Qt event loop)
+        Trích xuất mesh từ scene → tạo Job → khởi chạy nền.
+        Chạy trên: Main thread
         """
+        Logger.log("i", "MeshTreeSupport: Bat dau sinh cay support...")
 
-        Logger.log("i", "MeshTreeSupport: Bắt đầu sinh cây support...")
+        # Cập nhật UI: đang chạy
+        self._is_running = True
+        self._progress_value = 0
+        self._status_text = "Dang trich xuat mesh..."
+        self.isRunningChanged.emit()
+        self.progressChanged.emit()
+        self.statusTextChanged.emit()
 
-        # --- Bước 1: Thu thập tất cả mesh trên bàn in ---
+        # --- Thu thập mesh từ scene ---
         scene = CuraApplication.getInstance().getController().getScene()
-        all_vertices = []   # Danh sách mảng vertices từ mỗi node
-        all_faces = []      # Danh sách mảng faces (đã offset chỉ số)
-        vertex_offset = 0   # Offset chỉ số khi ghép nhiều mesh
+        all_vertices = []
+        all_faces = []
+        vertex_offset = 0
 
-        # Duyệt toàn bộ scene tree bằng DepthFirstIterator
         for node in DepthFirstIterator(scene.getRoot()):
-            # Chỉ xử lý node có thể slice (mesh in được)
+            # Chỉ xử lý node sliceable (mesh in được)
             if not node.callDecoration("isSliceable"):
                 continue
 
-            # Bỏ qua mesh support đã có (tránh tạo support cho support)
+            # Bỏ qua support mesh đã có
             per_mesh_stack = node.callDecoration("getStack")
             if per_mesh_stack:
                 if per_mesh_stack.getProperty("support_mesh", "value"):
@@ -95,113 +275,148 @@ class MeshTreeSupport(Extension):
             if mesh_data is None:
                 continue
 
-            # Lấy vertices ở hệ tọa độ cục bộ (local coordinates)
             local_verts = mesh_data.getVertices()
             if local_verts is None or len(local_verts) == 0:
                 continue
 
-            # --- Chuyển vertices sang hệ tọa độ thế giới (world coordinates) ---
-            # Áp dụng ma trận biến đổi thế giới 4x4 của node
-            transform_matrix = node.getWorldTransformation().getData()  # numpy 4x4
-
-            # Chuyển sang tọa độ đồng nhất: thêm cột w=1
+            # Chuyển sang hệ tọa độ thế giới (world coordinates)
+            transform_matrix = node.getWorldTransformation().getData()
             num_verts = len(local_verts)
             homo_verts = np.ones((num_verts, 4), dtype=np.float64)
             homo_verts[:, :3] = local_verts
-
-            # Nhân ma trận: [4x4] × [4xN]^T = [4xN]^T → lấy 3 thành phần đầu
             world_verts = (transform_matrix @ homo_verts.T).T[:, :3]
 
-            # --- Chuyển từ Y-up (Cura) sang Z-up (3D printing) ---
-            # Cura: X=phải, Y=cao, Z=trước
-            # 3D printing: X=phải, Y=trước, Z=cao
-            # Hoán đổi: new_Y = old_Z, new_Z = old_Y
+            # Chuyển Y-up (Cura/OpenGL) → Z-up (3D printing)
             world_verts_zup = world_verts.copy()
-            world_verts_zup[:, 1] = world_verts[:, 2]  # Y_new = Z_old
-            world_verts_zup[:, 2] = world_verts[:, 1]  # Z_new = Y_old
+            world_verts_zup[:, 1] = world_verts[:, 2]   # Y_new = Z_old
+            world_verts_zup[:, 2] = world_verts[:, 1]   # Z_new = Y_old
 
-            # --- Lấy chỉ số tam giác (face indices) ---
+            # Lấy face indices
             indices = mesh_data.getIndices()
             if indices is not None:
-                # Mesh có chỉ số: dịch theo offset
                 local_faces = indices.copy()
             else:
-                # Triangle soup: mỗi 3 đỉnh liên tiếp = 1 tam giác
                 num_triangles = num_verts // 3
                 local_faces = np.arange(num_triangles * 3, dtype=np.int32).reshape(-1, 3)
 
-            # Dịch chỉ số faces theo offset (khi ghép nhiều mesh)
             offset_faces = local_faces + vertex_offset
-
             all_vertices.append(world_verts_zup)
             all_faces.append(offset_faces)
             vertex_offset += num_verts
 
-        # --- Kiểm tra: có mesh nào không? ---
+        # Kiểm tra có mesh không
         if not all_vertices:
-            Logger.log("w", "MeshTreeSupport: Không tìm thấy mesh nào trên bàn in!")
+            Logger.log("w", "MeshTreeSupport: Khong tim thay mesh nao tren ban in!")
+            self._is_running = False
+            self._status_text = "Khong tim thay mesh nao!"
+            self.isRunningChanged.emit()
+            self.statusTextChanged.emit()
             return
 
-        # Ghép tất cả mesh thành 1
-        combined_verts = np.vstack(all_vertices).astype(np.float64)   # (N, 3)
-        combined_faces = np.vstack(all_faces).astype(np.int32)        # (M, 3)
+        combined_verts = np.vstack(all_vertices).astype(np.float64)
+        combined_faces = np.vstack(all_faces).astype(np.int32)
 
-        Logger.log("i", "MeshTreeSupport: Mesh gộp có %d đỉnh, %d tam giác",
+        Logger.log("i", "MeshTreeSupport: Mesh gop co %d dinh, %d tam giac",
                    len(combined_verts), len(combined_faces))
 
-        # --- Bước 2: Tạo và khởi chạy Job nền ---
-        self._job = MeshTreeSupportJob(combined_verts, combined_faces)
+        # --- Tạo và khởi chạy Job ---
+        # Truyền bản sao settings để Job không bị ảnh hưởng nếu user thay đổi settings
+        self._job = MeshTreeSupportJob(combined_verts, combined_faces, self._settings.copy())
 
-        # Kết nối signal finished → callback trên main thread
+        # Kết nối signals từ Job
+        self._job.progress.connect(self._on_progress)
         self._job.finished.connect(self._on_job_finished)
 
-        # Khởi chạy Job trên worker thread (không block UI)
+        # Khởi chạy trên worker thread
         self._job.start()
 
-        Logger.log("i", "MeshTreeSupport: Job đã được khởi chạy trên worker thread")
+        Logger.log("i", "MeshTreeSupport: Job da duoc khoi chay tren worker thread")
+
+    # ==========================================================================
+    # XỬ LÝ TIẾN ĐỘ VÀ KẾT QUẢ TỪ JOB
+    # ==========================================================================
+
+    def _on_progress(self, value):
+        """
+        Callback từ Job.progress signal (có thể từ worker thread).
+        Dùng callLater() để chuyển về main thread an toàn.
+        """
+        Application.getInstance().callLater(lambda v=value: self._update_progress_ui(v))
+
+    def _update_progress_ui(self, value):
+        """
+        Cập nhật progress + status text trên main thread.
+        Suy ra bước hiện tại từ giá trị progress.
+        """
+        self._progress_value = value
+
+        # Suy ra trạng thái từ giá trị tiến độ
+        if value <= 10:
+            self._status_text = "Buoc 1/5: Phat hien vung lo lung..."
+        elif value <= 18:
+            self._status_text = "Buoc 2/5: Gom cum diem (KD-Tree)..."
+        elif value <= 35:
+            self._status_text = "Buoc 3/5: Tinh truong va cham SDF..."
+        elif value <= 75:
+            self._status_text = "Buoc 4/5: Sinh nhanh cay..."
+        elif value < 100:
+            self._status_text = "Buoc 5/5: Tao mesh ong tru..."
+        else:
+            self._status_text = "Hoan tat!"
+
+        self.progressChanged.emit()
+        self.statusTextChanged.emit()
 
     def _on_job_finished(self, job):
         """
-        Callback khi Job hoàn thành.
-        Được gọi từ worker thread → dùng callLater() để chuyển về main thread.
-
-        Tham số:
-            job : MeshTreeSupportJob - Job vừa hoàn thành
+        Callback khi Job hoàn thành (từ worker thread).
+        Chuyển về main thread bằng callLater().
         """
+        Application.getInstance().callLater(self._handle_job_finished, job)
 
-        # Chuyển sang main thread bằng callLater (an toàn cho Qt)
-        Application.getInstance().callLater(self._add_support_to_scene, job)
-
-    def _add_support_to_scene(self, job):
+    def _handle_job_finished(self, job):
         """
-        Thêm mesh cây support vào scene Cura.
-        Chạy trên: Main thread (được gọi từ callLater)
-
-        Quy trình:
-        1. Lấy MeshData từ Job
-        2. Chuyển vertices từ Z-up → Y-up (Cura)
-        3. Tạo CuraSceneNode với MeshData
-        4. Đánh dấu là support_mesh = True
-        5. Thêm vào scene
+        Xử lý kết quả Job trên main thread.
+        Thêm mesh support vào scene hoặc báo lỗi.
         """
+        self._is_running = False
+        self.isRunningChanged.emit()
 
         mesh_data = job.getResultMeshData()
         if mesh_data is None:
-            Logger.log("w", "MeshTreeSupport: Job hoàn thành nhưng không có mesh.")
+            self._status_text = "Khong tim thay vung lo lung hoac xay ra loi."
+            self._progress_value = 0
+            self.progressChanged.emit()
+            self.statusTextChanged.emit()
+            Logger.log("w", "MeshTreeSupport: Job hoan thanh nhung khong co mesh.")
             return
 
-        # --- Chuyển vertices từ Z-up → Y-up (Cura) ---
-        # Hoán đổi ngược: Y_cura = Z_zup, Z_cura = Y_zup
+        # Thêm mesh support vào scene
+        self._add_support_to_scene(mesh_data)
+
+        vertex_count = mesh_data.getVertexCount() if mesh_data else 0
+        self._progress_value = 100
+        self._status_text = "Hoan tat! (%d dinh)" % vertex_count
+        self.progressChanged.emit()
+        self.statusTextChanged.emit()
+
+    def _add_support_to_scene(self, mesh_data):
+        """
+        Thêm mesh cây support vào scene Cura.
+        Chuyển vertices Z-up → Y-up, tạo CuraSceneNode, đánh dấu support_mesh.
+        Chạy trên: Main thread
+        """
+
+        # Chuyển vertices Z-up → Y-up (Cura)
         original_verts = mesh_data.getVertices()
         if original_verts is None or len(original_verts) == 0:
-            Logger.log("w", "MeshTreeSupport: Mesh rỗng.")
             return
 
         converted_verts = original_verts.copy()
-        converted_verts[:, 1] = original_verts[:, 2]  # Y_cura = Z_zup
-        converted_verts[:, 2] = original_verts[:, 1]  # Z_cura = Y_zup
+        converted_verts[:, 1] = original_verts[:, 2]   # Y_cura = Z_zup
+        converted_verts[:, 2] = original_verts[:, 1]   # Z_cura = Y_zup
 
-        # Chuyển đổi normals tương tự (nếu có)
+        # Chuyển normals tương tự
         original_normals = mesh_data.getNormals()
         converted_normals = None
         if original_normals is not None and len(original_normals) > 0:
@@ -209,30 +424,27 @@ class MeshTreeSupport(Extension):
             converted_normals[:, 1] = original_normals[:, 2]
             converted_normals[:, 2] = original_normals[:, 1]
 
-        # Tạo MeshData mới với tọa độ Y-up
         cura_mesh_data = MeshData(
             vertices=converted_verts.astype(np.float32),
             normals=converted_normals.astype(np.float32) if converted_normals is not None else None
         )
 
-        # --- Tạo CuraSceneNode ---
+        # Tạo CuraSceneNode
         support_node = CuraSceneNode()
         support_node.setName("MeshTreeSupport")
         support_node.setSelectable(True)
         support_node.setMeshData(cura_mesh_data)
 
-        # Thêm decorator để Cura nhận diện node
         active_build_plate = CuraApplication.getInstance().getMultiBuildPlateModel().activeBuildPlate
         support_node.addDecorator(BuildPlateDecorator(active_build_plate))
         support_node.addDecorator(SliceableObjectDecorator())
 
-        # --- Đánh dấu là support mesh ---
-        # Cura sẽ xử lý node này như support khi slice
+        # Thêm vào scene
         scene = CuraApplication.getInstance().getController().getScene()
         op = AddSceneNodeOperation(support_node, scene.getRoot())
         op.push()
 
-        # Đặt thuộc tính support_mesh = True qua per-object settings
+        # Đánh dấu support_mesh = True
         stack = support_node.callDecoration("getStack")
         if stack:
             settings = stack.getTop()
@@ -243,7 +455,6 @@ class MeshTreeSupport(Extension):
                 instance.setProperty("value", True)
                 instance.resetState()
                 settings.addInstance(instance)
-                Logger.log("i", "MeshTreeSupport: Đã đánh dấu support_mesh = True")
 
-        Logger.log("i", "MeshTreeSupport: Đã thêm mesh cây support vào scene! "
-                   "(%d đỉnh)", cura_mesh_data.getVertexCount())
+        Logger.log("i", "MeshTreeSupport: Da them mesh cay support vao scene! (%d dinh)",
+                   cura_mesh_data.getVertexCount())
