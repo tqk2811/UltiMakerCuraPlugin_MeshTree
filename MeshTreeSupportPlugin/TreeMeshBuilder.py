@@ -173,7 +173,93 @@ def _build_cap(center, radius, direction, segments, flip=False):
 
 
 # ==============================================================================
-# PHẦN 3: LẮP GHÉP TOÀN BỘ CÂY
+# PHẦN 3: SINH HÌNH CẦU (SPHERE) TẠI ĐIỂM GIAO NHÁNH
+#
+# Khi 2+ nhánh gặp nhau (merge/junction), giữa các frustum có khe hở.
+# Đặt 1 hình cầu cùng bán kính tại điểm giao để lấp đầy khe hở,
+# tạo ngoại hình mượt mà tự nhiên hơn.
+#
+# Hình cầu được sinh bằng UV sphere: chia theo kinh tuyến (longitude)
+# và vĩ tuyến (latitude), tạo lưới tam giác bao phủ toàn bộ bề mặt cầu.
+# ==============================================================================
+
+def _build_sphere(center, radius, segments):
+    """
+    Sinh mesh hình cầu (UV sphere) tại vị trí cho trước.
+
+    Tham số:
+        center   : numpy array (3,) - tâm hình cầu
+        radius   : float - bán kính
+        segments : int - số chia theo kinh tuyến (và vĩ tuyến = segments//2)
+
+    Trả về:
+        vertices : numpy array (V, 3) - tọa độ đỉnh
+        faces    : numpy array (F, 3) - chỉ số tam giác
+    """
+    # Số chia vĩ tuyến (rings) = nửa segments, tối thiểu 3
+    rings = max(3, segments // 2)
+    sectors = segments  # Số chia kinh tuyến
+
+    # Sinh đỉnh
+    # Đỉnh cực bắc (top) và cực nam (bottom) + các vòng vĩ tuyến
+    vertices = []
+
+    # Cực bắc (+Z)
+    vertices.append(center + np.array([0.0, 0.0, radius]))
+
+    # Các vòng vĩ tuyến (từ trên xuống dưới, trừ 2 cực)
+    for i in range(1, rings):
+        phi = np.pi * i / rings  # Góc từ cực bắc (0 → π)
+        z = radius * np.cos(phi)
+        r_ring = radius * np.sin(phi)
+        for j in range(sectors):
+            theta = 2.0 * np.pi * j / sectors
+            x = r_ring * np.cos(theta)
+            y = r_ring * np.sin(theta)
+            vertices.append(center + np.array([x, y, z]))
+
+    # Cực nam (-Z)
+    vertices.append(center + np.array([0.0, 0.0, -radius]))
+
+    vertices = np.array(vertices, dtype=np.float64)
+
+    # Sinh tam giác
+    faces = []
+
+    # Tam giác nối cực bắc với vòng đầu tiên
+    for j in range(sectors):
+        j_next = (j + 1) % sectors
+        # Winding đảo cho left-handed Z-up (giống frustum)
+        faces.append([0, 1 + j_next, 1 + j])
+
+    # Tam giác giữa các vòng vĩ tuyến
+    for i in range(rings - 2):
+        ring_start = 1 + i * sectors
+        next_ring_start = 1 + (i + 1) * sectors
+        for j in range(sectors):
+            j_next = (j + 1) % sectors
+            # Quad = 2 tam giác (winding đảo)
+            v1 = ring_start + j
+            v2 = ring_start + j_next
+            v3 = next_ring_start + j_next
+            v4 = next_ring_start + j
+            faces.append([v1, v3, v2])
+            faces.append([v1, v4, v3])
+
+    # Tam giác nối vòng cuối với cực nam
+    south_idx = len(vertices) - 1
+    last_ring_start = 1 + (rings - 2) * sectors
+    for j in range(sectors):
+        j_next = (j + 1) % sectors
+        # Winding đảo
+        faces.append([last_ring_start + j, last_ring_start + j_next, south_idx])
+
+    faces = np.array(faces, dtype=np.int32)
+    return vertices, faces
+
+
+# ==============================================================================
+# PHẦN 4: LẮP GHÉP TOÀN BỘ CÂY
 #
 # Ghép tất cả frustums và caps thành 1 mesh liền.
 # Tính pháp tuyến mặt (face normals) cho rendering.
@@ -234,15 +320,29 @@ def build_tree_mesh(all_nodes, all_edges, segments=8,
         all_faces_list.append(faces_offset)
         vertex_offset += len(verts)
 
-    # --- Bước 2: Tìm nút tip và base để đóng nắp ---
-    # Nút tip: chỉ có cạnh đi ra (là cha), không có cạnh đi vào (không là con)
-    # Nút base: Z gần 0
+    # --- Bước 2: Tìm nút tip, base, junction để đóng nắp và đặt cầu ---
     child_set = set()   # Tập nút là "con" (đầu nhận cạnh)
     parent_set = set()  # Tập nút là "cha" (đầu phát cạnh)
+    # Đếm số cạnh đi vào mỗi nút (incoming edges)
+    incoming_count = {}  # node_idx → số cạnh đi vào
 
     for idx1, idx2 in all_edges:
         parent_set.add(idx1)
         child_set.add(idx2)
+        incoming_count[idx2] = incoming_count.get(idx2, 0) + 1
+
+    # Nút junction: có >= 2 cạnh đi vào (điểm giao nhánh / merge point)
+    # Đặt hình cầu tại đây để lấp khe hở giữa các frustum
+    for node_idx, count in incoming_count.items():
+        if count >= 2:
+            pos, radius = all_nodes[node_idx]
+            pos = np.asarray(pos, dtype=np.float64)
+            sphere_verts, sphere_faces = _build_sphere(pos, radius, segments)
+            if len(sphere_verts) > 0:
+                sphere_faces_offset = sphere_faces + vertex_offset
+                all_verts_list.append(sphere_verts)
+                all_faces_list.append(sphere_faces_offset)
+                vertex_offset += len(sphere_verts)
 
     # Nút tip = nút cha mà không phải con (gốc của cây, tức ngọn support)
     # Trong cấu trúc bottom-up: edges đi từ trên xuống, nên "cha" ở trên
