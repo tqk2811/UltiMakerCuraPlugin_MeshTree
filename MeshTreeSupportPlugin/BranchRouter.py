@@ -399,18 +399,12 @@ def route_branches(tip_points, collision_field,
                     if pos_j[2] <= min_merge_height:
                         continue
 
-                    # Chỉ merge nếu chênh lệch Z nhỏ (tránh cạnh đi ngược lên)
-                    z_diff = abs(pos_i[2] - pos_j[2])
-                    if z_diff > step_size * 3:
-                        continue
+                    # Tính khoảng cách 3D giữa 2 nhánh
+                    dist = np.linalg.norm(pos_i - pos_j)
 
-                    # Tính khoảng cách XY giữa 2 nhánh (merge dựa trên XY, không 3D)
-                    dist_xy = np.linalg.norm(pos_i[:2] - pos_j[:2])
-
-                    if dist_xy < effective_merge_dist:
-                        # Merge: nhánh ở DƯỚI (Z thấp hơn) sống sót
-                        # → cạnh từ victim (Z cao) đến survivor (Z thấp) luôn đi XUỐNG
-                        if pos_i[2] <= pos_j[2]:
+                    if dist < effective_merge_dist:
+                        # Merge: nhánh có nhiều tip hơn sống sót
+                        if branches[idx_i].tip_count >= branches[idx_j].tip_count:
                             survivor, victim = idx_i, idx_j
                         else:
                             survivor, victim = idx_j, idx_i
@@ -423,11 +417,13 @@ def route_branches(tip_points, collision_field,
             survivor = branches[survivor_idx]
             victim = branches[victim_idx]
 
-            # Điểm merge = vị trí nhánh THẤP HƠN (survivor)
-            # → cạnh từ victim luôn đi XUỐNG đến merge point, không bao giờ đi lên
-            merge_pos = new_positions.get(survivor_idx, survivor.position).copy()
+            # Điểm merge = trung điểm giữa 2 nhánh
+            merge_pos = (
+                new_positions.get(survivor_idx, survivor.position) +
+                new_positions.get(victim_idx, victim.position)
+            ) / 2.0
 
-            # Cập nhật vị trí survivor (giữ nguyên vị trí thấp)
+            # Cập nhật vị trí survivor về điểm merge
             new_positions[survivor_idx] = merge_pos
 
             # Tính bán kính mới theo định luật Murray
