@@ -471,19 +471,6 @@ class MeshTreeSupport(QObject, Extension):
         support_node.addDecorator(BuildPlateDecorator(active_build_plate))
         support_node.addDecorator(SliceableObjectDecorator())
 
-        # Đánh dấu mesh là support mesh để CuraEngine xử lý đúng
-        try:
-            from cura.Settings.SettingOverrideDecorator import SettingOverrideDecorator
-            override = SettingOverrideDecorator()
-            support_node.addDecorator(override)
-            stack = support_node.callDecoration("getStack")
-            if stack:
-                top = stack.getTop()
-                top.setProperty("support_mesh", "value", True)
-                Logger.log("i", "MeshTreeSupport: Da dat support_mesh = True")
-        except Exception as e:
-            Logger.log("w", "MeshTreeSupport: Khong the dat support_mesh: %s", str(e))
-
         # Thêm vào scene
         scene = CuraApplication.getInstance().getController().getScene()
         op = AddSceneNodeOperation(support_node, scene.getRoot())
