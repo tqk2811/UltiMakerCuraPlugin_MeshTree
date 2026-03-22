@@ -30,6 +30,7 @@ from . import PointClusterer
 from .CollisionAvoider import CollisionField
 from . import BranchRouter
 from . import TreeMeshBuilder
+from . import OverhangShellBuilder
 
 
 class MeshTreeSupportJob(Job):
@@ -125,11 +126,12 @@ class MeshTreeSupportJob(Job):
         Logger.log("d", "Buoc 1/5: Phat hien vung lo lung (angle = %.1f)...",
                    s["overhang_angle"])
 
-        overhang_points, overhang_normals = OverhangDetector.detect_overhangs(
-            vertices, faces,
-            threshold_angle_deg=s["overhang_angle"],
-            min_height=s["min_overhang_height"]
-        )
+        overhang_points, overhang_normals, overhang_mask, all_face_normals = \
+            OverhangDetector.detect_overhangs(
+                vertices, faces,
+                threshold_angle_deg=s["overhang_angle"],
+                min_height=s["min_overhang_height"]
+            )
 
         Logger.log("i", "  -> Tim thay %d mat lo lung", len(overhang_points))
 
@@ -168,6 +170,37 @@ class MeshTreeSupportJob(Job):
         if len(tip_points) == 0:
             Logger.log("w", "MeshTreeSupport: Gom cum cho 0 tip. Hoan tat.")
             self.progress.emit(100)
+            return
+
+        # =====================================================================
+        # BƯỚC 2.5: TẠO VỎ OVERHANG (Overhang Shell)
+        # Tạo lớp vỏ mỏng ôm sát bề mặt overhang:
+        #   - Inner surface: cách vật thể shell_gap
+        #   - Outer surface: cách vật thể shell_gap + shell_thickness
+        # Offset tip points ra xa vật thể = shell_gap + shell_thickness
+        # =====================================================================
+        shell_gap = float(s.get("shell_gap", 0.3))
+        shell_thickness = float(s.get("shell_thickness", 0.5))
+
+        Logger.log("d", "Buoc 2.5: Tao vo overhang (gap=%.1f, thickness=%.1f)...",
+                   shell_gap, shell_thickness)
+
+        shell_verts, shell_normals = OverhangShellBuilder.build_overhang_shell(
+            vertices, faces, overhang_mask, all_face_normals,
+            gap=shell_gap, thickness=shell_thickness
+        )
+
+        Logger.log("i", "  -> Vo overhang: %d dinh", len(shell_verts))
+
+        # Offset tip points ra xa vật thể theo phương vuông góc bề mặt
+        # tip_normals là inward normal, outward = -tip_normals
+        offset_distance = shell_gap + shell_thickness
+        tip_points = tip_points + (-tip_normals) * offset_distance
+
+        Logger.log("d", "  -> Tip points offset %.2fmm ra xa vat the", offset_distance)
+
+        if self._cancelled:
+            Logger.log("i", "MeshTreeSupport: Da huy tai buoc 2.5.")
             return
 
         # =====================================================================
@@ -258,6 +291,31 @@ class MeshTreeSupportJob(Job):
             base_brim_height=s.get("base_brim_height", 0.5),
             cancel_check=self.isCancelled
         )
+
+        # =====================================================================
+        # BƯỚC 6: GHÉP VỎ OVERHANG VÀO MESH CÂY
+        # Kết hợp triangle soup của tree mesh và shell mesh thành 1 MeshData.
+        # =====================================================================
+        if shell_verts is not None and len(shell_verts) > 0 and mesh_data is not None:
+            tree_verts = mesh_data.getVertices()
+            tree_normals = mesh_data.getNormals()
+
+            if tree_verts is not None and len(tree_verts) > 0:
+                combined_verts = np.concatenate([tree_verts, shell_verts.astype(np.float32)])
+                if tree_normals is not None and len(tree_normals) > 0:
+                    combined_normals = np.concatenate(
+                        [tree_normals, shell_normals.astype(np.float32)]
+                    )
+                else:
+                    combined_normals = None
+
+                from UM.Mesh.MeshData import MeshData as MD
+                mesh_data = MD(
+                    vertices=combined_verts,
+                    normals=combined_normals
+                )
+                Logger.log("i", "  -> Ghep vo overhang: %d + %d = %d dinh",
+                           len(tree_verts), len(shell_verts), len(combined_verts))
 
         # Lưu kết quả để Extension lấy qua getResultMeshData()
         self._result_mesh_data = mesh_data

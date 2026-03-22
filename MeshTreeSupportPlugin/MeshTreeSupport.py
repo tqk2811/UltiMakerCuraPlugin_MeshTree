@@ -48,7 +48,7 @@ from .MeshTreeSupportJob import MeshTreeSupportJob
 # Đường dẫn file JSON lưu thông số (cùng thư mục plugin)
 _SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
 
-# Giá trị mặc định cho tất cả 13 tham số
+# Giá trị mặc định cho tất cả tham số
 _DEFAULT_SETTINGS = {
     "overhang_angle": 45.0,          # Góc overhang (độ)
     "min_overhang_height": 0.5,      # Chiều cao tối thiểu trên bàn in (mm)
@@ -68,6 +68,8 @@ _DEFAULT_SETTINGS = {
     "base_brim_multiplier": 3.0,     # Đế rộng gấp bao nhiêu lần bán kính nhánh
     "base_brim_height": 0.5,         # Chiều cao đế chống đổ (mm)
     "cylinder_segments": 8,          # Số mặt bao ống trụ
+    "shell_thickness": 0.5,          # Độ dày vỏ overhang (mm)
+    "shell_gap": 0.3,                # Khoảng cách vỏ đến bề mặt vật thể (mm)
 }
 
 # Các key là integer (không phải float)
@@ -429,11 +431,8 @@ class MeshTreeSupport(QObject, Extension):
 
     def _add_support_to_scene(self, mesh_data):
         """
-        Thêm mesh cây support vào scene Cura.
-        Chuyển vertices Z-up → Y-up, tạo CuraSceneNode.
-        Mesh được thêm như object thường (không dùng support_mesh vì flag đó
-        khiến CuraEngine tự sinh support pattern lấp đầy thể tích, thay vì
-        in đúng hình dạng cây).
+        Thêm mesh cây support vào scene Cura dưới dạng support mesh.
+        Chuyển vertices Z-up → Y-up, tạo CuraSceneNode, đánh dấu support_mesh.
         Chạy trên: Main thread
         """
 
@@ -471,6 +470,19 @@ class MeshTreeSupport(QObject, Extension):
         active_build_plate = CuraApplication.getInstance().getMultiBuildPlateModel().activeBuildPlate
         support_node.addDecorator(BuildPlateDecorator(active_build_plate))
         support_node.addDecorator(SliceableObjectDecorator())
+
+        # Đánh dấu mesh là support mesh để CuraEngine xử lý đúng
+        try:
+            from cura.Settings.SettingOverrideDecorator import SettingOverrideDecorator
+            override = SettingOverrideDecorator()
+            support_node.addDecorator(override)
+            stack = support_node.callDecoration("getStack")
+            if stack:
+                top = stack.getTop()
+                top.setProperty("support_mesh", "value", True)
+                Logger.log("i", "MeshTreeSupport: Da dat support_mesh = True")
+        except Exception as e:
+            Logger.log("w", "MeshTreeSupport: Khong the dat support_mesh: %s", str(e))
 
         # Thêm vào scene
         scene = CuraApplication.getInstance().getController().getScene()

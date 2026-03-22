@@ -35,6 +35,8 @@ def detect_overhangs(vertices, faces, threshold_angle_deg=45.0, min_height=0.5):
     Trả về:
         overhang_centroids : numpy array (K, 3) - trọng tâm các mặt lơ lửng
         overhang_normals   : numpy array (K, 3) - pháp tuyến đơn vị các mặt lơ lửng
+        overhang_mask      : numpy array (M,) bool - mask đánh dấu mặt lơ lửng
+        all_normals        : numpy array (M, 3) - pháp tuyến đơn vị tất cả mặt
     """
 
     # --- Bước 1: Trích xuất 3 đỉnh của mỗi tam giác ---
@@ -103,4 +105,4 @@ def detect_overhangs(vertices, faces, threshold_angle_deg=45.0, min_height=0.5):
     overhang_centroids = centroids[final_mask]  # shape (K, 3)
     overhang_normals = normals[final_mask]      # shape (K, 3)
 
-    return overhang_centroids, overhang_normals
+    return overhang_centroids, overhang_normals, final_mask, normals

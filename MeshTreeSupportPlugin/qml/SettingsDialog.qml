@@ -106,6 +106,40 @@ Window {
                             onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("min_overhang_height", v) }
                         }
                         Label { text: "mm" }
+
+                        Label {
+                            text: "Độ dày vỏ overhang:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: shellThicknessMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Độ dày lớp vỏ mỏng ôm sát bề mặt lơ lửng.\nVỏ gồm 2 lớp (trong + ngoài) tạo thành mặt cong hỗ trợ.\nCác ngọn cây support nối vào lớp ngoài của vỏ.\nPhạm vi: 0.1 - 5 mm"
+                            MouseArea { id: shellThicknessMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fShellThickness
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.1; top: 5; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("shell_thickness", v) }
+                        }
+                        Label { text: "mm" }
+
+                        Label {
+                            text: "Khoảng cách vỏ:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: shellGapMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Khoảng cách giữa bề mặt vật thể và lớp trong của vỏ overhang.\nGiá trị lớn → dễ tách support, giá trị nhỏ → bám sát hơn.\nTổng khoảng cách tip đến vật thể = độ dày vỏ + khoảng cách vỏ.\nPhạm vi: 0 - 3 mm"
+                            MouseArea { id: shellGapMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fShellGap
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0; top: 3; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("shell_gap", v) }
+                        }
+                        Label { text: "mm" }
                     }
                 }
 
@@ -525,6 +559,8 @@ Window {
         fDepartureSteps.text    = Math.round(manager.getSetting("departure_steps")).toString()
         fStraightDrop.text      = manager.getSetting("straight_drop_height").toFixed(1)
         fRadiusGrowth.text      = manager.getSetting("radius_growth_rate").toFixed(3)
+        fShellThickness.text    = manager.getSetting("shell_thickness").toFixed(1)
+        fShellGap.text          = manager.getSetting("shell_gap").toFixed(1)
         fMinClearance.text      = manager.getSetting("min_clearance").toFixed(1)
         fSdfResolution.text     = manager.getSetting("sdf_resolution").toFixed(1)
         fSdfPadding.text        = manager.getSetting("sdf_padding").toFixed(1)
