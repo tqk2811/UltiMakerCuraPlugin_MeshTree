@@ -405,8 +405,32 @@ def route_branches(tip_points, collision_field,
                     new_pos += (push_vec / push_len) * push_amount
                     new_pos[2] = max(0.0, new_pos[2])
 
-            # Lưu hướng cho smoothing bước sau
-            branch.prev_direction = smoothed.copy()
+            # === Giới hạn góc cuối cùng: kiểm tra hướng bước thực tế ===
+            # Collision push có thể đẩy nhánh đi ngang quá góc cho phép → kẹp lại
+            actual_step = new_pos - pos
+            actual_step_len = np.linalg.norm(actual_step)
+            if actual_step_len > 1e-6:
+                actual_dir = actual_step / actual_step_len
+                if actual_dir[2] > -cos_angle_limit:
+                    xy_len = np.linalg.norm(actual_dir[:2])
+                    if xy_len > 1e-6:
+                        actual_dir[:2] = (actual_dir[:2] / xy_len) * sin_angle_limit
+                        actual_dir[2] = -cos_angle_limit
+                    else:
+                        actual_dir[2] = -1.0
+                    ad_len = np.linalg.norm(actual_dir)
+                    if ad_len > 1e-6:
+                        actual_dir /= ad_len
+                    new_pos = pos + actual_dir * step_size
+                    new_pos[2] = max(0.0, new_pos[2])
+
+            # Lưu hướng bước thực tế cho smoothing bước sau
+            step_dir = new_pos - pos
+            step_dir_len = np.linalg.norm(step_dir)
+            if step_dir_len > 1e-6:
+                branch.prev_direction = (step_dir / step_dir_len).copy()
+            else:
+                branch.prev_direction = smoothed.copy()
             branch.steps_taken += 1
 
             new_positions[idx] = new_pos
