@@ -442,7 +442,10 @@ def build_tree_mesh(all_nodes, all_edges, segments=8,
     soup_normals[1::3] = face_normals
     soup_normals[2::3] = face_normals
 
-    # --- Bước 5: Tạo MeshData ---
+    # --- Bước 5: Cắt mọi vertex dưới Z=0 (bàn in) ---
+    soup_verts[:, 2] = np.maximum(soup_verts[:, 2], 0.0)
+
+    # --- Bước 6: Tạo MeshData ---
     # Không cần indices vì đã dùng triangle soup format
     mesh_data = MeshData(vertices=soup_verts, normals=soup_normals)
 
