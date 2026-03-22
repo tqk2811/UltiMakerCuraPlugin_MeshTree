@@ -335,18 +335,18 @@ def build_tree_mesh(all_nodes, all_edges, segments=8,
         child_set.add(idx2)
         incoming_count[idx2] = incoming_count.get(idx2, 0) + 1
 
-    # Nút junction: có >= 2 cạnh đi vào (điểm giao nhánh / merge point)
-    # Đặt hình cầu tại đây để lấp khe hở giữa các frustum
-    for node_idx, count in incoming_count.items():
-        if count >= 2:
-            pos, radius = all_nodes[node_idx]
-            pos = np.asarray(pos, dtype=np.float64)
-            sphere_verts, sphere_faces = _build_sphere(pos, radius, segments)
-            if len(sphere_verts) > 0:
-                sphere_faces_offset = sphere_faces + vertex_offset
-                all_verts_list.append(sphere_verts)
-                all_faces_list.append(sphere_faces_offset)
-                vertex_offset += len(sphere_verts)
+    # Nút nối (vừa là child vừa là parent): đặt hình cầu tại các điểm
+    # bẻ góc và giao nhánh để lấp khe hở giữa các frustum
+    mid_nodes = child_set & parent_set  # Nút giữa đường (bẻ góc)
+    for node_idx in mid_nodes:
+        pos, radius = all_nodes[node_idx]
+        pos = np.asarray(pos, dtype=np.float64)
+        sphere_verts, sphere_faces = _build_sphere(pos, radius, segments)
+        if len(sphere_verts) > 0:
+            sphere_faces_offset = sphere_faces + vertex_offset
+            all_verts_list.append(sphere_verts)
+            all_faces_list.append(sphere_faces_offset)
+            vertex_offset += len(sphere_verts)
 
     # Nút tip = nút cha mà không phải con (gốc của cây, tức ngọn support)
     # Trong cấu trúc bottom-up: edges đi từ trên xuống, nên "cha" ở trên
