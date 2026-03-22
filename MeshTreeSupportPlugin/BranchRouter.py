@@ -139,13 +139,28 @@ def route_branches(tip_points, collision_field,
         return [], []
 
     # --- Tính hướng departure cho mỗi tip ---
-    # Pháp tuyến từ OverhangDetector là INWARD normal (do left-handed coords).
-    # Outward normal = -inward_normal = hướng vuông góc ra xa bề mặt.
-    # Đoạn departure đi theo outward normal để tạo chân vuông góc dễ bẻ.
+    # Logic:
+    # 1. Chiếu thẳng xuống (-Z) từ tip, kiểm tra có va chạm vật thể không
+    # 2. Nếu KHÔNG va chạm → departure đi thẳng xuống (-Z) cho gọn
+    # 3. Nếu CÓ va chạm → departure đi theo outward normal (vuông góc bề mặt)
+    #    để nhánh tránh xuyên vào vật thể phía dưới
     departure_dirs = []
-    if tip_normals is not None and len(tip_normals) == len(tip_points):
-        for i in range(len(tip_normals)):
-            # Outward normal = đảo chiều inward normal
+    for i in range(len(tip_points)):
+        # Kiểm tra đường thẳng xuống có va chạm không
+        # Lấy mẫu SDF tại các điểm dưới tip, cách nhau step_size
+        tip_pos = tip_points[i]
+        path_blocked = False
+        check_z = tip_pos[2] - step_size
+        while check_z > 0:
+            check_point = np.array([tip_pos[0], tip_pos[1], check_z])
+            dist = collision_field.get_distance(check_point)
+            if dist < 0:  # Bên trong mesh → đường xuống bị chặn
+                path_blocked = True
+                break
+            check_z -= step_size
+
+        if path_blocked and tip_normals is not None and i < len(tip_normals):
+            # Đường xuống bị chặn → dùng outward normal
             outward = -tip_normals[i]
             n_len = np.linalg.norm(outward)
             if n_len > 1e-6:
@@ -153,9 +168,8 @@ def route_branches(tip_points, collision_field,
             else:
                 outward = np.array([0.0, 0.0, -1.0])
             departure_dirs.append(outward)
-    else:
-        # Không có normal → departure mặc định đi xuống
-        for i in range(len(tip_points)):
+        else:
+            # Đường xuống thông thoáng → đi thẳng xuống
             departure_dirs.append(np.array([0.0, 0.0, -1.0]))
 
     # Số bước departure: đi vuông góc bề mặt trước khi bắt đầu routing
