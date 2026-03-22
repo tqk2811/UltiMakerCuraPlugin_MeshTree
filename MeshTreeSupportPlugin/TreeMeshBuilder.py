@@ -301,7 +301,7 @@ def build_tree_mesh(all_nodes, all_edges, segments=8,
 
     # --- Bước 1: Sinh frustum cho mỗi cạnh ---
     for edge_i, edge in enumerate(all_edges):
-        if cancel_check is not None and edge_i % 100 == 0 and cancel_check():
+        if cancel_check is not None and cancel_check():
             verts = np.zeros((3, 3), dtype=np.float32)
             return MeshData(vertices=verts)
         idx1, idx2 = edge

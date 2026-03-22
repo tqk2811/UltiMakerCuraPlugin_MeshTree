@@ -210,8 +210,8 @@ def route_branches(tip_points, collision_field,
     while active_indices and iteration < max_iterations:
         iteration += 1
 
-        # Kiểm tra huỷ mỗi 10 bước (tránh overhead gọi quá thường xuyên)
-        if cancel_check is not None and iteration % 10 == 0 and cancel_check():
+        # Kiểm tra huỷ mỗi vòng lặp
+        if cancel_check is not None and cancel_check():
             return all_nodes, all_edges
 
         # Loại bỏ nhánh đã đạt Z=0 (hoàn thành)
