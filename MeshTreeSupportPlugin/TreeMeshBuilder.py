@@ -267,7 +267,8 @@ def _build_sphere(center, radius, segments):
 # ==============================================================================
 
 def build_tree_mesh(all_nodes, all_edges, segments=8,
-                    base_brim_multiplier=3.0, base_brim_height=0.5):
+                    base_brim_multiplier=3.0, base_brim_height=0.5,
+                    cancel_check=None):
     """
     Tạo mesh 3D hoàn chỉnh từ skeleton cây support.
 
@@ -299,7 +300,10 @@ def build_tree_mesh(all_nodes, all_edges, segments=8,
     vertex_offset = 0     # Offset chỉ số khi ghép
 
     # --- Bước 1: Sinh frustum cho mỗi cạnh ---
-    for edge in all_edges:
+    for edge_i, edge in enumerate(all_edges):
+        if cancel_check is not None and edge_i % 100 == 0 and cancel_check():
+            verts = np.zeros((3, 3), dtype=np.float32)
+            return MeshData(vertices=verts)
         idx1, idx2 = edge
         p1, r1 = all_nodes[idx1]
         p2, r2 = all_nodes[idx2]

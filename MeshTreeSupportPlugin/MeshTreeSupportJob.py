@@ -221,7 +221,8 @@ class MeshTreeSupportJob(Job):
             convergence_strength=s["convergence_strength"],
             tip_normals=tip_normals,
             radius_growth_rate=s.get("radius_growth_rate", 0.02),
-            max_branch_angle=s.get("max_branch_angle", 40.0)
+            max_branch_angle=s.get("max_branch_angle", 40.0),
+            cancel_check=self.isCancelled
         )
 
         Logger.log("i", "  -> Skeleton: %d nut, %d canh",
@@ -253,7 +254,8 @@ class MeshTreeSupportJob(Job):
             all_nodes, all_edges,
             segments=int(s["cylinder_segments"]),
             base_brim_multiplier=s.get("base_brim_multiplier", 3.0),
-            base_brim_height=s.get("base_brim_height", 0.5)
+            base_brim_height=s.get("base_brim_height", 0.5),
+            cancel_check=self.isCancelled
         )
 
         # Lưu kết quả để Extension lấy qua getResultMeshData()

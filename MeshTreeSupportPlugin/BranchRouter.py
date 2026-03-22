@@ -97,7 +97,7 @@ def route_branches(tip_points, collision_field,
                    tip_radius=0.5, min_merge_height=20.0,
                    straight_drop_height=10.0, convergence_strength=0.3,
                    tip_normals=None, radius_growth_rate=0.02,
-                   max_branch_angle=40.0):
+                   max_branch_angle=40.0, cancel_check=None):
     """
     Sinh nhánh cây support bằng Space Colonization bottom-up.
 
@@ -209,6 +209,10 @@ def route_branches(tip_points, collision_field,
 
     while active_indices and iteration < max_iterations:
         iteration += 1
+
+        # Kiểm tra huỷ mỗi 10 bước (tránh overhead gọi quá thường xuyên)
+        if cancel_check is not None and iteration % 10 == 0 and cancel_check():
+            return all_nodes, all_edges
 
         # Loại bỏ nhánh đã đạt Z=0 (hoàn thành)
         active_indices = [
