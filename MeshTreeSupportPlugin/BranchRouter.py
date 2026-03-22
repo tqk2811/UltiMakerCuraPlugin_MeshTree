@@ -436,30 +436,6 @@ def route_branches(tip_points, collision_field,
                     dist = np.linalg.norm(pos_i - pos_j)
 
                     if dist < effective_merge_dist:
-                        # Kiểm tra góc cạnh merge có nằm trong giới hạn không
-                        # Merge point: XY = midpoint, Z = min(Z1, Z2)
-                        merge_z = min(pos_i[2], pos_j[2])
-                        # Cạnh từ nhánh cao hơn → merge point
-                        dz_i = pos_i[2] - merge_z
-                        dz_j = pos_j[2] - merge_z
-                        dxy = np.linalg.norm(pos_i[:2] - pos_j[:2]) / 2.0
-                        # Kiểm tra cả 2 cạnh: góc so với trục Z
-                        # tan(angle) = dxy / dz, nếu dz ≈ 0 → góc 90° → skip
-                        skip_merge = False
-                        if dz_i > 0.01:
-                            if dxy / dz_i > sin_angle_limit / cos_angle_limit:
-                                skip_merge = True
-                        elif dxy > 0.01:
-                            skip_merge = True  # dz ≈ 0 mà dxy > 0 → ngang
-                        if dz_j > 0.01:
-                            if dxy / dz_j > sin_angle_limit / cos_angle_limit:
-                                skip_merge = True
-                        elif dxy > 0.01:
-                            skip_merge = True
-
-                        if skip_merge:
-                            continue
-
                         # Merge: nhánh có nhiều tip hơn sống sót
                         if branches[idx_i].tip_count >= branches[idx_j].tip_count:
                             survivor, victim = idx_i, idx_j
@@ -474,13 +450,29 @@ def route_branches(tip_points, collision_field,
             survivor = branches[survivor_idx]
             victim = branches[victim_idx]
 
-            # Điểm merge: XY = trung điểm, Z = min(Z1, Z2)
-            # Z lấy min để cả 2 cạnh nối vào merge point luôn đi XUỐNG,
-            # tránh cạnh dốc ngược lên gây lỗi in 3D.
+            # Điểm merge: XY = trung điểm, Z hạ xuống đủ để góc cạnh
+            # từ cả 2 nhánh đến merge point nằm trong max_branch_angle.
+            # tan(max_angle) = dxy / dz → dz_min = dxy / tan(max_angle)
             pos_s = new_positions.get(survivor_idx, survivor.position)
             pos_v = new_positions.get(victim_idx, victim.position)
-            merge_pos = (pos_s + pos_v) / 2.0
-            merge_pos[2] = min(pos_s[2], pos_v[2])
+            merge_xy = (pos_s[:2] + pos_v[:2]) / 2.0
+
+            # Khoảng cách XY từ mỗi nhánh đến merge point
+            dxy_s = np.linalg.norm(pos_s[:2] - merge_xy)
+            dxy_v = np.linalg.norm(pos_v[:2] - merge_xy)
+            dxy_max = max(dxy_s, dxy_v)
+
+            # Z cần hạ xuống ít nhất dxy / tan(max_angle) so với nhánh cao nhất
+            tan_limit = sin_angle_limit / cos_angle_limit  # tan(max_branch_angle)
+            if tan_limit > 1e-6:
+                dz_needed = dxy_max / tan_limit
+            else:
+                dz_needed = dxy_max * 100  # Góc rất nhỏ → hạ rất sâu
+
+            max_z = max(pos_s[2], pos_v[2])
+            merge_z = max(0.0, max_z - dz_needed)
+
+            merge_pos = np.array([merge_xy[0], merge_xy[1], merge_z])
 
             # Cập nhật vị trí survivor về điểm merge
             new_positions[survivor_idx] = merge_pos
