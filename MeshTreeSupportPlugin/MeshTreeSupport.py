@@ -59,6 +59,7 @@ _DEFAULT_SETTINGS = {
     "min_merge_height": 20.0,        # Chiều cao tối thiểu để merge (mm)
     "convergence_strength": 0.3,     # Lực hội tụ về trọng tâm (0-1)
     "max_branch_angle": 40.0,        # Góc lệch tối đa so với trục Z (độ)
+    "departure_steps": 3,            # Số bước đi vuông góc bề mặt tại ngọn (đoạn xuất phát)
     "straight_drop_height": 10.0,    # Chiều cao bắt đầu rơi thẳng đứng (mm)
     "radius_growth_rate": 0.02,      # Hệ số tăng bán kính mỗi bước (0-0.1)
     "min_clearance": 2.0,            # Khoảng cách an toàn đến mesh (mm)
@@ -70,7 +71,7 @@ _DEFAULT_SETTINGS = {
 }
 
 # Các key là integer (không phải float)
-_INT_SETTINGS = {"cylinder_segments"}
+_INT_SETTINGS = {"cylinder_segments", "departure_steps"}
 
 
 def _load_settings():

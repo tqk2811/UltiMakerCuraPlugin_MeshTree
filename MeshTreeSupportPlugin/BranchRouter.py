@@ -97,7 +97,8 @@ def route_branches(tip_points, collision_field,
                    tip_radius=0.5, min_merge_height=20.0,
                    straight_drop_height=10.0, convergence_strength=0.3,
                    tip_normals=None, radius_growth_rate=0.02,
-                   max_branch_angle=40.0, cancel_check=None):
+                   max_branch_angle=40.0, departure_steps=3,
+                   cancel_check=None):
     """
     Sinh nhánh cây support bằng Space Colonization bottom-up.
 
@@ -123,6 +124,10 @@ def route_branches(tip_points, collision_field,
         max_branch_angle : float - góc lệch tối đa so với trục Z (độ, 5-85)
                         Giới hạn hướng di chuyển nhánh trong hình nón quanh -Z.
                         40° → nhánh không được đi ngang quá 40° so với phương đứng.
+        departure_steps : int - số bước đi vuông góc bề mặt tại ngọn (1-10)
+                        Đoạn xuất phát đi theo outward normal trước khi routing.
+                        Độ dài thực tế = departure_steps × step_size (mm).
+                        Giúp tạo chân vuông góc dễ bẻ support sau khi in.
 
     Trả về:
         all_nodes : list of (position, radius) - tất cả nút trong skeleton
@@ -154,8 +159,8 @@ def route_branches(tip_points, collision_field,
             departure_dirs.append(np.array([0.0, 0.0, -1.0]))
 
     # Số bước departure: đi vuông góc bề mặt trước khi bắt đầu routing
-    # Khoảng 2-3 bước (2-3mm với step_size mặc định) đủ để tạo chân bẻ
-    departure_steps = 3
+    # Độ dài thực tế = departure_steps × step_size (mm)
+    departure_steps = max(1, int(departure_steps))
 
     # --- Khởi tạo skeleton ---
     # all_nodes: danh sách (position, radius) cho mỗi nút

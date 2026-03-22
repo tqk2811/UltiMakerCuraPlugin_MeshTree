@@ -253,6 +253,23 @@ Window {
                         Label { text: "độ" }
 
                         Label {
+                            text: "Bước xuất phát:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: departureStepsMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Số bước đi vuông góc bề mặt tại ngọn nhánh (đoạn xuất phát).\nĐoạn này đi theo hướng pháp tuyến ra xa bề mặt vật thể trước khi bắt đầu routing.\nĐộ dài thực tế = số bước × bước di chuyển (mm).\nVD: 3 bước × 1mm = 3mm đoạn xuất phát vuông góc.\nGiúp tạo chân vuông góc dễ bẻ support sau khi in.\nPhạm vi: 1 - 10 bước"
+                            MouseArea { id: departureStepsMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fDepartureSteps
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: IntValidator { bottom: 1; top: 10 }
+                            onEditingFinished: { var v = parseInt(text); if (!isNaN(v)) manager.updateSetting("departure_steps", v) }
+                        }
+                        Label { text: "bước" }
+
+                        Label {
                             text: "Chiều cao rơi thẳng:"
                             Layout.preferredWidth: 180
                             ToolTip.visible: straightDropMA.containsMouse
@@ -505,6 +522,7 @@ Window {
         fMinMergeHeight.text    = manager.getSetting("min_merge_height").toFixed(1)
         fConvergence.text       = manager.getSetting("convergence_strength").toFixed(2)
         fMaxBranchAngle.text    = manager.getSetting("max_branch_angle").toFixed(1)
+        fDepartureSteps.text    = Math.round(manager.getSetting("departure_steps")).toString()
         fStraightDrop.text      = manager.getSetting("straight_drop_height").toFixed(1)
         fRadiusGrowth.text      = manager.getSetting("radius_growth_rate").toFixed(3)
         fMinClearance.text      = manager.getSetting("min_clearance").toFixed(1)

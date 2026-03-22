@@ -222,6 +222,7 @@ class MeshTreeSupportJob(Job):
             tip_normals=tip_normals,
             radius_growth_rate=s.get("radius_growth_rate", 0.02),
             max_branch_angle=s.get("max_branch_angle", 40.0),
+            departure_steps=int(s.get("departure_steps", 3)),
             cancel_check=self.isCancelled
         )
 
