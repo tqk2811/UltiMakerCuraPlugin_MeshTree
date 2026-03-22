@@ -436,6 +436,30 @@ def route_branches(tip_points, collision_field,
                     dist = np.linalg.norm(pos_i - pos_j)
 
                     if dist < effective_merge_dist:
+                        # Kiểm tra góc cạnh merge có nằm trong giới hạn không
+                        # Merge point: XY = midpoint, Z = min(Z1, Z2)
+                        merge_z = min(pos_i[2], pos_j[2])
+                        # Cạnh từ nhánh cao hơn → merge point
+                        dz_i = pos_i[2] - merge_z
+                        dz_j = pos_j[2] - merge_z
+                        dxy = np.linalg.norm(pos_i[:2] - pos_j[:2]) / 2.0
+                        # Kiểm tra cả 2 cạnh: góc so với trục Z
+                        # tan(angle) = dxy / dz, nếu dz ≈ 0 → góc 90° → skip
+                        skip_merge = False
+                        if dz_i > 0.01:
+                            if dxy / dz_i > sin_angle_limit / cos_angle_limit:
+                                skip_merge = True
+                        elif dxy > 0.01:
+                            skip_merge = True  # dz ≈ 0 mà dxy > 0 → ngang
+                        if dz_j > 0.01:
+                            if dxy / dz_j > sin_angle_limit / cos_angle_limit:
+                                skip_merge = True
+                        elif dxy > 0.01:
+                            skip_merge = True
+
+                        if skip_merge:
+                            continue
+
                         # Merge: nhánh có nhiều tip hơn sống sót
                         if branches[idx_i].tip_count >= branches[idx_j].tip_count:
                             survivor, victim = idx_i, idx_j
