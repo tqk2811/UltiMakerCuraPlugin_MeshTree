@@ -469,32 +469,47 @@ def route_branches(tip_points, collision_field,
             survivor = branches[survivor_idx]
             victim = branches[victim_idx]
 
-            # Điểm merge: XY = trung điểm, Z hạ xuống đủ để góc cạnh
-            # từ cả 2 nhánh đến merge point nằm trong max_branch_angle.
-            # tan(max_angle) = dxy / dz → dz_min = dxy / tan(max_angle)
-            pos_s = new_positions.get(survivor_idx, survivor.position)
-            pos_v = new_positions.get(victim_idx, victim.position)
-            merge_xy = (pos_s[:2] + pos_v[:2]) / 2.0
+            # Lấy vị trí NÚT TRƯỚC đó (nơi cạnh thực sự xuất phát)
+            # Cạnh trong skeleton nối từ node_index → merge node,
+            # nên phải dùng vị trí node_index để tính góc chính xác.
+            prev_pos_s = np.asarray(all_nodes[survivor.node_index][0], dtype=np.float64)
+            prev_pos_v = np.asarray(all_nodes[victim.node_index][0], dtype=np.float64)
 
-            # Khoảng cách XY từ mỗi nhánh đến merge point
-            dxy_s = np.linalg.norm(pos_s[:2] - merge_xy)
-            dxy_v = np.linalg.norm(pos_v[:2] - merge_xy)
-            dxy_max = max(dxy_s, dxy_v)
+            # Merge XY: trọng số theo tip_count
+            # Nhánh chính (nhiều tip) giữ nguyên vị trí XY,
+            # nhánh phụ (ít tip) di chuyển đến nhánh chính.
+            total_tips = survivor.tip_count + victim.tip_count
+            weight_s = survivor.tip_count / total_tips
+            weight_v = victim.tip_count / total_tips
+            merge_xy = weight_s * prev_pos_s[:2] + weight_v * prev_pos_v[:2]
 
-            # Z cần hạ xuống ít nhất dxy / tan(max_angle) so với nhánh cao nhất
+            # Khoảng cách XY từ mỗi NÚT TRƯỚC đến merge point
+            dxy_s = np.linalg.norm(prev_pos_s[:2] - merge_xy)
+            dxy_v = np.linalg.norm(prev_pos_v[:2] - merge_xy)
+
+            # Merge Z: phải thỏa mãn ràng buộc góc cho CẢ HAI cạnh riêng biệt
+            # Mỗi cạnh: atan(dxy / dz) ≤ max_branch_angle
+            #          → dz ≥ dxy / tan(max_angle)
+            #          → merge_z ≤ prev_z - dxy / tan(max_angle)
+            # Lấy min để cả hai cạnh đều thỏa mãn.
             tan_limit = sin_angle_limit / cos_angle_limit  # tan(max_branch_angle)
             if tan_limit > 1e-6:
-                dz_needed = dxy_max / tan_limit
+                merge_z_s = prev_pos_s[2] - dxy_s / tan_limit
+                merge_z_v = prev_pos_v[2] - dxy_v / tan_limit
+                merge_z = max(0.0, min(merge_z_s, merge_z_v))
             else:
-                dz_needed = dxy_max * 100  # Góc rất nhỏ → hạ rất sâu
-
-            max_z = max(pos_s[2], pos_v[2])
-            merge_z = max(0.0, max_z - dz_needed)
+                merge_z = 0.0
 
             merge_pos = np.array([merge_xy[0], merge_xy[1], merge_z])
 
             # Cập nhật vị trí survivor về điểm merge
             new_positions[survivor_idx] = merge_pos
+
+            # Cập nhật prev_direction theo hướng cạnh thực tế (cho smoothing bước sau)
+            edge_dir = merge_pos - prev_pos_s
+            edge_len = np.linalg.norm(edge_dir)
+            if edge_len > 1e-6:
+                survivor.prev_direction = edge_dir / edge_len
 
             # Tính bán kính mới theo định luật Murray
             new_radius = _murray_radius(survivor.radius, victim.radius)
