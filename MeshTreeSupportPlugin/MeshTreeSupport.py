@@ -446,6 +446,9 @@ class MeshTreeSupport(QObject, Extension):
         converted_verts[:, 1] = original_verts[:, 2]   # Y_cura = Z_zup
         converted_verts[:, 2] = original_verts[:, 1]   # Z_cura = Y_zup
 
+        # Cắt cụt phần dưới sàn: clamp Y >= 0 (Y = chiều cao trong Cura Y-up)
+        converted_verts[:, 1] = np.maximum(converted_verts[:, 1], 0.0)
+
         # Chuyển normals tương tự
         original_normals = mesh_data.getNormals()
         converted_normals = None
