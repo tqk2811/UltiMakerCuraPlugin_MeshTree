@@ -1,0 +1,19 @@
+{
+  "overhang_angle": 45.0,
+  "min_overhang_height": 0.5,
+  "cluster_radius": 1.0,
+  "branch_tip_radius": 0.3,
+  "step_size": 1.0,
+  "merge_distance": 5.0,
+  "min_merge_height": 20.0,
+  "convergence_strength": 0.1,
+  "max_branch_angle": 40.0,
+  "straight_drop_height": 10.0,
+  "radius_growth_rate": 0.02,
+  "min_clearance": 2.0,
+  "sdf_resolution": 3.0,
+  "sdf_padding": 10.0,
+  "base_brim_multiplier": 3.0,
+  "base_brim_height": 0.5,
+  "cylinder_segments": 8
+}

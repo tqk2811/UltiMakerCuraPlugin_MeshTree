@@ -236,6 +236,23 @@ Window {
                         Label { text: "" }
 
                         Label {
+                            text: "Góc nhánh tối đa:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: maxBranchAngleMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Góc lệch tối đa của nhánh so với phương thẳng đứng (trục Z).\nNhánh không được nghiêng quá góc này → tránh đi ngang/ngược lên.\nGóc nhỏ → nhánh thẳng đứng hơn, góc lớn → cho phép nghiêng nhiều.\nPhạm vi: 5 - 85°"
+                            MouseArea { id: maxBranchAngleMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fMaxBranchAngle
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 5; top: 85; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("max_branch_angle", v) }
+                        }
+                        Label { text: "độ" }
+
+                        Label {
                             text: "Chiều cao rơi thẳng:"
                             Layout.preferredWidth: 180
                             ToolTip.visible: straightDropMA.containsMouse
@@ -487,6 +504,7 @@ Window {
         fMergeDistance.text      = manager.getSetting("merge_distance").toFixed(1)
         fMinMergeHeight.text    = manager.getSetting("min_merge_height").toFixed(1)
         fConvergence.text       = manager.getSetting("convergence_strength").toFixed(2)
+        fMaxBranchAngle.text    = manager.getSetting("max_branch_angle").toFixed(1)
         fStraightDrop.text      = manager.getSetting("straight_drop_height").toFixed(1)
         fRadiusGrowth.text      = manager.getSetting("radius_growth_rate").toFixed(3)
         fMinClearance.text      = manager.getSetting("min_clearance").toFixed(1)

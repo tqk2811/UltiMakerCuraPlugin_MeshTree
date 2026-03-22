@@ -96,7 +96,8 @@ def route_branches(tip_points, collision_field,
                    step_size=1.0, merge_distance=5.0, min_clearance=2.0,
                    tip_radius=0.5, min_merge_height=20.0,
                    straight_drop_height=10.0, convergence_strength=0.3,
-                   tip_normals=None, radius_growth_rate=0.02):
+                   tip_normals=None, radius_growth_rate=0.02,
+                   max_branch_angle=40.0):
     """
     Sinh nhánh cây support bằng Space Colonization bottom-up.
 
@@ -119,6 +120,9 @@ def route_branches(tip_points, collision_field,
                         0 = chỉ tăng khi merge (Murray thuần túy)
                         0.02 = tăng 2%/bước → nhánh 50 bước mập gấp ~2.7x
                         0.05 = tăng 5%/bước → nhánh 50 bước mập gấp ~11x
+        max_branch_angle : float - góc lệch tối đa so với trục Z (độ, 5-85)
+                        Giới hạn hướng di chuyển nhánh trong hình nón quanh -Z.
+                        40° → nhánh không được đi ngang quá 40° so với phương đứng.
 
     Trả về:
         all_nodes : list of (position, radius) - tất cả nút trong skeleton
@@ -185,6 +189,12 @@ def route_branches(tip_points, collision_field,
         branch = BranchTip(current_pos, node_radius, prev_idx, tip_count=1)
         branch.prev_direction = dep_dir.copy()  # Khởi tạo smoothing từ hướng departure
         branches.append(branch)
+
+    # --- Giới hạn góc nhánh so với trục Z ---
+    # cos_angle_limit: thành phần Z tối thiểu (âm) để đảm bảo nhánh
+    # không lệch quá max_branch_angle so với phương thẳng đứng
+    cos_angle_limit = np.cos(np.radians(max_branch_angle))  # VD: cos(40°)≈0.766
+    sin_angle_limit = np.sin(np.radians(max_branch_angle))  # VD: sin(40°)≈0.643
 
     # --- Chiều cao Z ban đầu lớn nhất (dùng cho adaptive merge) ---
     initial_max_z = float(np.max(tip_points[:, 2])) if len(tip_points) > 0 else 100.0
@@ -298,15 +308,21 @@ def route_branches(tip_points, collision_field,
             )
             direction += avoidance
 
-            # === Chuẩn hóa và áp dụng bước di chuyển ===
+            # === Chuẩn hóa ===
             dir_length = np.linalg.norm(direction)
             if dir_length > 1e-6:
                 direction /= dir_length
 
-            # Đảm bảo luôn có thành phần đi xuống (tránh nhánh đi ngang mãi)
-            if direction[2] > -0.3:
-                direction[2] = -0.3
-                # Chuẩn hóa lại sau khi điều chỉnh
+            # === Giới hạn góc so với trục Z (max_branch_angle) ===
+            # Nếu hướng lệch quá góc cho phép → kẹp lại trong hình nón
+            if direction[2] > -cos_angle_limit:
+                xy_len = np.linalg.norm(direction[:2])
+                if xy_len > 1e-6:
+                    # Giữ hướng XY, scale về đúng góc giới hạn
+                    direction[:2] = (direction[:2] / xy_len) * sin_angle_limit
+                    direction[2] = -cos_angle_limit
+                else:
+                    direction[2] = -1.0
                 dir_length = np.linalg.norm(direction)
                 if dir_length > 1e-6:
                     direction /= dir_length
@@ -325,6 +341,19 @@ def route_branches(tip_points, collision_field,
                 smoothed /= sm_len
             else:
                 smoothed = direction
+
+            # === Giới hạn góc lần nữa SAU smoothing ===
+            # Smoothing có thể làm lệch góc → kẹp lại
+            if smoothed[2] > -cos_angle_limit:
+                xy_len = np.linalg.norm(smoothed[:2])
+                if xy_len > 1e-6:
+                    smoothed[:2] = (smoothed[:2] / xy_len) * sin_angle_limit
+                    smoothed[2] = -cos_angle_limit
+                else:
+                    smoothed[2] = -1.0
+                sm_len = np.linalg.norm(smoothed)
+                if sm_len > 1e-6:
+                    smoothed /= sm_len
 
             # Di chuyển 1 bước
             new_pos = pos + smoothed * step_size

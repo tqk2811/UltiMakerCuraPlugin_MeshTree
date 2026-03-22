@@ -220,7 +220,8 @@ class MeshTreeSupportJob(Job):
             straight_drop_height=s["straight_drop_height"],
             convergence_strength=s["convergence_strength"],
             tip_normals=tip_normals,
-            radius_growth_rate=s.get("radius_growth_rate", 0.02)
+            radius_growth_rate=s.get("radius_growth_rate", 0.02),
+            max_branch_angle=s.get("max_branch_angle", 40.0)
         )
 
         Logger.log("i", "  -> Skeleton: %d nut, %d canh",
