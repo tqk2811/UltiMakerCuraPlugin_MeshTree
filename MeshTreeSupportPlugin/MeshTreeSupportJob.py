@@ -200,13 +200,12 @@ class MeshTreeSupportJob(Job):
         Logger.log("d", "  -> Tip points offset %.2fmm ra xa vat the", offset_distance)
 
         # Tạo mesh "lều" phủ nhựa từ đáy bé nón ra toàn bộ shell
-        departure_steps_val = int(s.get("departure_steps", 3))
-        step_size_val = float(s["step_size"])
+        cone_height_val = float(s.get("cone_height", 3.0))
         tent_verts, tent_normals = OverhangShellBuilder.build_interface_tents(
             vertices, faces, overhang_mask, all_face_normals,
             tip_points, tip_normals,
             shell_gap, shell_thickness,
-            departure_steps_val, step_size_val
+            cone_height_val
         )
         Logger.log("i", "  -> Interface tents: %d dinh", len(tent_verts))
 
@@ -293,7 +292,7 @@ class MeshTreeSupportJob(Job):
             tip_normals=tip_normals,
             radius_growth_rate=s.get("radius_growth_rate", 0.02),
             max_branch_angle=s.get("max_branch_angle", 40.0),
-            departure_steps=int(s.get("departure_steps", 3)),
+            cone_height=float(s.get("cone_height", 3.0)),
             departure_straight_down=bool(s.get("departure_straight_down", 1.0)),
             cancel_check=self.isCancelled
         )

@@ -219,6 +219,23 @@ Window {
                         Label { text: "mm" }
 
                         Label {
+                            text: "Chiều dài nón cụt:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: coneHeightMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Chiều dài (chiều cao) của nón cụt tại ngọn nhánh (mm).\nĐoạn này đi theo hướng pháp tuyến ra xa bề mặt vật thể.\nBán kính giảm tuyến tính từ đáy lớn → đáy bé.\nGiúp tạo chân vuông góc dễ bẻ support sau khi in.\nPhạm vi: 0.5 - 20 mm"
+                            MouseArea { id: coneHeightMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fConeHeight
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.5; top: 20; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("cone_height", v) }
+                        }
+                        Label { text: "mm" }
+
+                        Label {
                             text: "Bước di chuyển:"
                             Layout.preferredWidth: 180
                             ToolTip.visible: stepSizeMA.containsMouse
@@ -302,23 +319,6 @@ Window {
                             onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("max_branch_angle", v) }
                         }
                         Label { text: "độ" }
-
-                        Label {
-                            text: "Bước xuất phát:"
-                            Layout.preferredWidth: 180
-                            ToolTip.visible: departureStepsMA.containsMouse
-                            ToolTip.delay: 500
-                            ToolTip.text: "Số bước đi vuông góc bề mặt tại ngọn nhánh (đoạn xuất phát).\nĐoạn này đi theo hướng pháp tuyến ra xa bề mặt vật thể trước khi bắt đầu routing.\nĐộ dài thực tế = số bước × bước di chuyển (mm).\nVD: 3 bước × 1mm = 3mm đoạn xuất phát vuông góc.\nGiúp tạo chân vuông góc dễ bẻ support sau khi in.\nPhạm vi: 1 - 10 bước"
-                            MouseArea { id: departureStepsMA; anchors.fill: parent; hoverEnabled: true }
-                        }
-                        TextField {
-                            id: fDepartureSteps
-                            Layout.preferredWidth: 80
-                            horizontalAlignment: TextInput.AlignHCenter
-                            validator: IntValidator { bottom: 1; top: 10 }
-                            onEditingFinished: { var v = parseInt(text); if (!isNaN(v)) manager.updateSetting("departure_steps", v) }
-                        }
-                        Label { text: "bước" }
 
                         CheckBox {
                             id: cbDepartureStraightDown
@@ -585,7 +585,7 @@ Window {
         fMinMergeHeight.text    = manager.getSetting("min_merge_height").toFixed(1)
         fConvergence.text       = manager.getSetting("convergence_strength").toFixed(2)
         fMaxBranchAngle.text    = manager.getSetting("max_branch_angle").toFixed(1)
-        fDepartureSteps.text    = Math.round(manager.getSetting("departure_steps")).toString()
+        fConeHeight.text        = manager.getSetting("cone_height").toFixed(1)
         cbDepartureStraightDown.checked = manager.getSetting("departure_straight_down") > 0.5
         fStraightDrop.text      = manager.getSetting("straight_drop_height").toFixed(1)
         fRadiusGrowth.text      = manager.getSetting("radius_growth_rate").toFixed(3)

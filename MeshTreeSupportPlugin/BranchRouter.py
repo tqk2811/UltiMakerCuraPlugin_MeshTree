@@ -98,7 +98,7 @@ def route_branches(tip_points, collision_field,
                    min_merge_height=20.0,
                    straight_drop_height=10.0, convergence_strength=0.3,
                    tip_normals=None, radius_growth_rate=0.02,
-                   max_branch_angle=40.0, departure_steps=3,
+                   max_branch_angle=40.0, cone_height=3.0,
                    departure_straight_down=True,
                    cancel_check=None):
     """
@@ -127,9 +127,9 @@ def route_branches(tip_points, collision_field,
         max_branch_angle : float - góc lệch tối đa so với trục Z (độ, 5-85)
                         Giới hạn hướng di chuyển nhánh trong hình nón quanh -Z.
                         40° → nhánh không được đi ngang quá 40° so với phương đứng.
-        departure_steps : int - số bước đi vuông góc bề mặt tại ngọn (1-10)
+        cone_height : float - chiều dài nón cụt (mm, 0.5-20)
                         Đoạn xuất phát đi theo outward normal trước khi routing.
-                        Độ dài thực tế = departure_steps × step_size (mm).
+                        Số bước = max(1, round(cone_height / step_size)).
                         Giúp tạo chân vuông góc dễ bẻ support sau khi in.
 
     Trả về:
@@ -179,9 +179,8 @@ def route_branches(tip_points, collision_field,
             # Đường xuống thông thoáng + user chọn thẳng xuống → đi thẳng xuống
             departure_dirs.append(np.array([0.0, 0.0, -1.0]))
 
-    # Số bước departure: đi vuông góc bề mặt trước khi bắt đầu routing
-    # Độ dài thực tế = departure_steps × step_size (mm)
-    departure_steps = max(1, int(departure_steps))
+    # Số bước departure: tính từ chiều dài nón cụt / bước di chuyển
+    departure_steps = max(1, round(cone_height / step_size))
 
     # --- Khởi tạo skeleton ---
     # all_nodes: danh sách (position, radius) cho mỗi nút

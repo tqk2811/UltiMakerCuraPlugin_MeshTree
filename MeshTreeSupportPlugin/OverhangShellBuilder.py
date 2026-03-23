@@ -186,7 +186,7 @@ def build_overhang_shell(vertices, faces, overhang_mask, face_normals,
 
 def build_interface_tents(vertices, faces, overhang_mask, face_normals,
                           tip_points, tip_normals, shell_gap, shell_thickness,
-                          departure_steps, step_size):
+                          cone_height):
     """
     Tạo mesh "lều" phủ nhựa từ đáy bé nón ra toàn bộ shell.
 
@@ -200,7 +200,7 @@ def build_interface_tents(vertices, faces, overhang_mask, face_normals,
         tip_points         : (K, 3) vị trí tip trên shell outer surface
         tip_normals        : (K, 3) inward normal tại mỗi tip
         shell_gap, shell_thickness : tham số shell
-        departure_steps, step_size : tham số nón cụt
+        cone_height : float - chiều dài nón cụt (mm)
 
     Trả về:
         tent_verts   : numpy array (V, 3) float32 - triangle soup
@@ -236,7 +236,7 @@ def build_interface_tents(vertices, faces, overhang_mask, face_normals,
     outer_verts = vert_pos + outward * (shell_gap + shell_thickness)
 
     # --- Tính cone_bottom cho mỗi tip ---
-    departure_dist = departure_steps * step_size
+    departure_dist = cone_height
     tip_outward = -tip_normals.astype(np.float64)
     tip_out_lens = np.linalg.norm(tip_outward, axis=1, keepdims=True)
     tip_out_lens = np.maximum(tip_out_lens, 1e-10)
