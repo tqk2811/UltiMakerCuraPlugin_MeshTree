@@ -303,6 +303,17 @@ Window {
                         }
                         Label { text: "bước" }
 
+                        CheckBox {
+                            id: cbDepartureStraightDown
+                            text: "Đi thẳng xuống khi không va chạm"
+                            Layout.columnSpan: 3
+                            ToolTip.visible: departureStraightMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Bật: nhánh đi thẳng xuống (-Z) nếu đường xuống không bị chặn.\nTắt: nhánh luôn đi vuông góc bề mặt overhang (theo pháp tuyến).\nKhi đường xuống bị chặn bởi vật thể, luôn đi vuông góc bất kể tuỳ chọn này."
+                            MouseArea { id: departureStraightMA; anchors.fill: parent; hoverEnabled: true; propagateComposedEvents: true; onClicked: { cbDepartureStraightDown.toggle(); mouse.accepted = false } }
+                            onCheckedChanged: manager.updateSetting("departure_straight_down", checked ? 1.0 : 0.0)
+                        }
+
                         Label {
                             text: "Chiều cao rơi thẳng:"
                             Layout.preferredWidth: 180
@@ -557,6 +568,7 @@ Window {
         fConvergence.text       = manager.getSetting("convergence_strength").toFixed(2)
         fMaxBranchAngle.text    = manager.getSetting("max_branch_angle").toFixed(1)
         fDepartureSteps.text    = Math.round(manager.getSetting("departure_steps")).toString()
+        cbDepartureStraightDown.checked = manager.getSetting("departure_straight_down") > 0.5
         fStraightDrop.text      = manager.getSetting("straight_drop_height").toFixed(1)
         fRadiusGrowth.text      = manager.getSetting("radius_growth_rate").toFixed(3)
         fShellThickness.text    = manager.getSetting("shell_thickness").toFixed(1)

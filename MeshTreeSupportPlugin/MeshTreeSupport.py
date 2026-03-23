@@ -70,6 +70,7 @@ _DEFAULT_SETTINGS = {
     "cylinder_segments": 8,          # Số mặt bao ống trụ
     "shell_thickness": 0.5,          # Độ dày vỏ overhang (mm)
     "shell_gap": 0.3,                # Khoảng cách vỏ đến bề mặt vật thể (mm)
+    "departure_straight_down": 1.0,  # 1=đi thẳng xuống khi không va chạm, 0=vuông góc bề mặt
 }
 
 # Các key là integer (không phải float)

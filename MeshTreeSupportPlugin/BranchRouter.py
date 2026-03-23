@@ -98,6 +98,7 @@ def route_branches(tip_points, collision_field,
                    straight_drop_height=10.0, convergence_strength=0.3,
                    tip_normals=None, radius_growth_rate=0.02,
                    max_branch_angle=40.0, departure_steps=3,
+                   departure_straight_down=True,
                    cancel_check=None):
     """
     Sinh nhánh cây support bằng Space Colonization bottom-up.
@@ -141,8 +142,10 @@ def route_branches(tip_points, collision_field,
     # --- Tính hướng departure cho mỗi tip ---
     # Logic:
     # 1. Chiếu thẳng xuống (-Z) từ tip, kiểm tra có va chạm vật thể không
-    # 2. Nếu KHÔNG va chạm → departure đi thẳng xuống (-Z) cho gọn
-    # 3. Nếu CÓ va chạm → departure đi theo outward normal (vuông góc bề mặt)
+    # 2. Nếu KHÔNG va chạm:
+    #    - departure_straight_down=True → đi thẳng xuống (-Z) cho gọn
+    #    - departure_straight_down=False → đi vuông góc bề mặt overhang
+    # 3. Nếu CÓ va chạm → luôn đi theo outward normal (vuông góc bề mặt)
     #    để nhánh tránh xuyên vào vật thể phía dưới
     departure_dirs = []
     for i in range(len(tip_points)):
@@ -159,8 +162,10 @@ def route_branches(tip_points, collision_field,
                 break
             check_z -= step_size
 
-        if path_blocked and tip_normals is not None and i < len(tip_normals):
-            # Đường xuống bị chặn → dùng outward normal
+        # Dùng outward normal khi: đường xuống bị chặn HOẶC user chọn vuông góc bề mặt
+        use_normal = path_blocked or (not departure_straight_down)
+
+        if use_normal and tip_normals is not None and i < len(tip_normals):
             outward = -tip_normals[i]
             n_len = np.linalg.norm(outward)
             if n_len > 1e-6:
@@ -169,7 +174,7 @@ def route_branches(tip_points, collision_field,
                 outward = np.array([0.0, 0.0, -1.0])
             departure_dirs.append(outward)
         else:
-            # Đường xuống thông thoáng → đi thẳng xuống
+            # Đường xuống thông thoáng + user chọn thẳng xuống → đi thẳng xuống
             departure_dirs.append(np.array([0.0, 0.0, -1.0]))
 
     # Số bước departure: đi vuông góc bề mặt trước khi bắt đầu routing
