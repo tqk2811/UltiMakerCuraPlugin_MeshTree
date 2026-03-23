@@ -199,6 +199,17 @@ class MeshTreeSupportJob(Job):
 
         Logger.log("d", "  -> Tip points offset %.2fmm ra xa vat the", offset_distance)
 
+        # Tạo mesh "lều" phủ nhựa từ đáy bé nón ra toàn bộ shell
+        departure_steps_val = int(s.get("departure_steps", 3))
+        step_size_val = float(s["step_size"])
+        tent_verts, tent_normals = OverhangShellBuilder.build_interface_tents(
+            vertices, faces, overhang_mask, all_face_normals,
+            tip_points, tip_normals,
+            shell_gap, shell_thickness,
+            departure_steps_val, step_size_val
+        )
+        Logger.log("i", "  -> Interface tents: %d dinh", len(tent_verts))
+
         if self._cancelled:
             Logger.log("i", "MeshTreeSupport: Da huy tai buoc 2.5.")
             return
@@ -321,19 +332,29 @@ class MeshTreeSupportJob(Job):
         )
 
         # =====================================================================
-        # BƯỚC 6: GHÉP VỎ OVERHANG VÀO MESH CÂY
-        # Kết hợp triangle soup của tree mesh và shell mesh thành 1 MeshData.
+        # BƯỚC 6: GHÉP VỎ OVERHANG + INTERFACE TENTS VÀO MESH CÂY
+        # Kết hợp triangle soup: tree + shell + tents → 1 MeshData.
         # =====================================================================
-        if shell_verts is not None and len(shell_verts) > 0 and mesh_data is not None:
+        extra_verts = []
+        extra_normals = []
+        if shell_verts is not None and len(shell_verts) > 0:
+            extra_verts.append(shell_verts.astype(np.float32))
+            extra_normals.append(shell_normals.astype(np.float32))
+        if tent_verts is not None and len(tent_verts) > 0:
+            extra_verts.append(tent_verts.astype(np.float32))
+            extra_normals.append(tent_normals.astype(np.float32))
+
+        if extra_verts and mesh_data is not None:
             tree_verts = mesh_data.getVertices()
-            tree_normals = mesh_data.getNormals()
+            tree_normals_data = mesh_data.getNormals()
 
             if tree_verts is not None and len(tree_verts) > 0:
-                combined_verts = np.concatenate([tree_verts, shell_verts.astype(np.float32)])
-                if tree_normals is not None and len(tree_normals) > 0:
-                    combined_normals = np.concatenate(
-                        [tree_normals, shell_normals.astype(np.float32)]
-                    )
+                all_v = [tree_verts] + extra_verts
+                combined_verts = np.concatenate(all_v)
+
+                if tree_normals_data is not None and len(tree_normals_data) > 0:
+                    all_n = [tree_normals_data] + extra_normals
+                    combined_normals = np.concatenate(all_n)
                 else:
                     combined_normals = None
 
@@ -342,8 +363,11 @@ class MeshTreeSupportJob(Job):
                     vertices=combined_verts,
                     normals=combined_normals
                 )
-                Logger.log("i", "  -> Ghep vo overhang: %d + %d = %d dinh",
-                           len(tree_verts), len(shell_verts), len(combined_verts))
+                Logger.log("i", "  -> Ghep: tree(%d) + shell(%d) + tents(%d) = %d dinh",
+                           len(tree_verts),
+                           len(extra_verts[0]) if extra_verts else 0,
+                           len(tent_verts) if tent_verts is not None else 0,
+                           len(combined_verts))
 
         # Lưu kết quả để Extension lấy qua getResultMeshData()
         self._result_mesh_data = mesh_data

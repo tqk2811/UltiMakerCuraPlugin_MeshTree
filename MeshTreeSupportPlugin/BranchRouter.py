@@ -200,7 +200,6 @@ def route_branches(tip_points, collision_field,
 
         # Tạo đoạn departure hình nón cụt:
         # Bán kính giảm tuyến tính: cone_top_radius → cone_bottom_radius
-        # Frustum: rộng tại overhang (đáy lớn), hẹp dần (đáy bé = chỗ mọc nhánh)
         dep_dir = departure_dirs[i]
         prev_idx = node_idx
         current_pos = node_pos.copy()
