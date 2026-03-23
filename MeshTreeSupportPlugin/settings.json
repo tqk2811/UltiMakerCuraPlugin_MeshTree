@@ -3,7 +3,7 @@
   "min_overhang_height": 0.5,
   "cluster_radius": 1.0,
   "cone_top_radius": 1.0,
-  "cone_bottom_radius": 0.3,
+  "cone_bottom_radius": 0.5,
   "step_size": 1.0,
   "merge_distance": 10.0,
   "min_merge_height": 20.0,
@@ -19,6 +19,6 @@
   "base_brim_height": 0.5,
   "cylinder_segments": 8,
   "shell_thickness": 0.5,
-  "shell_gap": 0.3,
+  "shell_gap": 0.1,
   "departure_straight_down": 0.0
 }
