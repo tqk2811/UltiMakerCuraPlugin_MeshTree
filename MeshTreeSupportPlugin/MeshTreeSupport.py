@@ -31,6 +31,7 @@ from UM.Logger import Logger
 from UM.Application import Application
 from UM.Scene.Iterator.DepthFirstIterator import DepthFirstIterator
 from UM.Operations.AddSceneNodeOperation import AddSceneNodeOperation
+from UM.Operations.RemoveSceneNodeOperation import RemoveSceneNodeOperation
 from UM.Mesh.MeshData import MeshData
 
 from cura.CuraApplication import CuraApplication
@@ -267,6 +268,15 @@ class MeshTreeSupport(QObject, Extension):
         Chạy trên: Main thread
         """
         Logger.log("i", "MeshTreeSupport: Bat dau sinh cay support...")
+
+        # Xoá cây support cũ nếu có
+        scene = CuraApplication.getInstance().getController().getScene()
+        for node in DepthFirstIterator(scene.getRoot()):
+            if node.getName() == "MeshTreeSupport":
+                op = RemoveSceneNodeOperation(node)
+                op.push()
+                Logger.log("i", "MeshTreeSupport: Da xoa cay support cu.")
+                break
 
         # Cập nhật UI: đang chạy
         self._is_running = True
