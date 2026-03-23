@@ -2,7 +2,7 @@
   "overhang_angle": 45.0,
   "min_overhang_height": 0.5,
   "cluster_radius": 1.0,
-  "branch_tip_radius": 1.0,
+  "branch_tip_radius": 0.5,
   "step_size": 1.0,
   "merge_distance": 10.0,
   "min_merge_height": 20.0,

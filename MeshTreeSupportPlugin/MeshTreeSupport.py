@@ -456,9 +456,15 @@ class MeshTreeSupport(QObject, Extension):
             converted_normals[:, 1] = original_normals[:, 2]
             converted_normals[:, 2] = original_normals[:, 1]
 
+        # Giữ indices từ mesh gốc hoặc tạo mới cho triangle soup
+        original_indices = mesh_data.getIndices()
+        if original_indices is None:
+            original_indices = np.arange(len(converted_verts), dtype=np.int32).reshape(-1, 3)
+
         cura_mesh_data = MeshData(
             vertices=converted_verts.astype(np.float32),
-            normals=converted_normals.astype(np.float32) if converted_normals is not None else None
+            normals=converted_normals.astype(np.float32) if converted_normals is not None else None,
+            indices=original_indices
         )
 
         # Tạo CuraSceneNode
@@ -470,6 +476,10 @@ class MeshTreeSupport(QObject, Extension):
         active_build_plate = CuraApplication.getInstance().getMultiBuildPlateModel().activeBuildPlate
         support_node.addDecorator(BuildPlateDecorator(active_build_plate))
         support_node.addDecorator(SliceableObjectDecorator())
+
+        # ConvexHullDecorator cần thiết để Cura tính vùng in và gửi mesh đến CuraEngine
+        from cura.Scene.ConvexHullDecorator import ConvexHullDecorator
+        support_node.addDecorator(ConvexHullDecorator())
 
         # Thêm vào scene
         scene = CuraApplication.getInstance().getController().getScene()

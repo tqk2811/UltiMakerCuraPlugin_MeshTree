@@ -230,6 +230,33 @@ class MeshTreeSupportJob(Job):
             return
 
         # =====================================================================
+        # BƯỚC 3.5: LỌC TIP POINTS KHÔNG ĐỦ KHÔNG GIAN
+        # Kiểm tra SDF tại mỗi tip point. Nếu khoảng cách < min_clearance,
+        # tip nằm quá gần hoặc bên trong vật thể → loại bỏ để tránh
+        # nhánh support đâm xuyên mesh.
+        # =====================================================================
+        # Ngưỡng: tip cần ít nhất đủ chỗ cho bán kính nhánh
+        tip_radius = float(s.get("branch_tip_radius", 0.5))
+        clearance_threshold = tip_radius
+        valid_mask = np.ones(len(tip_points), dtype=bool)
+        for i, tp in enumerate(tip_points):
+            dist = collision_field.get_distance(tp)
+            if dist < clearance_threshold:
+                valid_mask[i] = False
+
+        removed_count = int(np.sum(~valid_mask))
+        if removed_count > 0:
+            tip_points = tip_points[valid_mask]
+            tip_normals = tip_normals[valid_mask]
+            Logger.log("i", "  -> Loai %d tip point khong du khong gian (SDF < %.1fmm), con lai %d",
+                       removed_count, clearance_threshold, len(tip_points))
+
+        if len(tip_points) == 0:
+            Logger.log("w", "MeshTreeSupport: Tat ca tip points bi loai (khong du khong gian). Hoan tat.")
+            self.progress.emit(100)
+            return
+
+        # =====================================================================
         # BƯỚC 4: SINH NHÁNH CÂY (Branch Routing)
         # Thuật toán: Space Colonization Algorithm (bottom-up)
         # Đầu vào: tip points + collision field + tham số
