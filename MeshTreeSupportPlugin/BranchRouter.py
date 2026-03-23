@@ -191,13 +191,13 @@ def route_branches(tip_points, collision_field,
     # Mỗi nhánh bắt đầu bằng đoạn departure vuông góc bề mặt
     branches = []
     for i in range(len(tip_points)):
-        # Tạo nút gốc tại điểm overhang (tip)
+        # Tạo nút gốc tại điểm overhang (tip) — đáy nón (rộng)
         node_pos = tip_points[i].copy()
-        node_radius = tip_radius
         node_idx = len(all_nodes)
-        all_nodes.append((node_pos.copy(), node_radius))
+        all_nodes.append((node_pos.copy(), tip_radius))  # Đáy nón = tip_radius
 
-        # Tạo đoạn departure: vài nút đi theo outward normal
+        # Tạo đoạn departure hình nón: bán kính giảm dần từ tip_radius → ≈0
+        # Frustum tạo hình nón: rộng tại overhang, nhọn dần xa overhang
         dep_dir = departure_dirs[i]
         prev_idx = node_idx
         current_pos = node_pos.copy()
@@ -205,12 +205,15 @@ def route_branches(tip_points, collision_field,
             current_pos = current_pos + dep_dir * step_size
             current_pos[2] = max(0.0, current_pos[2])
             new_idx = len(all_nodes)
-            all_nodes.append((current_pos.copy(), node_radius))
+            # Bán kính giảm tuyến tính: tip_radius → gần 0
+            t = (step + 1) / departure_steps  # 0→1
+            step_radius = tip_radius * (1.0 - t) + 0.01 * t
+            all_nodes.append((current_pos.copy(), step_radius))
             all_edges.append((prev_idx, new_idx))
             prev_idx = new_idx
 
         # Tạo BranchTip bắt đầu từ cuối đoạn departure
-        branch = BranchTip(current_pos, node_radius, prev_idx, tip_count=1)
+        branch = BranchTip(current_pos, tip_radius, prev_idx, tip_count=1)
         branch.prev_direction = dep_dir.copy()  # Khởi tạo smoothing từ hướng departure
         branches.append(branch)
 

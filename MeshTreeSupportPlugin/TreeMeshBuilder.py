@@ -121,6 +121,7 @@ def _build_frustum(p1, p2, r1, r2, segments):
 # Nắp = hình quạt (fan triangulation) từ tâm ra các đỉnh chu vi.
 # ==============================================================================
 
+
 def _build_cap(center, radius, direction, segments, flip=False):
     """
     Sinh nắp tròn (disc) tại 1 đầu nhánh.
@@ -354,12 +355,11 @@ def build_tree_mesh(all_nodes, all_edges, segments=8,
     # Nút base = nút con mà không phải cha (lá, tức chân cây)
     base_nodes = child_set - parent_set
 
-    # Đóng nắp cho tip nodes
+    # Đóng nắp cho tip nodes (bán kính ≈ 0 → nắp rất nhỏ, đỉnh nón)
     for tip_idx in tip_nodes:
         pos, radius = all_nodes[tip_idx]
         pos = np.asarray(pos, dtype=np.float64)
 
-        # Hướng nắp: hướng lên trên (+Z) cho đỉnh cây
         cap_verts, cap_faces = _build_cap(
             pos, radius, np.array([0.0, 0.0, 1.0]), segments, flip=False
         )
