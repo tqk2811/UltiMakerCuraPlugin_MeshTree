@@ -466,6 +466,10 @@ def route_branches(tip_points, collision_field,
                 if pos_i[2] <= min_merge_height:
                     continue
 
+                # Không merge trong vài bước đầu sau departure (tránh bẻ góc)
+                if branches[idx_i].steps_taken < departure_steps:
+                    continue
+
                 # Adaptive merge distance: càng xuống thấp, khoảng cách merge càng lớn
                 # Tại Z cao (gần tip): dùng merge_distance gốc
                 # Tại Z thấp (gần bàn): merge_distance * 3 (gộp mạnh hơn)
@@ -482,6 +486,10 @@ def route_branches(tip_points, collision_field,
                     pos_j = positions_array[aj]
 
                     if pos_j[2] <= min_merge_height:
+                        continue
+
+                    # Không merge nếu nhánh kia cũng chưa đủ bước sau departure
+                    if branches[idx_j].steps_taken < departure_steps:
                         continue
 
                     # Tính khoảng cách 3D giữa 2 nhánh
