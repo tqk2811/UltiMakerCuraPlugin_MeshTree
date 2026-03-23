@@ -18,5 +18,6 @@
   "base_brim_height": 0.5,
   "cylinder_segments": 8,
   "shell_thickness": 0.5,
-  "shell_gap": 0.3
+  "shell_gap": 0.3,
+  "departure_straight_down": 0.0
 }
