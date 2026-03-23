@@ -185,19 +185,36 @@ Window {
                         anchors.fill: parent
 
                         Label {
-                            text: "Bán kính ngọn:"
+                            text: "BK đáy lớn nón:"
                             Layout.preferredWidth: 180
-                            ToolTip.visible: tipRadiusMA.containsMouse
+                            ToolTip.visible: coneTopMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Bán kính nhánh tại điểm tiếp xúc với vật thể (ngọn cây).\nGiá trị nhỏ → dễ bẻ support, giá trị lớn → bám chắc hơn.\nNên >= 1.5x đường kính đầu phun để in được.\nPhạm vi: 0.1 - 5 mm"
-                            MouseArea { id: tipRadiusMA; anchors.fill: parent; hoverEnabled: true }
+                            ToolTip.text: "Bán kính đáy lớn của nón cụt (tiếp xúc vỏ overhang).\nGiá trị lớn → diện tích tiếp xúc rộng, bám chắc hơn.\nGiá trị nhỏ → dễ bẻ support sau khi in.\nPhạm vi: 0.1 - 5 mm"
+                            MouseArea { id: coneTopMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
-                            id: fTipRadius
+                            id: fConeTopRadius
                             Layout.preferredWidth: 80
                             horizontalAlignment: TextInput.AlignHCenter
                             validator: DoubleValidator { bottom: 0.1; top: 5; decimals: 2 }
-                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("branch_tip_radius", v) }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("cone_top_radius", v) }
+                        }
+                        Label { text: "mm" }
+
+                        Label {
+                            text: "BK đáy bé nón:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: coneBottomMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Bán kính đáy bé của nón cụt (chỗ mọc nhánh cây xuống).\nNên >= 1.5x đường kính đầu phun để in được.\nPhạm vi: 0.05 - 3 mm"
+                            MouseArea { id: coneBottomMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fConeBottomRadius
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.05; top: 3; decimals: 2 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("cone_bottom_radius", v) }
                         }
                         Label { text: "mm" }
 
@@ -561,7 +578,8 @@ Window {
         fOverhangAngle.text     = manager.getSetting("overhang_angle").toFixed(1)
         fMinHeight.text         = manager.getSetting("min_overhang_height").toFixed(1)
         fClusterRadius.text     = manager.getSetting("cluster_radius").toFixed(1)
-        fTipRadius.text         = manager.getSetting("branch_tip_radius").toFixed(2)
+        fConeTopRadius.text     = manager.getSetting("cone_top_radius").toFixed(2)
+        fConeBottomRadius.text  = manager.getSetting("cone_bottom_radius").toFixed(2)
         fStepSize.text          = manager.getSetting("step_size").toFixed(1)
         fMergeDistance.text      = manager.getSetting("merge_distance").toFixed(1)
         fMinMergeHeight.text    = manager.getSetting("min_merge_height").toFixed(1)

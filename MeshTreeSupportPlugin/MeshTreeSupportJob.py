@@ -235,9 +235,8 @@ class MeshTreeSupportJob(Job):
         # tip nằm quá gần hoặc bên trong vật thể → loại bỏ để tránh
         # nhánh support đâm xuyên mesh.
         # =====================================================================
-        # Ngưỡng: tip cần ít nhất đủ chỗ cho bán kính nhánh
-        tip_radius = float(s.get("branch_tip_radius", 0.5))
-        clearance_threshold = tip_radius
+        # Ngưỡng: chỉ loại tip nằm bên trong mesh (SDF < 0)
+        clearance_threshold = 0.0
         valid_mask = np.ones(len(tip_points), dtype=bool)
         for i, tp in enumerate(tip_points):
             dist = collision_field.get_distance(tp)
@@ -275,7 +274,8 @@ class MeshTreeSupportJob(Job):
             step_size=s["step_size"],
             merge_distance=s["merge_distance"],
             min_clearance=s["min_clearance"],
-            tip_radius=s["branch_tip_radius"],
+            cone_top_radius=s.get("cone_top_radius", 0.5),
+            cone_bottom_radius=s.get("cone_bottom_radius", 0.2),
             min_merge_height=s["min_merge_height"],
             straight_drop_height=s["straight_drop_height"],
             convergence_strength=s["convergence_strength"],

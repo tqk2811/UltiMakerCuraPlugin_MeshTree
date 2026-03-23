@@ -94,7 +94,8 @@ def _murray_radius(r1, r2):
 
 def route_branches(tip_points, collision_field,
                    step_size=1.0, merge_distance=5.0, min_clearance=2.0,
-                   tip_radius=0.5, min_merge_height=20.0,
+                   cone_top_radius=0.5, cone_bottom_radius=0.2,
+                   min_merge_height=20.0,
                    straight_drop_height=10.0, convergence_strength=0.3,
                    tip_normals=None, radius_growth_rate=0.02,
                    max_branch_angle=40.0, departure_steps=3,
@@ -109,7 +110,8 @@ def route_branches(tip_points, collision_field,
         step_size     : float - bước di chuyển mỗi lần lặp (mm)
         merge_distance : float - khoảng cách để merge 2 nhánh (mm)
         min_clearance : float - khoảng cách an toàn tối thiểu đến mesh (mm)
-        tip_radius    : float - bán kính nhánh tại ngọn (mm)
+        cone_top_radius : float - bán kính đáy lớn nón cụt (mm), tiếp xúc vỏ overhang
+        cone_bottom_radius : float - bán kính đáy bé nón cụt (mm), chỗ mọc nhánh cây
         min_merge_height : float - chiều cao Z tối thiểu để merge (mm)
                           Dưới mức này, nhánh chỉ rơi thẳng, không merge
         straight_drop_height : float - chiều cao Z bắt đầu rơi thẳng đứng (mm)
@@ -191,13 +193,14 @@ def route_branches(tip_points, collision_field,
     # Mỗi nhánh bắt đầu bằng đoạn departure vuông góc bề mặt
     branches = []
     for i in range(len(tip_points)):
-        # Tạo nút gốc tại điểm overhang (tip) — đáy nón (rộng)
+        # Tạo nút gốc tại điểm overhang (tip) — đáy lớn nón cụt
         node_pos = tip_points[i].copy()
         node_idx = len(all_nodes)
-        all_nodes.append((node_pos.copy(), tip_radius))  # Đáy nón = tip_radius
+        all_nodes.append((node_pos.copy(), cone_top_radius))
 
-        # Tạo đoạn departure hình nón: bán kính giảm dần từ tip_radius → ≈0
-        # Frustum tạo hình nón: rộng tại overhang, nhọn dần xa overhang
+        # Tạo đoạn departure hình nón cụt:
+        # Bán kính giảm tuyến tính: cone_top_radius → cone_bottom_radius
+        # Frustum: rộng tại overhang (đáy lớn), hẹp dần (đáy bé = chỗ mọc nhánh)
         dep_dir = departure_dirs[i]
         prev_idx = node_idx
         current_pos = node_pos.copy()
@@ -205,15 +208,14 @@ def route_branches(tip_points, collision_field,
             current_pos = current_pos + dep_dir * step_size
             current_pos[2] = max(0.0, current_pos[2])
             new_idx = len(all_nodes)
-            # Bán kính giảm tuyến tính: tip_radius → gần 0
             t = (step + 1) / departure_steps  # 0→1
-            step_radius = tip_radius * (1.0 - t) + 0.01 * t
+            step_radius = cone_top_radius * (1.0 - t) + cone_bottom_radius * t
             all_nodes.append((current_pos.copy(), step_radius))
             all_edges.append((prev_idx, new_idx))
             prev_idx = new_idx
 
-        # Tạo BranchTip bắt đầu từ cuối đoạn departure
-        branch = BranchTip(current_pos, tip_radius, prev_idx, tip_count=1)
+        # Tạo BranchTip bắt đầu từ đáy bé nón cụt
+        branch = BranchTip(current_pos, cone_bottom_radius, prev_idx, tip_count=1)
         branch.prev_direction = dep_dir.copy()  # Khởi tạo smoothing từ hướng departure
         branches.append(branch)
 
