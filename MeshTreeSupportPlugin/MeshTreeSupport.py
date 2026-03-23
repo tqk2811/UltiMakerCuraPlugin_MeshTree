@@ -53,7 +53,6 @@ _SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "setti
 _DEFAULT_SETTINGS = {
     "overhang_angle": 45.0,          # Góc overhang (độ)
     "min_overhang_height": 0.5,      # Chiều cao tối thiểu trên bàn in (mm)
-    "cluster_radius": 5.0,           # Bán kính gom cụm KD-Tree (mm)
     "cone_top_radius": 0.5,           # Bán kính đáy lớn nón cụt - tiếp xúc vỏ overhang (mm)
     "cone_bottom_radius": 0.2,        # Bán kính đáy bé nón cụt - chỗ mọc nhánh (mm)
     "step_size": 1.0,                # Bước di chuyển mỗi lần lặp (mm)

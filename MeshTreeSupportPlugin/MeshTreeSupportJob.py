@@ -26,7 +26,6 @@ from UM.Logger import Logger
 
 # Import các module thuật toán của plugin
 from . import OverhangDetector
-from . import PointClusterer
 from .CollisionAvoider import CollisionField
 from . import BranchRouter
 from . import TreeMeshBuilder
@@ -146,31 +145,16 @@ class MeshTreeSupportJob(Job):
             return
 
         # =====================================================================
-        # BƯỚC 2: GOM CỤM ĐIỂM (Point Clustering)
-        # Thuật toán: KD-Tree + Greedy Clustering
-        # Đầu vào: điểm overhang (có thể hàng nghìn)
-        # Đầu ra: trọng tâm cụm (vài chục → vài trăm tip points)
+        # BƯỚC 2: MỖI TAM GIÁC OVERHANG = 1 TIP POINT
+        # Mỗi trọng tâm mặt overhang trên shell là 1 điểm xuất phát nón cụt.
+        # Không gom cụm → mỗi mặt overhang đều có nhánh support riêng.
         # =====================================================================
         self.progress.emit(15)
-        Logger.log("d", "Buoc 2/5: Gom cum diem (cluster radius = %.1fmm)...",
-                   s["cluster_radius"])
 
-        tip_points, tip_normals = PointClusterer.cluster_points(
-            overhang_points,
-            normals=overhang_normals,
-            cluster_radius=s["cluster_radius"]
-        )
+        tip_points = overhang_points.copy()
+        tip_normals = overhang_normals.copy()
 
-        Logger.log("i", "  -> Gom thanh %d cum (tip points)", len(tip_points))
-
-        if self._cancelled:
-            Logger.log("i", "MeshTreeSupport: Da huy tai buoc 2.")
-            return
-
-        if len(tip_points) == 0:
-            Logger.log("w", "MeshTreeSupport: Gom cum cho 0 tip. Hoan tat.")
-            self.progress.emit(100)
-            return
+        Logger.log("i", "  -> %d tip points (1 per overhang face)", len(tip_points))
 
         # =====================================================================
         # BƯỚC 2.5: TẠO VỎ OVERHANG (Overhang Shell)

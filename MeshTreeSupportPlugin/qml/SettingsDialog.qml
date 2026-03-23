@@ -143,37 +143,7 @@ Window {
                     }
                 }
 
-                // ─── NHÓM 2: GOM CỤM ĐIỂM ───
-                GroupBox {
-                    title: "  Gom cụm điểm (KD-Tree Clustering)  "
-                    Layout.fillWidth: true
-
-                    GridLayout {
-                        columns: 3
-                        columnSpacing: 8
-                        rowSpacing: 6
-                        anchors.fill: parent
-
-                        Label {
-                            text: "Bán kính gom cụm:"
-                            Layout.preferredWidth: 180
-                            ToolTip.visible: clusterRadiusMA.containsMouse
-                            ToolTip.delay: 500
-                            ToolTip.text: "Các điểm overhang trong bán kính này được gộp thành 1 nhánh support.\nGiá trị nhỏ → nhiều nhánh hơn (dày đặc), giá trị lớn → ít nhánh (thưa).\nPhạm vi: 1 - 50 mm"
-                            MouseArea { id: clusterRadiusMA; anchors.fill: parent; hoverEnabled: true }
-                        }
-                        TextField {
-                            id: fClusterRadius
-                            Layout.preferredWidth: 80
-                            horizontalAlignment: TextInput.AlignHCenter
-                            validator: DoubleValidator { bottom: 1; top: 50; decimals: 1 }
-                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("cluster_radius", v) }
-                        }
-                        Label { text: "mm" }
-                    }
-                }
-
-                // ─── NHÓM 3: NHÁNH CÂY (Space Colonization) ───
+                // ─── NHÓM 2: NHÁNH CÂY (Space Colonization) ───
                 GroupBox {
                     title: "  Nhánh cây (Space Colonization)  "
                     Layout.fillWidth: true
@@ -577,7 +547,6 @@ Window {
 
         fOverhangAngle.text     = manager.getSetting("overhang_angle").toFixed(1)
         fMinHeight.text         = manager.getSetting("min_overhang_height").toFixed(1)
-        fClusterRadius.text     = manager.getSetting("cluster_radius").toFixed(1)
         fConeTopRadius.text     = manager.getSetting("cone_top_radius").toFixed(2)
         fConeBottomRadius.text  = manager.getSetting("cone_bottom_radius").toFixed(2)
         fStepSize.text          = manager.getSetting("step_size").toFixed(1)
