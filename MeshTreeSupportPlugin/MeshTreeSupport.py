@@ -484,6 +484,11 @@ class MeshTreeSupport(QObject, Extension):
         support_node.setSelectable(True)
         support_node.setMeshData(cura_mesh_data)
 
+        # Không cho BuildVolume đánh dấu outside_buildarea
+        # (nhánh support có thể vượt nhẹ ra ngoài build volume,
+        #  nhưng CuraEngine tự clip — không cần skip toàn bộ mesh)
+        support_node.setOutsideBuildArea = lambda new_value: None
+
         active_build_plate = CuraApplication.getInstance().getMultiBuildPlateModel().activeBuildPlate
         support_node.addDecorator(BuildPlateDecorator(active_build_plate))
         support_node.addDecorator(SliceableObjectDecorator())
