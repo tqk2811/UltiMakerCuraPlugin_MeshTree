@@ -235,8 +235,7 @@ def route_branches(tip_points, collision_field,
     cos_angle_limit = np.cos(np.radians(max_branch_angle))  # VD: cos(40°)≈0.766
     sin_angle_limit = np.sin(np.radians(max_branch_angle))  # VD: sin(40°)≈0.643
 
-    # --- Chiều cao Z ban đầu lớn nhất (dùng cho adaptive merge) ---
-    initial_max_z = float(np.max(tip_points[:, 2])) if len(tip_points) > 0 else 100.0
+
 
     # --- Danh sách chỉ số nhánh đang hoạt động ---
     active_indices = list(range(len(branches)))
@@ -517,17 +516,13 @@ def route_branches(tip_points, collision_field,
                 for a in range(len(eligible)):
                     ai_a, idx_a = eligible[a]
                     pos_a = positions_array[ai_a]
-                    h_a = min(1.0, max(0.0, pos_a[2] / initial_max_z)) if initial_max_z > 0 else 0
-                    emd_a = merge_distance * (1.0 + 2.0 * (1.0 - h_a))
 
                     for b in range(a + 1, len(eligible)):
                         ai_b, idx_b = eligible[b]
                         pos_b = positions_array[ai_b]
-                        h_b = min(1.0, max(0.0, pos_b[2] / initial_max_z)) if initial_max_z > 0 else 0
-                        emd_b = merge_distance * (1.0 + 2.0 * (1.0 - h_b))
 
                         dist = np.linalg.norm(pos_a - pos_b)
-                        if dist < max(emd_a, emd_b):
+                        if dist < merge_distance:
                             uf_union(idx_a, idx_b)
 
                 # Trích xuất clusters (≥2 thành viên)
