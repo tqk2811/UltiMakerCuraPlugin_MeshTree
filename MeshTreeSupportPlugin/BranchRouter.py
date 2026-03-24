@@ -521,7 +521,7 @@ def route_branches(tip_points, collision_field,
                         ai_b, idx_b = eligible[b]
                         pos_b = positions_array[ai_b]
 
-                        dist = np.linalg.norm(pos_a - pos_b)
+                        dist = np.linalg.norm(pos_a[:2] - pos_b[:2])
                         if dist < merge_distance:
                             uf_union(idx_a, idx_b)
 
