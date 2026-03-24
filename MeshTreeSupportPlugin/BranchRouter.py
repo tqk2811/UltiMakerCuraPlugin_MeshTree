@@ -536,55 +536,76 @@ def route_branches(tip_points, collision_field,
                     root = uf_find(idx)
                     clusters.setdefault(root, []).append(idx)
 
-                # Xử lý từng cluster
+                # Xử lý từng cluster — chia nhỏ nếu cluster quá rộng
+                # Dùng queue để xử lý cả sub-groups từ cluster bị chia
+                pending_groups = []
                 for root, members in clusters.items():
-                    if len(members) < 2:
-                        continue
+                    if len(members) >= 2:
+                        pending_groups.append(list(members))
 
-                    # Tính merge_target: trọng tâm XY theo tip_count
-                    pp_list = []
-                    for i in members:
-                        pp_list.append(np.asarray(
-                            new_positions.get(i, branches[i].position), dtype=np.float64
-                        ))
+                for group in pending_groups:
+                    remaining = list(group)
+                    pruned = []  # Thành viên bị loại, sẽ thử tạo sub-group
 
-                    total_tips = sum(branches[i].tip_count for i in members)
-                    m_xy = np.zeros(2)
-                    for i, pp in zip(members, pp_list):
-                        m_xy += (branches[i].tip_count / total_tips) * pp[:2]
+                    while len(remaining) >= 2:
+                        # Tính merge_target cho nhóm hiện tại
+                        pp_map = {}
+                        for i in remaining:
+                            pp_map[i] = np.asarray(
+                                new_positions.get(i, branches[i].position), dtype=np.float64
+                            )
 
-                    # Z merge: thấp nhất mà tất cả đều thoả góc
-                    if tan_limit > 1e-6:
-                        mz_vals = []
-                        for pp in pp_list:
-                            dxy = np.linalg.norm(pp[:2] - m_xy)
-                            mz_vals.append(pp[2] - dxy / tan_limit)
-                        m_z = max(0.0, min(mz_vals))
-                    else:
-                        m_z = 0.0
+                        total_tips = sum(branches[i].tip_count for i in remaining)
+                        m_xy = np.zeros(2)
+                        for i in remaining:
+                            m_xy += (branches[i].tip_count / total_tips) * pp_map[i][:2]
 
-                    merge_target = np.array([m_xy[0], m_xy[1], m_z])
+                        if tan_limit > 1e-6:
+                            mz_vals = []
+                            for i in remaining:
+                                dxy = np.linalg.norm(pp_map[i][:2] - m_xy)
+                                mz_vals.append(pp_map[i][2] - dxy / tan_limit)
+                            m_z = max(0.0, min(mz_vals))
+                        else:
+                            m_z = 0.0
 
-                    # Kiểm tra góc cho TẤT CẢ thành viên
-                    angle_ok = True
-                    for pp in pp_list:
-                        edge = merge_target - pp
-                        el = np.linalg.norm(edge)
-                        if el > 1e-6:
-                            cos_a = np.dot(edge / el, down)
-                            if cos_a < cos_angle_limit:
-                                angle_ok = False
-                                break
-                    if not angle_ok:
-                        continue
+                        merge_target = np.array([m_xy[0], m_xy[1], m_z])
 
-                    # Commit nhóm merge
-                    gid = next_group_id
-                    next_group_id += 1
-                    merge_groups[gid] = members
-                    for i in members:
-                        branches[i].merge_target = merge_target.copy()
-                        branches[i].merge_group_id = gid
+                        # Kiểm tra góc cho tất cả thành viên
+                        angle_ok = True
+                        for i in remaining:
+                            edge = merge_target - pp_map[i]
+                            el = np.linalg.norm(edge)
+                            if el > 1e-6:
+                                cos_a = np.dot(edge / el, down)
+                                if cos_a < cos_angle_limit:
+                                    angle_ok = False
+                                    break
+
+                        if angle_ok:
+                            # Commit nhóm merge
+                            gid = next_group_id
+                            next_group_id += 1
+                            merge_groups[gid] = list(remaining)
+                            for i in remaining:
+                                branches[i].merge_target = merge_target.copy()
+                                branches[i].merge_group_id = gid
+                            break  # Nhóm đã commit xong
+
+                        # Angle fail → loại thành viên xa nhất khỏi centroid, thử lại
+                        max_dist = -1.0
+                        farthest = remaining[0]
+                        for i in remaining:
+                            d = np.linalg.norm(pp_map[i][:2] - m_xy)
+                            if d > max_dist:
+                                max_dist = d
+                                farthest = i
+                        remaining.remove(farthest)
+                        pruned.append(farthest)
+
+                    # Thành viên bị loại → thêm vào queue để thử tạo sub-group
+                    if len(pruned) >= 2:
+                        pending_groups.append(pruned)
 
         # --- Tạo nút và cạnh mới trong skeleton ---
         for idx in active_indices:
