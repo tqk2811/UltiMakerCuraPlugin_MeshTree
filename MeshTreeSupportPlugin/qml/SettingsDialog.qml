@@ -205,6 +205,17 @@ Window {
                         }
                         Label { text: "mm" }
 
+                        CheckBox {
+                            id: cbDepartureStraightDown
+                            text: "Hình nón đi thẳng xuống khi không va chạm"
+                            Layout.columnSpan: 3
+                            ToolTip.visible: departureStraightMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Bật: nón cụt đi thẳng xuống (-Z) nếu đường xuống không bị chặn.\nTắt: nón cụt luôn đi vuông góc bề mặt overhang (theo pháp tuyến).\nKhi đường xuống bị chặn bởi vật thể, luôn đi vuông góc bất kể tuỳ chọn này."
+                            MouseArea { id: departureStraightMA; anchors.fill: parent; hoverEnabled: true; propagateComposedEvents: true; onClicked: { cbDepartureStraightDown.toggle(); mouse.accepted = false } }
+                            onCheckedChanged: manager.updateSetting("departure_straight_down", checked ? 1.0 : 0.0)
+                        }
+
                         Label {
                             text: "Bước di chuyển:"
                             Layout.preferredWidth: 180
@@ -289,17 +300,6 @@ Window {
                             onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("max_branch_angle", v) }
                         }
                         Label { text: "độ" }
-
-                        CheckBox {
-                            id: cbDepartureStraightDown
-                            text: "Đi thẳng xuống khi không va chạm"
-                            Layout.columnSpan: 3
-                            ToolTip.visible: departureStraightMA.containsMouse
-                            ToolTip.delay: 500
-                            ToolTip.text: "Bật: nhánh đi thẳng xuống (-Z) nếu đường xuống không bị chặn.\nTắt: nhánh luôn đi vuông góc bề mặt overhang (theo pháp tuyến).\nKhi đường xuống bị chặn bởi vật thể, luôn đi vuông góc bất kể tuỳ chọn này."
-                            MouseArea { id: departureStraightMA; anchors.fill: parent; hoverEnabled: true; propagateComposedEvents: true; onClicked: { cbDepartureStraightDown.toggle(); mouse.accepted = false } }
-                            onCheckedChanged: manager.updateSetting("departure_straight_down", checked ? 1.0 : 0.0)
-                        }
 
                         Label {
                             text: "Chiều cao rơi thẳng:"
