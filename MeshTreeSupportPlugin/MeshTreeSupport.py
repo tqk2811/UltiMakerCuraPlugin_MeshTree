@@ -57,6 +57,7 @@ _DEFAULT_SETTINGS = {
     "cone_bottom_radius": 0.2,        # Bán kính đáy bé nón cụt - chỗ mọc nhánh (mm)
     "step_size": 1.0,                # Bước di chuyển mỗi lần lặp (mm)
     "merge_distance": 5.0,           # Khoảng cách merge 2 nhánh (mm)
+    "max_merge_count": 5,            # Số nhánh tối đa gộp cùng lúc
     "max_branch_angle": 40.0,        # Góc lệch tối đa so với trục Z (độ)
     "cone_height": 3.0,              # Chiều dài nón cụt (mm)
     "straight_drop_height": 10.0,    # Chiều cao rơi thẳng (mm) — dưới mức này: rơi thẳng, không merge

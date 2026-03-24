@@ -276,6 +276,7 @@ class MeshTreeSupportJob(Job):
             max_branch_angle=s.get("max_branch_angle", 40.0),
             cone_height=float(s.get("cone_height", 3.0)),
             departure_straight_down=bool(s.get("departure_straight_down", 1.0)),
+            max_merge_count=int(s.get("max_merge_count", 5)),
             cancel_check=self.isCancelled
         )
 

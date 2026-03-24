@@ -251,6 +251,23 @@ Window {
                         Label { text: "mm" }
 
                         Label {
+                            text: "Số nhánh gộp tối đa:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: maxMergeCountMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Số nhánh tối đa được gộp vào 1 điểm cùng lúc.\nGiá trị nhỏ → cây phân nhánh dần dần, đều hơn.\nGiá trị lớn → nhiều nhánh gộp 1 chỗ, tạo hình quạt.\nPhạm vi: 2 - 20"
+                            MouseArea { id: maxMergeCountMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fMaxMergeCount
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: IntValidator { bottom: 2; top: 20 }
+                            onEditingFinished: { var v = parseInt(text); if (!isNaN(v)) manager.updateSetting("max_merge_count", v) }
+                        }
+                        Label { text: "" }
+
+                        Label {
                             text: "Góc nhánh tối đa:"
                             Layout.preferredWidth: 180
                             ToolTip.visible: maxBranchAngleMA.containsMouse
@@ -517,6 +534,7 @@ Window {
         fConeBottomRadius.text  = manager.getSetting("cone_bottom_radius").toFixed(2)
         fStepSize.text          = manager.getSetting("step_size").toFixed(1)
         fMergeDistance.text      = manager.getSetting("merge_distance").toFixed(1)
+        fMaxMergeCount.text      = manager.getSetting("max_merge_count").toFixed(0)
         fMaxBranchAngle.text    = manager.getSetting("max_branch_angle").toFixed(1)
         fConeHeight.text        = manager.getSetting("cone_height").toFixed(1)
         cbDepartureStraightDown.checked = manager.getSetting("departure_straight_down") > 0.5

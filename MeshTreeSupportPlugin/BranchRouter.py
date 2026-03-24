@@ -113,6 +113,7 @@ def route_branches(tip_points, collision_field,
                    tip_normals=None, radius_growth_rate=0.02,
                    max_branch_angle=40.0, cone_height=3.0,
                    departure_straight_down=True,
+                   max_merge_count=5,
                    cancel_check=None):
     """
     Sinh nhánh cây support bằng Space Colonization bottom-up.
@@ -128,6 +129,7 @@ def route_branches(tip_points, collision_field,
         straight_drop_height : float - chiều cao rơi thẳng (mm)
                           Dưới mức này: nhánh rơi thẳng đứng, không merge
                           (điểm gộp dưới chiều cao này sẽ bị bỏ qua)
+        max_merge_count : int - số nhánh tối đa được gộp cùng lúc (mặc định 5)
         tip_normals   : numpy array (K, 3) hoặc None - pháp tuyến bề mặt tại mỗi tip
                         (inward normal từ OverhangDetector). Dùng để tạo đoạn departure
                         vuông góc bề mặt, giúp dễ bẻ support sau khi in.
@@ -496,47 +498,59 @@ def route_branches(tip_points, collision_field,
                 eligible.append((ai, idx))
 
             if len(eligible) >= 2:
-                # Union-Find để gom cluster
-                uf_parent = {}
-                for _, idx in eligible:
-                    uf_parent[idx] = idx
+                # Greedy nearest-neighbor clustering:
+                # Tính tất cả cặp khoảng cách XY, sắp xếp tăng dần,
+                # ưu tiên gộp nhánh gần nhất trước.
+                # Mỗi nhánh chỉ thuộc 1 nhóm, nhóm tối đa max_merge_count nhánh.
+                eli_indices = [idx for _, idx in eligible]
+                eli_pos = {
+                    idx: np.asarray(
+                        new_positions.get(idx, branches[idx].position), dtype=np.float64
+                    )[:2]
+                    for idx in eli_indices
+                }
 
-                def uf_find(x):
-                    while uf_parent[x] != x:
-                        uf_parent[x] = uf_parent[uf_parent[x]]
-                        x = uf_parent[x]
-                    return x
+                # Tạo danh sách cặp (dist, idx_a, idx_b) và sắp xếp
+                pairs = []
+                for a in range(len(eli_indices)):
+                    for b in range(a + 1, len(eli_indices)):
+                        ia, ib = eli_indices[a], eli_indices[b]
+                        d = np.linalg.norm(eli_pos[ia] - eli_pos[ib])
+                        if d < merge_distance:
+                            pairs.append((d, ia, ib))
+                pairs.sort(key=lambda x: x[0])
 
-                def uf_union(x, y):
-                    rx, ry = uf_find(x), uf_find(y)
-                    if rx != ry:
-                        uf_parent[rx] = ry
+                # Gom nhóm greedy: duyệt cặp gần nhất trước
+                group_of = {}   # idx → group_id
+                groups = {}     # group_id → list of idx
+                next_gid = 0
 
-                # Gom cặp gần nhau vào cùng cluster
-                for a in range(len(eligible)):
-                    ai_a, idx_a = eligible[a]
-                    pos_a = positions_array[ai_a]
+                for _, ia, ib in pairs:
+                    ga = group_of.get(ia)
+                    gb = group_of.get(ib)
 
-                    for b in range(a + 1, len(eligible)):
-                        ai_b, idx_b = eligible[b]
-                        pos_b = positions_array[ai_b]
+                    if ga is None and gb is None:
+                        # Cả 2 chưa có nhóm → tạo nhóm mới
+                        gid = next_gid; next_gid += 1
+                        groups[gid] = [ia, ib]
+                        group_of[ia] = gid
+                        group_of[ib] = gid
+                    elif ga is None and gb is not None:
+                        # ia chưa có nhóm → thêm vào nhóm của ib (nếu chưa đầy)
+                        if len(groups[gb]) < max_merge_count:
+                            groups[gb].append(ia)
+                            group_of[ia] = gb
+                    elif ga is not None and gb is None:
+                        # ib chưa có nhóm → thêm vào nhóm của ia (nếu chưa đầy)
+                        if len(groups[ga]) < max_merge_count:
+                            groups[ga].append(ib)
+                            group_of[ib] = ga
+                    # Cả 2 đã có nhóm → bỏ qua (không gộp nhóm với nhóm)
 
-                        dist = np.linalg.norm(pos_a[:2] - pos_b[:2])
-                        if dist < merge_distance:
-                            uf_union(idx_a, idx_b)
-
-                # Trích xuất clusters (≥2 thành viên)
-                clusters = {}
-                for _, idx in eligible:
-                    root = uf_find(idx)
-                    clusters.setdefault(root, []).append(idx)
-
-                # Xử lý từng cluster — chia nhỏ nếu cluster quá rộng
-                # Dùng queue để xử lý cả sub-groups từ cluster bị chia
-                pending_groups = []
-                for root, members in clusters.items():
-                    if len(members) >= 2:
-                        pending_groups.append(list(members))
+                pending_groups = [
+                    members for members in groups.values()
+                    if len(members) >= 2
+                ]
 
                 for group in pending_groups:
                     remaining = list(group)
