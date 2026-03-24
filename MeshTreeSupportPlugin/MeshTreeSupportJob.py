@@ -55,8 +55,8 @@ class MeshTreeSupportJob(Job):
             faces    : numpy array (M, 3) - chỉ số tam giác
             settings : dict - thông số thuật toán, keys:
                 overhang_angle, min_overhang_height, cluster_radius,
-                branch_tip_radius, step_size, merge_distance, min_merge_height,
-                convergence_strength, straight_drop_height, min_clearance,
+                branch_tip_radius, step_size, merge_distance,
+                straight_drop_height, min_clearance,
                 sdf_resolution, sdf_padding, cylinder_segments
         """
         super().__init__()
@@ -270,9 +270,7 @@ class MeshTreeSupportJob(Job):
             min_clearance=s["min_clearance"],
             cone_top_radius=s.get("cone_top_radius", 0.5),
             cone_bottom_radius=s.get("cone_bottom_radius", 0.2),
-            min_merge_height=s["min_merge_height"],
             straight_drop_height=s["straight_drop_height"],
-            convergence_strength=s["convergence_strength"],
             tip_normals=tip_normals,
             radius_growth_rate=s.get("radius_growth_rate", 0.02),
             max_branch_angle=s.get("max_branch_angle", 40.0),

@@ -251,40 +251,6 @@ Window {
                         Label { text: "mm" }
 
                         Label {
-                            text: "Chiều cao gộp tối thiểu:"
-                            Layout.preferredWidth: 180
-                            ToolTip.visible: minMergeHeightMA.containsMouse
-                            ToolTip.delay: 500
-                            ToolTip.text: "Nhánh chỉ được phép merge khi ở trên chiều cao này.\nDưới mức này, nhánh rơi thẳng xuống bàn in, không gộp nữa.\nTránh merge quá gần đế gây mất ổn định.\nPhạm vi: 0 - 100 mm"
-                            MouseArea { id: minMergeHeightMA; anchors.fill: parent; hoverEnabled: true }
-                        }
-                        TextField {
-                            id: fMinMergeHeight
-                            Layout.preferredWidth: 80
-                            horizontalAlignment: TextInput.AlignHCenter
-                            validator: DoubleValidator { bottom: 0; top: 100; decimals: 1 }
-                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("min_merge_height", v) }
-                        }
-                        Label { text: "mm" }
-
-                        Label {
-                            text: "Lực hội tụ:"
-                            Layout.preferredWidth: 180
-                            ToolTip.visible: convergenceMA.containsMouse
-                            ToolTip.delay: 500
-                            ToolTip.text: "Cường độ kéo các nhánh về phía trọng tâm chung (trên mặt phẳng XY).\n0 = không kéo (nhánh rơi thẳng), 1 = kéo mạnh nhất.\nGiá trị lớn → cây gọn hơn, nhánh tập trung. Giá trị nhỏ → cây toả rộng.\nPhạm vi: 0 - 1"
-                            MouseArea { id: convergenceMA; anchors.fill: parent; hoverEnabled: true }
-                        }
-                        TextField {
-                            id: fConvergence
-                            Layout.preferredWidth: 80
-                            horizontalAlignment: TextInput.AlignHCenter
-                            validator: DoubleValidator { bottom: 0; top: 1; decimals: 2 }
-                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("convergence_strength", v) }
-                        }
-                        Label { text: "" }
-
-                        Label {
                             text: "Góc nhánh tối đa:"
                             Layout.preferredWidth: 180
                             ToolTip.visible: maxBranchAngleMA.containsMouse
@@ -551,8 +517,6 @@ Window {
         fConeBottomRadius.text  = manager.getSetting("cone_bottom_radius").toFixed(2)
         fStepSize.text          = manager.getSetting("step_size").toFixed(1)
         fMergeDistance.text      = manager.getSetting("merge_distance").toFixed(1)
-        fMinMergeHeight.text    = manager.getSetting("min_merge_height").toFixed(1)
-        fConvergence.text       = manager.getSetting("convergence_strength").toFixed(2)
         fMaxBranchAngle.text    = manager.getSetting("max_branch_angle").toFixed(1)
         fConeHeight.text        = manager.getSetting("cone_height").toFixed(1)
         cbDepartureStraightDown.checked = manager.getSetting("departure_straight_down") > 0.5

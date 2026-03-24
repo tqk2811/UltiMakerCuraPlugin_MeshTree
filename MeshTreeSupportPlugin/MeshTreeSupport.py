@@ -57,11 +57,9 @@ _DEFAULT_SETTINGS = {
     "cone_bottom_radius": 0.2,        # Bán kính đáy bé nón cụt - chỗ mọc nhánh (mm)
     "step_size": 1.0,                # Bước di chuyển mỗi lần lặp (mm)
     "merge_distance": 5.0,           # Khoảng cách merge 2 nhánh (mm)
-    "min_merge_height": 20.0,        # Chiều cao tối thiểu để merge (mm)
-    "convergence_strength": 0.3,     # Lực hội tụ về trọng tâm (0-1)
     "max_branch_angle": 40.0,        # Góc lệch tối đa so với trục Z (độ)
     "cone_height": 3.0,              # Chiều dài nón cụt (mm)
-    "straight_drop_height": 10.0,    # Chiều cao bắt đầu rơi thẳng đứng (mm)
+    "straight_drop_height": 10.0,    # Chiều cao rơi thẳng (mm) — dưới mức này: rơi thẳng, không merge
     "radius_growth_rate": 0.02,      # Hệ số tăng bán kính mỗi bước (0-0.1)
     "min_clearance": 2.0,            # Khoảng cách an toàn đến mesh (mm)
     "sdf_resolution": 3.0,           # Độ phân giải lưới SDF (mm)
