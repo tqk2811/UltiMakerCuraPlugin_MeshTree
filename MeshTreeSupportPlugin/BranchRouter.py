@@ -54,8 +54,6 @@ class BranchTip:
         self.tip_count = tip_count
         self.prev_direction = np.array([0.0, 0.0, -1.0])  # Mặc định: đi xuống
         self.steps_taken = 0  # Đếm số bước routing (dùng để ramp up convergence)
-        self.merge_target = None        # (3,) array - điểm hội tụ đã cam kết
-        self.merge_partner_idx = -1     # Chỉ số nhánh đối tác merge
 
 
 def _murray_radius(r1, r2):
@@ -286,27 +284,6 @@ def route_branches(tip_points, collision_field,
             pos = branch.position
             current_z = pos[2]
 
-            # === Committed merge: đi thẳng đến điểm hội tụ ===
-            # Khi đã cam kết merge, giữ nguyên hướng, không convergence/smoothing
-            if branch.merge_target is not None:
-                to_target = branch.merge_target - pos
-                dist_to_target = np.linalg.norm(to_target)
-                if dist_to_target > step_size:
-                    direction = to_target / dist_to_target
-                    new_pos = pos + direction * step_size
-                else:
-                    new_pos = branch.merge_target.copy()
-                new_pos[2] = max(0.0, new_pos[2])
-                step_dir = new_pos - pos
-                step_len = np.linalg.norm(step_dir)
-                if step_len > 1e-6:
-                    branch.prev_direction = (step_dir / step_len).copy()
-                branch.steps_taken += 1
-                if radius_growth_rate > 0:
-                    branch.radius *= (1.0 + radius_growth_rate)
-                new_positions[idx] = new_pos
-                continue
-
             # === Chế độ rơi thẳng (straight drop) ===
             # Khi nhánh đã xuống đủ thấp, rơi thẳng đứng xuống bàn in
             # Mục đích: tạo chân đế ổn định cho cây support
@@ -467,75 +444,35 @@ def route_branches(tip_points, collision_field,
             new_positions[idx] = new_pos
 
         # --- Kiểm tra và thực hiện merge ---
-        # Committed merge: nhánh đi thẳng đến điểm hội tụ qua nhiều bước.
-        # Không cho bẻ góc thêm khi đang bẻ góc.
+        # Chỉ merge khi Z > min_merge_height (tránh merge quá gần bàn in)
         merged_set = set()     # Tập nhánh bị merge (hủy)
         merge_pairs = []       # Danh sách cặp (nhánh sống, nhánh hủy)
 
         if len(active_indices) > 1:
+            # Xây dựng ma trận khoảng cách giữa các nhánh active
             positions_array = np.array([
                 new_positions.get(i, branches[i].position) for i in active_indices
             ])
 
-            # --- Bước A: Kiểm tra committed merge đã đến đích ---
-            # Hai nhánh committed cùng target → khi cả hai gần target → merge thật
-            committed_pairs_done = []
-            for ai in range(len(active_indices)):
-                idx_i = active_indices[ai]
-                br_i = branches[idx_i]
-                if br_i.merge_partner_idx < 0 or idx_i in merged_set:
-                    continue
-                partner_idx = br_i.merge_partner_idx
-                # Chỉ xử lý mỗi cặp 1 lần (idx nhỏ hơn xử lý)
-                if idx_i > partner_idx:
-                    continue
-                if partner_idx in merged_set:
-                    continue
-                br_p = branches[partner_idx]
-                pos_i = new_positions.get(idx_i, br_i.position)
-                pos_p = new_positions.get(partner_idx, br_p.position)
-                dist_between = np.linalg.norm(pos_i - pos_p)
-                if dist_between < step_size * 1.5:
-                    # Đã đến gần nhau → merge thật
-                    if br_i.tip_count >= br_p.tip_count:
-                        s_idx, v_idx = idx_i, partner_idx
-                    else:
-                        s_idx, v_idx = partner_idx, idx_i
-                    merge_pairs.append((s_idx, v_idx))
-                    merged_set.add(v_idx)
-                    # Tính merge_pos = trung điểm
-                    merge_pos = (pos_i + pos_p) / 2.0
-                    new_positions[s_idx] = merge_pos
-                    s_br = branches[s_idx]
-                    v_br = branches[v_idx]
-                    edge_dir = merge_pos - np.asarray(all_nodes[s_br.node_index][0], dtype=np.float64)
-                    edge_len = np.linalg.norm(edge_dir)
-                    if edge_len > 1e-6:
-                        s_br.prev_direction = edge_dir / edge_len
-                    s_br.radius = _murray_radius(s_br.radius, v_br.radius)
-                    s_br.tip_count += v_br.tip_count
-                    # Xoá cam kết
-                    s_br.merge_target = None
-                    s_br.merge_partner_idx = -1
-                    v_br.merge_target = None
-                    v_br.merge_partner_idx = -1
-
-            # --- Bước B: Phát hiện merge mới → commit (không nhảy ngay) ---
             for ai in range(len(active_indices)):
                 idx_i = active_indices[ai]
                 if idx_i in merged_set:
                     continue
-                # Bỏ qua nhánh đã committed
-                if branches[idx_i].merge_partner_idx >= 0:
-                    continue
 
                 pos_i = positions_array[ai]
 
+                # Chỉ merge nếu Z > min_merge_height
                 if pos_i[2] <= min_merge_height:
                     continue
+
+                # Không merge trong vài bước đầu sau departure (tránh bẻ góc)
                 if branches[idx_i].steps_taken < departure_steps:
                     continue
 
+                # Adaptive merge distance: càng xuống thấp, khoảng cách merge càng lớn
+                # Tại Z cao (gần tip): dùng merge_distance gốc
+                # Tại Z thấp (gần bàn): merge_distance * 3 (gộp mạnh hơn)
+                # Công thức: effective = base * (1 + 2 * (1 - z/max_z))
                 height_ratio = pos_i[2] / initial_max_z if initial_max_z > 0 else 0
                 height_ratio = min(1.0, max(0.0, height_ratio))
                 effective_merge_dist = merge_distance * (1.0 + 2.0 * (1.0 - height_ratio))
@@ -544,60 +481,96 @@ def route_branches(tip_points, collision_field,
                     idx_j = active_indices[aj]
                     if idx_j in merged_set:
                         continue
-                    if branches[idx_j].merge_partner_idx >= 0:
-                        continue
 
                     pos_j = positions_array[aj]
 
                     if pos_j[2] <= min_merge_height:
                         continue
+
+                    # Không merge nếu nhánh kia cũng chưa đủ bước sau departure
                     if branches[idx_j].steps_taken < departure_steps:
                         continue
 
+                    # Tính khoảng cách 3D giữa 2 nhánh
                     dist = np.linalg.norm(pos_i - pos_j)
 
                     if dist < effective_merge_dist:
-                        # Tính merge target
-                        br_i = branches[idx_i]
-                        br_j = branches[idx_j]
-                        prev_pos_i = np.asarray(all_nodes[br_i.node_index][0], dtype=np.float64)
-                        prev_pos_j = np.asarray(all_nodes[br_j.node_index][0], dtype=np.float64)
-
-                        total_tips = br_i.tip_count + br_j.tip_count
-                        w_i = br_i.tip_count / total_tips
-                        w_j = br_j.tip_count / total_tips
-                        merge_xy = w_i * prev_pos_i[:2] + w_j * prev_pos_j[:2]
-
-                        dxy_i = np.linalg.norm(prev_pos_i[:2] - merge_xy)
-                        dxy_j = np.linalg.norm(prev_pos_j[:2] - merge_xy)
-
-                        tan_limit = sin_angle_limit / cos_angle_limit
-                        if tan_limit > 1e-6:
-                            merge_z_i = prev_pos_i[2] - dxy_i / tan_limit
-                            merge_z_j = prev_pos_j[2] - dxy_j / tan_limit
-                            merge_z = max(0.0, min(merge_z_i, merge_z_j))
+                        # Merge: nhánh có nhiều tip hơn sống sót
+                        if branches[idx_i].tip_count >= branches[idx_j].tip_count:
+                            survivor, victim = idx_i, idx_j
                         else:
-                            merge_z = 0.0
+                            survivor, victim = idx_j, idx_i
 
-                        merge_target = np.array([merge_xy[0], merge_xy[1], merge_z])
+                        merge_pairs.append((survivor, victim))
+                        merged_set.add(victim)
 
-                        # Commit cả hai nhánh → đi thẳng đến target
-                        br_i.merge_target = merge_target.copy()
-                        br_i.merge_partner_idx = idx_j
-                        br_j.merge_target = merge_target.copy()
-                        br_j.merge_partner_idx = idx_i
-                        break  # Nhánh i đã có partner, tìm nhánh khác
+        # --- Áp dụng merge ---
+        for survivor_idx, victim_idx in merge_pairs:
+            survivor = branches[survivor_idx]
+            victim = branches[victim_idx]
+
+            # Lấy vị trí NÚT TRƯỚC đó (nơi cạnh thực sự xuất phát)
+            # Cạnh trong skeleton nối từ node_index → merge node,
+            # nên phải dùng vị trí node_index để tính góc chính xác.
+            prev_pos_s = np.asarray(all_nodes[survivor.node_index][0], dtype=np.float64)
+            prev_pos_v = np.asarray(all_nodes[victim.node_index][0], dtype=np.float64)
+
+            # Merge XY: trọng số theo tip_count
+            # Nhánh chính (nhiều tip) giữ nguyên vị trí XY,
+            # nhánh phụ (ít tip) di chuyển đến nhánh chính.
+            total_tips = survivor.tip_count + victim.tip_count
+            weight_s = survivor.tip_count / total_tips
+            weight_v = victim.tip_count / total_tips
+            merge_xy = weight_s * prev_pos_s[:2] + weight_v * prev_pos_v[:2]
+
+            # Khoảng cách XY từ mỗi NÚT TRƯỚC đến merge point
+            dxy_s = np.linalg.norm(prev_pos_s[:2] - merge_xy)
+            dxy_v = np.linalg.norm(prev_pos_v[:2] - merge_xy)
+
+            # Merge Z: phải thỏa mãn ràng buộc góc cho CẢ HAI cạnh riêng biệt
+            # Mỗi cạnh: atan(dxy / dz) ≤ max_branch_angle
+            #          → dz ≥ dxy / tan(max_angle)
+            #          → merge_z ≤ prev_z - dxy / tan(max_angle)
+            # Lấy min để cả hai cạnh đều thỏa mãn.
+            tan_limit = sin_angle_limit / cos_angle_limit  # tan(max_branch_angle)
+            if tan_limit > 1e-6:
+                merge_z_s = prev_pos_s[2] - dxy_s / tan_limit
+                merge_z_v = prev_pos_v[2] - dxy_v / tan_limit
+                merge_z = max(0.0, min(merge_z_s, merge_z_v))
+            else:
+                merge_z = 0.0
+
+            merge_pos = np.array([merge_xy[0], merge_xy[1], merge_z])
+
+            # Cập nhật vị trí survivor về điểm merge
+            new_positions[survivor_idx] = merge_pos
+
+            # Cập nhật prev_direction theo hướng cạnh thực tế (cho smoothing bước sau)
+            edge_dir = merge_pos - prev_pos_s
+            edge_len = np.linalg.norm(edge_dir)
+            if edge_len > 1e-6:
+                survivor.prev_direction = edge_dir / edge_len
+
+            # Tính bán kính mới theo định luật Murray
+            new_radius = _murray_radius(survivor.radius, victim.radius)
+            survivor.radius = new_radius
+            survivor.tip_count += victim.tip_count
 
         # --- Tạo nút và cạnh mới trong skeleton ---
         for idx in active_indices:
             if idx in merged_set:
+                # Nhánh bị merge: tạo nút merge và cạnh nối đến survivor
                 victim = branches[idx]
+                # Tìm survivor tương ứng
                 survivor_idx = None
                 for s, v in merge_pairs:
                     if v == idx:
                         survivor_idx = s
                         break
+
                 if survivor_idx is not None:
+                    # Nút merge sẽ được tạo bởi survivor, ta chỉ cần ghi nhận
+                    # rằng victim kết nối đến nút merge đó
                     pass
                 continue
 
@@ -605,8 +578,7 @@ def route_branches(tip_points, collision_field,
             new_pos = new_positions.get(idx, branch.position)
 
             # Tăng bán kính mỗi bước (nhánh mập dần xuống dưới)
-            # (committed merge branches đã tăng ở movement phase)
-            if branch.merge_target is None and radius_growth_rate > 0:
+            if radius_growth_rate > 0:
                 branch.radius *= (1.0 + radius_growth_rate)
 
             # Tạo nút mới trong skeleton
@@ -620,6 +592,7 @@ def route_branches(tip_points, collision_field,
             for s, v in merge_pairs:
                 if s == idx:
                     victim = branches[v]
+                    # Cạnh từ nút cuối của victim đến nút merge
                     all_edges.append((victim.node_index, new_node_idx))
 
             # Cập nhật trạng thái nhánh
