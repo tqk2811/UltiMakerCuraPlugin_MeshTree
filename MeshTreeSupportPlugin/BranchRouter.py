@@ -564,8 +564,9 @@ def route_branches(tip_points, collision_field,
                     # Tính merge_pos
                     br_i = branches[idx_i]
                     br_j = branches[idx_j]
-                    pp_i = np.asarray(all_nodes[br_i.node_index][0], dtype=np.float64)
-                    pp_j = np.asarray(all_nodes[br_j.node_index][0], dtype=np.float64)
+                    # Dùng vị trí HIỆN TẠI (sau movement bước này) làm prev_pos
+                    pp_i = np.asarray(new_positions.get(idx_i, br_i.position), dtype=np.float64)
+                    pp_j = np.asarray(new_positions.get(idx_j, br_j.position), dtype=np.float64)
 
                     total_tips = br_i.tip_count + br_j.tip_count
                     w_i = br_i.tip_count / total_tips
