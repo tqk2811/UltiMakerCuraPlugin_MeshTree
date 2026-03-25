@@ -336,10 +336,11 @@ def build_tree_mesh(all_nodes, all_edges, segments=8,
         child_set.add(idx2)
         incoming_count[idx2] = incoming_count.get(idx2, 0) + 1
 
-    # Nút nối (vừa là child vừa là parent): đặt hình cầu tại các điểm
-    # bẻ góc và giao nhánh để lấp khe hở giữa các frustum
-    mid_nodes = child_set & parent_set  # Nút giữa đường (bẻ góc)
-    for node_idx in mid_nodes:
+    # Chỉ đặt hình cầu tại junction thực sự (nhiều nhánh gộp vào)
+    # Bỏ sphere ở node thẳng hàng để tránh pattern "chuỗi hạt"
+    mid_nodes = child_set & parent_set
+    junction_nodes = {idx for idx in mid_nodes if incoming_count.get(idx, 0) > 1}
+    for node_idx in junction_nodes:
         pos, radius = all_nodes[node_idx]
         pos = np.asarray(pos, dtype=np.float64)
         sphere_verts, sphere_faces = _build_sphere(pos, radius, segments)

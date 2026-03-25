@@ -1,8 +1,8 @@
 {
   "overhang_angle": 45.0,
   "min_overhang_height": 0.5,
-  "cone_top_radius": 0.4,
-  "cone_bottom_radius": 0.4,
+  "cone_top_radius": 0.6,
+  "cone_bottom_radius": 0.5,
   "step_size": 2.0,
   "merge_distance": 15.0,
   "max_merge_count": 5,
