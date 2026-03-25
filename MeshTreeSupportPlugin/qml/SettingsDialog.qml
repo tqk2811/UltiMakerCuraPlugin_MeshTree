@@ -205,19 +205,6 @@ Window {
                             onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("shell_gap", v) }
                         }
                         Label { text: "mm" }
-                    }
-                }
-
-                // ─── NHÓM 3: NÓN CỤT (Tip Interface) ───
-                GroupBox {
-                    title: "  Nón cụt (Tip Interface)  "
-                    Layout.fillWidth: true
-
-                    GridLayout {
-                        columns: 3
-                        columnSpacing: 8
-                        rowSpacing: 6
-                        anchors.fill: parent
 
                         Label {
                             text: "BK đáy lớn nón:"
@@ -283,7 +270,7 @@ Window {
                     }
                 }
 
-                // ─── NHÓM 4: NHÁNH CÂY (Space Colonization) ───
+                // ─── NHÓM 3: NHÁNH CÂY (Space Colonization) ───
                 GroupBox {
                     title: "  Nhánh cây (Space Colonization)  "
                     Layout.fillWidth: true
