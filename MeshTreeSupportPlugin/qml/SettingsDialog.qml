@@ -386,7 +386,7 @@ Window {
 
                 // ─── NHÓM 4: MESH ỐNG TRỤ ───
                 GroupBox {
-                    title: "  Lưới ống trụ  "
+                    title: "  Chân đế  "
                     Layout.fillWidth: true
 
                     GridLayout {
