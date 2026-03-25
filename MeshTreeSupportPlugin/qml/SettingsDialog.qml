@@ -396,23 +396,6 @@ Window {
                         anchors.fill: parent
 
                         Label {
-                            text: "Số mặt ống trụ:"
-                            Layout.preferredWidth: 180
-                            ToolTip.visible: cylinderSegmentsMA.containsMouse
-                            ToolTip.delay: 500
-                            ToolTip.text: "Số cạnh đa giác tạo thành tiết diện ống trụ.\nGiá trị nhỏ (4-6) → ống vuông/lục giác, ít tam giác, nhẹ file.\nGiá trị lớn (12-24) → ống tròn mượt, nhiều tam giác hơn.\nPhạm vi: 4 - 24"
-                            MouseArea { id: cylinderSegmentsMA; anchors.fill: parent; hoverEnabled: true }
-                        }
-                        TextField {
-                            id: fCylinderSegments
-                            Layout.preferredWidth: 80
-                            horizontalAlignment: TextInput.AlignHCenter
-                            validator: IntValidator { bottom: 4; top: 24 }
-                            onEditingFinished: { var v = parseInt(text); if (!isNaN(v)) manager.updateSetting("cylinder_segments", v) }
-                        }
-                        Label { text: "" }
-
-                        Label {
                             text: "Hệ số rộng đế:"
                             Layout.preferredWidth: 180
                             ToolTip.visible: brimMultiplierMA.containsMouse
@@ -445,6 +428,36 @@ Window {
                             onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("base_brim_height", v) }
                         }
                         Label { text: "mm" }
+                    }
+                }
+
+                // ─── NHÓM 5: HIỂN THỊ ───
+                GroupBox {
+                    title: "  Hiển thị  "
+                    Layout.fillWidth: true
+
+                    GridLayout {
+                        columns: 3
+                        columnSpacing: 8
+                        rowSpacing: 6
+                        anchors.fill: parent
+
+                        Label {
+                            text: "Số mặt ống trụ:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: cylinderSegmentsMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Số cạnh đa giác tạo thành tiết diện ống trụ.\nGiá trị nhỏ (4-6) → ống vuông/lục giác, ít tam giác, nhẹ file.\nGiá trị lớn (12-24) → ống tròn mượt, nhiều tam giác hơn.\nPhạm vi: 4 - 24"
+                            MouseArea { id: cylinderSegmentsMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fCylinderSegments
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: IntValidator { bottom: 4; top: 24 }
+                            onEditingFinished: { var v = parseInt(text); if (!isNaN(v)) manager.updateSetting("cylinder_segments", v) }
+                        }
+                        Label { text: "" }
                     }
                 }
             }
