@@ -207,9 +207,9 @@ Window {
                     }
                 }
 
-                // ─── NHÓM 3: NHÁNH CÂY (Space Colonization) ───
+                // ─── NHÓM 3: NÓN CỤT (Tip Interface) ───
                 GroupBox {
-                    title: "  Nhánh cây (Space Colonization)  "
+                    title: "  Nón cụt (Tip Interface)  "
                     Layout.fillWidth: true
 
                     GridLayout {
@@ -279,6 +279,19 @@ Window {
                             MouseArea { id: departureStraightMA; anchors.fill: parent; hoverEnabled: true; propagateComposedEvents: true; onClicked: { cbDepartureStraightDown.toggle(); mouse.accepted = false } }
                             onCheckedChanged: manager.updateSetting("departure_straight_down", checked ? 1.0 : 0.0)
                         }
+                    }
+                }
+
+                // ─── NHÓM 4: NHÁNH CÂY (Space Colonization) ───
+                GroupBox {
+                    title: "  Nhánh cây (Space Colonization)  "
+                    Layout.fillWidth: true
+
+                    GridLayout {
+                        columns: 3
+                        columnSpacing: 8
+                        rowSpacing: 6
+                        anchors.fill: parent
 
                         Label {
                             text: "Bước di chuyển:"
