@@ -336,11 +336,46 @@ def build_tree_mesh(all_nodes, all_edges, segments=8,
         child_set.add(idx2)
         incoming_count[idx2] = incoming_count.get(idx2, 0) + 1
 
-    # Chỉ đặt hình cầu tại junction thực sự (nhiều nhánh gộp vào)
+    # Chỉ đặt hình cầu tại chỗ bẻ góc thực sự (góc > 15° giữa cạnh vào và cạnh ra)
     # Bỏ sphere ở node thẳng hàng để tránh pattern "chuỗi hạt"
     mid_nodes = child_set & parent_set
-    junction_nodes = {idx for idx in mid_nodes if incoming_count.get(idx, 0) > 1}
-    for node_idx in junction_nodes:
+
+    # Xây map: node_idx → danh sách (idx_other, là_outgoing)
+    incoming_edges = {}   # node_idx → list of idx_from
+    outgoing_edges = {}   # node_idx → list of idx_to
+    for idx1, idx2 in all_edges:
+        outgoing_edges.setdefault(idx1, []).append(idx2)
+        incoming_edges.setdefault(idx2, []).append(idx1)
+
+    _COS_BEND_THRESHOLD = np.cos(np.radians(15.0))  # cos(15°) ≈ 0.966
+
+    bend_nodes = set()
+    for node_idx in mid_nodes:
+        pos = np.asarray(all_nodes[node_idx][0], dtype=np.float64)
+        froms = incoming_edges.get(node_idx, [])
+        tos   = outgoing_edges.get(node_idx, [])
+        is_bend = False
+        for f in froms:
+            d_in = pos - np.asarray(all_nodes[f][0], dtype=np.float64)
+            l_in = np.linalg.norm(d_in)
+            if l_in < 1e-6:
+                continue
+            d_in /= l_in
+            for t in tos:
+                d_out = np.asarray(all_nodes[t][0], dtype=np.float64) - pos
+                l_out = np.linalg.norm(d_out)
+                if l_out < 1e-6:
+                    continue
+                d_out /= l_out
+                if np.dot(d_in, d_out) < _COS_BEND_THRESHOLD:
+                    is_bend = True
+                    break
+            if is_bend:
+                break
+        if is_bend:
+            bend_nodes.add(node_idx)
+
+    for node_idx in bend_nodes:
         pos, radius = all_nodes[node_idx]
         pos = np.asarray(pos, dtype=np.float64)
         sphere_verts, sphere_faces = _build_sphere(pos, radius, segments)
