@@ -42,7 +42,7 @@ Window {
 
         // === Tiêu đề ===
         Label {
-            text: "Cây chống đỡ hữu cơ - Cài đặt"
+            text: "Cây chống đỡ - Cài đặt"
             font.pixelSize: 18
             font.bold: true
             color: "#333333"
