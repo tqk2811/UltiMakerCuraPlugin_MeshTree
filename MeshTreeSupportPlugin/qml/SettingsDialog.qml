@@ -2,7 +2,7 @@
 // Dialog cài đặt và hiển thị tiến độ cho plugin Mesh Tree Support
 //
 // Cung cấp:
-// - Các trường nhập liệu cho 4 tham số thuật toán (nhóm theo chức năng)
+// - Các trường nhập liệu cho 7 tham số thuật toán (nhóm theo chức năng)
 // - Thanh tiến trình (ProgressBar) cập nhật realtime từ Job
 // - Nút Bắt đầu / Mặc định / Đóng
 // - Tự động lưu/load thông số qua manager (Python backend)
@@ -156,6 +156,70 @@ Window {
                         Label { text: "mm" }
                     }
                 }
+
+                // ─── NHÓM 3: TRÁNH VA CHẠM (BVH + SDF) ───
+                GroupBox {
+                    title: "  Tránh va chạm (BVH + SDF)  "
+                    Layout.fillWidth: true
+
+                    GridLayout {
+                        columns: 3
+                        columnSpacing: 8
+                        rowSpacing: 6
+                        anchors.fill: parent
+
+                        Label {
+                            text: "Khoảng cách an toàn:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: minClearanceMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Khoảng cách tối thiểu giữa nhánh support và bề mặt vật thể.\nNhánh vi phạm sẽ bị đẩy ra xa bằng gradient SDF.\nGiá trị lớn → an toàn hơn nhưng nhánh xa vật thể.\nPhạm vi: 0.5 - 10 mm"
+                            MouseArea { id: minClearanceMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fMinClearance
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.5; top: 10; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("min_clearance", v) }
+                        }
+                        Label { text: "mm" }
+
+                        Label {
+                            text: "Độ phân giải SDF:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: sdfResolutionMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Kích thước ô lưới 3D của trường khoảng cách (SDF).\nGiá trị nhỏ → chính xác hơn nhưng tốn RAM và thời gian tính.\nGiá trị lớn → nhanh, ít RAM nhưng kém chính xác.\nPhạm vi: 1 - 10 mm"
+                            MouseArea { id: sdfResolutionMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fSdfResolution
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 1; top: 10; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("sdf_resolution", v) }
+                        }
+                        Label { text: "mm" }
+
+                        Label {
+                            text: "Phần mở rộng SDF:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: sdfPaddingMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Mở rộng lưới SDF ra ngoài bounding box của vật thể.\nĐảm bảo nhánh đi vòng ngoài vẫn có dữ liệu va chạm.\nGiá trị lớn → phạm vi rộng hơn nhưng tốn thêm RAM.\nPhạm vi: 2 - 30 mm"
+                            MouseArea { id: sdfPaddingMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fSdfPadding
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 2; top: 30; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("sdf_padding", v) }
+                        }
+                        Label { text: "mm" }
+                    }
+                }
             }
         }
 
@@ -241,5 +305,8 @@ Window {
         fMinHeight.text         = manager.getSetting("min_overhang_height").toFixed(1)
         fShellThickness.text    = manager.getSetting("shell_thickness").toFixed(1)
         fShellGap.text          = manager.getSetting("shell_gap").toFixed(1)
+        fMinClearance.text      = manager.getSetting("min_clearance").toFixed(1)
+        fSdfResolution.text     = manager.getSetting("sdf_resolution").toFixed(1)
+        fSdfPadding.text        = manager.getSetting("sdf_padding").toFixed(1)
     }
 }

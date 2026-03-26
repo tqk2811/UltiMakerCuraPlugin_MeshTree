@@ -55,6 +55,9 @@ _DEFAULT_SETTINGS = {
     "min_overhang_height": 0.5,      # Chiều cao tối thiểu trên bàn in (mm)
     "shell_thickness": 0.5,          # Độ dày vỏ overhang (mm)
     "shell_gap": 0.3,                # Khoảng cách vỏ đến bề mặt vật thể (mm)
+    "min_clearance": 2.0,            # Khoảng cách an toàn đến mesh (mm)
+    "sdf_resolution": 3.0,           # Độ phân giải lưới SDF (mm)
+    "sdf_padding": 10.0,             # Padding quanh mesh cho SDF (mm)
 }
 
 # Các key là integer (không phải float)
@@ -365,10 +368,14 @@ class MeshTreeSupport(QObject, Extension):
         self._progress_value = value
 
         # Suy ra trạng thái từ giá trị tiến độ
-        if value <= 20:
-            self._status_text = "Bước 1/2: Phát hiện vùng lơ lửng..."
+        if value <= 10:
+            self._status_text = "Bước 1/4: Phát hiện vùng lơ lửng..."
+        elif value <= 20:
+            self._status_text = "Bước 2/4: Tạo vỏ overhang..."
+        elif value <= 80:
+            self._status_text = "Bước 3/4: Xây dựng trường va chạm SDF..."
         elif value < 100:
-            self._status_text = "Bước 2/2: Tạo vỏ overhang..."
+            self._status_text = "Bước 4/4: Lọc tip points..."
         else:
             self._status_text = "Hoàn tất!"
 
