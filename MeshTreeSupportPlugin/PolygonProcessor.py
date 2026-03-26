@@ -61,47 +61,54 @@ def process_polygons(vertices, faces, overhang_mask, face_normals,
     oh_faces = faces[oh_indices]       # (K, 3)
     oh_normals = face_normals[oh_indices]  # (K, 3) inward
 
-    # --- Tính diện tích và trọng tâm mỗi tam giác overhang ---
-    v0 = vertices[oh_faces[:, 0]]
-    v1 = vertices[oh_faces[:, 1]]
-    v2 = vertices[oh_faces[:, 2]]
+    # --- Pre-subdivide: chia nhỏ tam giác > max_area bằng midpoint ---
+    ext_vertices, sub_faces, sub_normals, parent_map = \
+        _subdivide_large_faces(vertices, oh_faces, oh_normals, max_area)
+
+    num_sub = len(sub_faces)
+    if num_sub == 0:
+        return []
+
+    # --- Tính diện tích và trọng tâm mỗi tam giác ---
+    v0 = ext_vertices[sub_faces[:, 0]]
+    v1 = ext_vertices[sub_faces[:, 1]]
+    v2 = ext_vertices[sub_faces[:, 2]]
 
     areas = 0.5 * np.linalg.norm(np.cross(v1 - v0, v2 - v0), axis=1)
     centroids = (v0 + v1 + v2) / 3.0
 
     # --- Tính per-vertex outward normal + outer surface positions ---
-    unique_vert_indices = np.unique(oh_faces.ravel())
+    unique_vert_indices = np.unique(sub_faces.ravel())
     num_unique = len(unique_vert_indices)
-    idx_map = np.full(vertices.shape[0], -1, dtype=np.int64)
+    idx_map = np.full(ext_vertices.shape[0], -1, dtype=np.int64)
     idx_map[unique_vert_indices] = np.arange(num_unique)
-    local_oh_faces = idx_map[oh_faces]  # (K, 3) remapped to local vertex indices
+    local_sub_faces = idx_map[sub_faces]  # remapped to local vertex indices
 
-    vert_pos = vertices[unique_vert_indices].copy().astype(np.float64)
+    vert_pos = ext_vertices[unique_vert_indices].copy().astype(np.float64)
     vert_normals = np.zeros((num_unique, 3), dtype=np.float64)
-    np.add.at(vert_normals, local_oh_faces[:, 0], oh_normals)
-    np.add.at(vert_normals, local_oh_faces[:, 1], oh_normals)
-    np.add.at(vert_normals, local_oh_faces[:, 2], oh_normals)
+    np.add.at(vert_normals, local_sub_faces[:, 0], sub_normals)
+    np.add.at(vert_normals, local_sub_faces[:, 1], sub_normals)
+    np.add.at(vert_normals, local_sub_faces[:, 2], sub_normals)
     lengths = np.linalg.norm(vert_normals, axis=1, keepdims=True)
     vert_normals /= np.maximum(lengths, 1e-10)
     outward = -vert_normals
     offset_dist = gap + thickness
-    outer_verts = vert_pos + outward * offset_dist  # (U, 3)
+    outer_verts = vert_pos + outward * offset_dist
 
     # --- Xây adjacency graph (tolerance-based) ---
-    adjacency = _build_adjacency(oh_faces, vertices, tol=0.01)
+    adjacency = _build_adjacency(sub_faces, ext_vertices, tol=0.01)
 
-    # --- Khởi tạo groups: mỗi tam giác là 1 group ---
-    num_oh = len(oh_indices)
-    group_of = list(range(num_oh))  # group_of[i] = group id của face i
-    groups = {i: [i] for i in range(num_oh)}  # group_id → list[face_local_idx]
+    # --- Khởi tạo groups: mỗi tam giác subdivision là 1 group ---
+    group_of = list(range(num_sub))
+    groups = {i: [i] for i in range(num_sub)}
 
     # --- Merge: gộp tam giác nhỏ hơn min_area ---
     _merge_small_polygons(groups, group_of, adjacency, areas, centroids,
-                          oh_normals, min_area)
+                          sub_normals, min_area)
 
-    # --- Split: chia tam giác lớn hơn max_area ---
-    split_data = _split_large_polygons(groups, areas, centroids, oh_normals,
-                                       vertices, oh_faces, max_area)
+    # --- Split: chia group lớn hơn max_area (multi-face spatial) ---
+    split_data = _split_large_polygons(groups, areas, centroids, sub_normals,
+                                       ext_vertices, sub_faces, max_area)
 
     # --- Tạo PolygonInfo cho mỗi group ---
     result = []
@@ -109,7 +116,7 @@ def process_polygons(vertices, faces, overhang_mask, face_normals,
     for gid, members in split_data.items():
         g_areas = areas[members]
         g_centroids = centroids[members]
-        g_normals = oh_normals[members]
+        g_normals = sub_normals[members]
 
         total_area = float(np.sum(g_areas))
         if total_area < 1e-8:
@@ -127,7 +134,7 @@ def process_polygons(vertices, faces, overhang_mask, face_normals,
         outward_normal = -avg_normal
 
         # Trích boundary vertices thực tế trên outer surface
-        boundary = _extract_boundary_loop(members, local_oh_faces, outer_verts)
+        boundary = _extract_boundary_loop(members, local_sub_faces, outer_verts)
 
         # Số cạnh = số đỉnh boundary thực tế
         if boundary is not None:
@@ -142,7 +149,7 @@ def process_polygons(vertices, faces, overhang_mask, face_normals,
             area=total_area,
             normal=outward_normal,
             n_sides=n_sides,
-            face_indices=[int(oh_indices[m]) for m in members]
+            face_indices=list(set(int(oh_indices[parent_map[m]]) for m in members))
         )
         # Vị trí trên outer shell surface
         info.outer_position = weighted_centroid + outward_normal * offset_dist
@@ -242,14 +249,12 @@ def _merge_small_polygons(groups, group_of, adjacency, areas, centroids,
 
 
 def _split_large_polygons(groups, areas, centroids, normals,
-                          vertices, oh_faces, max_area):
+                          vertices, sub_faces, max_area):
     """
-    Chia group lớn hơn max_area.
+    Chia group (sau merge) lớn hơn max_area bằng spatial median split.
 
-    Cho mỗi group có area > max_area:
-    - Nếu group chỉ có 1 tam giác: chia qua trung tuyến (median) ảo
-      (tạo 2 sub-groups, mỗi cái giữ ref đến face gốc nhưng với area/2)
-    - Nếu group có nhiều tam giác: chia thành 2 nửa theo spatial median
+    Pre-subdivision đã đảm bảo mỗi face đơn lẻ <= max_area,
+    nên chỉ cần xử lý groups có nhiều face bị merge lại > max_area.
 
     Trả về:
         dict: group_id → list[face_local_idx]
@@ -267,20 +272,7 @@ def _split_large_polygons(groups, areas, centroids, normals,
         # Chia thành N phần để mỗi phần <= max_area
         n_parts = max(2, int(np.ceil(total_area / max_area)))
 
-        if len(members) == 1:
-            # Tam giác đơn lẻ quá lớn → tạo n_parts ảo
-            # (giữ cùng face index nhưng area chia đều, centroid spread)
-            face_idx = members[0]
-            f = oh_faces[face_idx]
-            v0 = vertices[f[0]]
-            v1 = vertices[f[1]]
-            v2 = vertices[f[2]]
-
-            # Chia tam giác thành n_parts bằng subdivision tại centroid
-            for p in range(n_parts):
-                result[next_id] = [face_idx]
-                next_id += 1
-        elif len(members) >= n_parts:
+        if len(members) >= n_parts:
             # Chia spatial bằng KD-split
             member_centroids = centroids[members]
             parts = _spatial_split(members, member_centroids, n_parts)
@@ -385,3 +377,94 @@ def _spatial_split(members, member_centroids, n_parts):
     right_parts = _spatial_split(right_members, right_centroids, n_right)
 
     return left_parts + right_parts
+
+
+def _subdivide_large_faces(vertices, oh_faces, oh_normals, max_area):
+    """
+    Chia nhỏ đệ quy các tam giác overhang có diện tích > max_area.
+    Tách cạnh dài nhất tại trung điểm để tạo 2 tam giác con.
+    Mỗi tam giác con có boundary riêng → mọc tip riêng.
+
+    Trả về:
+        ext_vertices : (N', 3) vertices gốc + midpoint mới
+        new_faces    : (K', 3) faces sau subdivision (global vertex index)
+        new_normals  : (K', 3) normals tương ứng
+        parent_map   : (K',) index trong oh_faces cho mỗi face mới
+    """
+    extra_verts = []  # list of (3,) float64
+    base_count = len(vertices)
+
+    def get_vert(idx):
+        idx = int(idx)
+        if idx < base_count:
+            return vertices[idx].astype(np.float64)
+        return extra_verts[idx - base_count]
+
+    def add_vert(pos):
+        new_idx = base_count + len(extra_verts)
+        extra_verts.append(np.array(pos, dtype=np.float64))
+        return new_idx
+
+    # Stack: (face[3], normal[3], parent_oh_index)
+    stack = []
+    for i in range(len(oh_faces)):
+        stack.append((oh_faces[i].copy().astype(np.int64),
+                      oh_normals[i].copy(),
+                      i))
+
+    result_faces = []
+    result_normals = []
+    result_parents = []
+
+    while stack:
+        face, normal, parent = stack.pop()
+        v0 = get_vert(face[0])
+        v1 = get_vert(face[1])
+        v2 = get_vert(face[2])
+
+        area = 0.5 * np.linalg.norm(np.cross(v1 - v0, v2 - v0))
+
+        if area <= max_area:
+            result_faces.append([int(face[0]), int(face[1]), int(face[2])])
+            result_normals.append(normal.tolist())
+            result_parents.append(parent)
+            continue
+
+        # Tìm cạnh dài nhất
+        e_lens = [
+            np.linalg.norm(v1 - v0),
+            np.linalg.norm(v2 - v1),
+            np.linalg.norm(v0 - v2),
+        ]
+        longest = int(np.argmax(e_lens))
+
+        if longest == 0:       # cạnh v0-v1
+            mid_idx = add_vert((v0 + v1) / 2)
+            stack.append((np.array([face[0], mid_idx, face[2]]), normal.copy(), parent))
+            stack.append((np.array([mid_idx, face[1], face[2]]), normal.copy(), parent))
+        elif longest == 1:     # cạnh v1-v2
+            mid_idx = add_vert((v1 + v2) / 2)
+            stack.append((np.array([face[0], face[1], mid_idx]), normal.copy(), parent))
+            stack.append((np.array([face[0], mid_idx, face[2]]), normal.copy(), parent))
+        else:                  # cạnh v2-v0
+            mid_idx = add_vert((v2 + v0) / 2)
+            stack.append((np.array([face[0], face[1], mid_idx]), normal.copy(), parent))
+            stack.append((np.array([mid_idx, face[1], face[2]]), normal.copy(), parent))
+
+    # Ghép vertices
+    if extra_verts:
+        ext_verts = np.vstack([vertices.astype(np.float64),
+                               np.array(extra_verts, dtype=np.float64)])
+    else:
+        ext_verts = vertices.astype(np.float64)
+
+    if result_faces:
+        new_faces = np.array(result_faces, dtype=np.int64)
+        new_normals = np.array(result_normals, dtype=np.float64)
+        parent_map = np.array(result_parents, dtype=np.int64)
+    else:
+        new_faces = np.zeros((0, 3), dtype=np.int64)
+        new_normals = np.zeros((0, 3), dtype=np.float64)
+        parent_map = np.zeros(0, dtype=np.int64)
+
+    return ext_verts, new_faces, new_normals, parent_map
