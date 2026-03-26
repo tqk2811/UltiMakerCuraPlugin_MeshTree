@@ -175,11 +175,18 @@ def route_branches(points_a, collision_field, settings, cancel_check=None):
         bl_len = np.maximum(bl_len, 1e-10)
         blended /= bl_len
 
-        # Đảm bảo Z giảm: min Z = -0.5 → nhánh nghiêng tối thiểu ~30° so với nằm ngang
-        blended[:, 2] = np.minimum(blended[:, 2], -0.5)
-        bl_len2 = np.linalg.norm(blended, axis=1, keepdims=True)
-        bl_len2 = np.maximum(bl_len2, 1e-10)
-        blended /= bl_len2
+        # Đảm bảo Z giảm tối thiểu: clamp Z rồi renorm chỉ phần XY
+        # Không renorm toàn bộ vector (sẽ làm Z drift > -0.5)
+        z_min = -0.5  # sin(30°) = 0.5 → nhánh nghiêng tối thiểu 30° so với nằm ngang
+        z_clamped = np.minimum(blended[:, 2], z_min)
+        xy = blended[:, :2]
+        xy_len = np.linalg.norm(xy, axis=1, keepdims=True)
+        # Tính scale XY sao cho vector tổng thể là đơn vị: xy_scale² + z² = 1
+        xy_scale = np.sqrt(np.maximum(1.0 - z_clamped ** 2, 0.0))
+        safe_xy = np.where(xy_len > 1e-10,
+                           xy / xy_len * xy_scale[:, np.newaxis],
+                           np.zeros_like(xy))
+        blended = np.concatenate([safe_xy, z_clamped[:, np.newaxis]], axis=1)
 
         # --- 5. Cập nhật vị trí ---
         new_pos = pos_active + blended * step_size
@@ -345,11 +352,9 @@ def _process_merges(active, positions, areas, radii, directions,
             other_merge_dist = min(np.sqrt(areas[aj]) * merge_coeff, merge_dist_max)
             threshold = min(my_merge_dist, other_merge_dist)
 
-            # Threshold thực tế cho merge: bán kính tổng + step_size
-            actual_threshold = radii[ai] + radii[aj] + step_size * 2
-            # Chỉ merge nếu chênh lệch Z nhỏ (nhánh ở cùng "tầng")
-            dz = abs(positions[ai, 2] - positions[aj, 2])
-            if d < actual_threshold and dz < actual_threshold * 2:
+            # Threshold thực tế cho merge: bán kính tổng + step_size × 6
+            actual_threshold = radii[ai] + radii[aj] + step_size * 6
+            if d < actual_threshold:
                 pairs.append((d, ai, aj))
 
     if not pairs:
