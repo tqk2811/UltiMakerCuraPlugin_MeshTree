@@ -58,6 +58,17 @@ _DEFAULT_SETTINGS = {
     "min_clearance": 2.0,            # Khoảng cách an toàn đến mesh (mm)
     "sdf_resolution": 3.0,           # Độ phân giải lưới SDF (mm)
     "sdf_padding": 10.0,             # Padding quanh mesh cho SDF (mm)
+    "min_polygon_area": 0.5,         # Diện tích tối thiểu đa giác (mm²)
+    "max_polygon_area": 10.0,        # Diện tích tối đa đa giác (mm²)
+    "tip_radius": 0.4,               # Bán kính tại Point A (mm)
+    "tip_height_factor": 0.5,        # Hệ số chiều cao tip (mm/mm²)
+    "branch_step_size": 0.5,         # Bước mô phỏng nhánh (mm)
+    "gravity_weight": 1.0,           # Trọng số trọng lực
+    "merge_weight": 0.3,             # Trọng số lực kéo gộp
+    "merge_distance_max": 30.0,      # Khoảng cách gộp tối đa (mm)
+    "area_growth_coeff": 0.05,       # Hệ số tăng diện tích/mm
+    "momentum_alpha": 0.3,           # Hệ số quán tính (0-1)
+    "collision_weight": 1.0,         # Trọng số lực chống va chạm
 }
 
 # Các key là integer (không phải float)
@@ -367,15 +378,23 @@ class MeshTreeSupport(QObject, Extension):
         """
         self._progress_value = value
 
-        # Suy ra trạng thái từ giá trị tiến độ
-        if value <= 10:
-            self._status_text = "Bước 1/4: Phát hiện vùng lơ lửng..."
+        # Suy ra trạng thái từ giá trị tiến độ (8 bước)
+        if value <= 5:
+            self._status_text = "Bước 1/8: Phát hiện vùng lơ lửng..."
+        elif value <= 10:
+            self._status_text = "Bước 2/8: Tạo vỏ overhang..."
         elif value <= 20:
-            self._status_text = "Bước 2/4: Tạo vỏ overhang..."
-        elif value <= 80:
-            self._status_text = "Bước 3/4: Xây dựng trường va chạm SDF..."
+            self._status_text = "Bước 3/8: Xây dựng trường va chạm SDF..."
+        elif value <= 28:
+            self._status_text = "Bước 4/8: Loại bỏ shell va chạm..."
+        elif value <= 32:
+            self._status_text = "Bước 5/8: Xử lý đa giác (merge/split)..."
+        elif value <= 38:
+            self._status_text = "Bước 6/8: Tạo tip interface..."
+        elif value <= 72:
+            self._status_text = "Bước 7/8: Mô phỏng nhánh cây..."
         elif value < 100:
-            self._status_text = "Bước 4/4: Loại bỏ shell va chạm..."
+            self._status_text = "Bước 8/8: Tạo mesh nhánh..."
         else:
             self._status_text = "Hoàn tất!"
 

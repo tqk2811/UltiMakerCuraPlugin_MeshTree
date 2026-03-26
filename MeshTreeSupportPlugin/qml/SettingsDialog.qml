@@ -2,7 +2,7 @@
 // Dialog cài đặt và hiển thị tiến độ cho plugin Mesh Tree Support
 //
 // Cung cấp:
-// - Các trường nhập liệu cho 7 tham số thuật toán (nhóm theo chức năng)
+// - Các trường nhập liệu cho tham số thuật toán (nhóm theo chức năng)
 // - Thanh tiến trình (ProgressBar) cập nhật realtime từ Job
 // - Nút Bắt đầu / Mặc định / Đóng
 // - Tự động lưu/load thông số qua manager (Python backend)
@@ -22,10 +22,10 @@ import QtQuick.Layouts 1.15
 Window {
     id: root
     title: "Mesh Tree Support - Cài đặt"
-    width: 530
-    height: 780
-    minimumWidth: 480
-    minimumHeight: 650
+    width: 560
+    height: 920
+    minimumWidth: 500
+    minimumHeight: 750
     // Gắn làm cửa sổ con của Cura (luôn nổi trên Cura, đóng khi Cura đóng)
     transientParent: mainWindow
     flags: Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
@@ -157,7 +157,216 @@ Window {
                     }
                 }
 
-                // ─── NHÓM 3: TRÁNH VA CHẠM (BVH + SDF) ───
+                // ─── NHÓM 3: XỬ LÝ ĐA GIÁC ───
+                GroupBox {
+                    title: "  Xử lý đa giác (Polygon)  "
+                    Layout.fillWidth: true
+
+                    GridLayout {
+                        columns: 3
+                        columnSpacing: 8
+                        rowSpacing: 6
+                        anchors.fill: parent
+
+                        Label {
+                            text: "Diện tích tối thiểu:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: minPolyAreaMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Đa giác nhỏ hơn giá trị này sẽ được gộp với hàng xóm nhỏ nhất.\nGiảm số lượng nhánh ở vùng chi tiết nhỏ.\nPhạm vi: 0.1 - 5 mm²"
+                            MouseArea { id: minPolyAreaMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fMinPolyArea
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.1; top: 5; decimals: 2 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("min_polygon_area", v) }
+                        }
+                        Label { text: "mm²" }
+
+                        Label {
+                            text: "Diện tích tối đa:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: maxPolyAreaMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Đa giác lớn hơn giá trị này sẽ được chia nhỏ.\nĐảm bảo mỗi nhánh hỗ trợ vùng vừa phải.\nPhạm vi: 2 - 50 mm²"
+                            MouseArea { id: maxPolyAreaMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fMaxPolyArea
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 2; top: 50; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("max_polygon_area", v) }
+                        }
+                        Label { text: "mm²" }
+                    }
+                }
+
+                // ─── NHÓM 4: TIP INTERFACE ───
+                GroupBox {
+                    title: "  Tip Interface  "
+                    Layout.fillWidth: true
+
+                    GridLayout {
+                        columns: 3
+                        columnSpacing: 8
+                        rowSpacing: 6
+                        anchors.fill: parent
+
+                        Label {
+                            text: "Bán kính tip:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: tipRadiusMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Bán kính octagon tại Point A (đầu nhánh).\nGiá trị nhỏ → nhánh mảnh, giá trị lớn → nhánh dày.\nPhạm vi: 0.1 - 2 mm"
+                            MouseArea { id: tipRadiusMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fTipRadius
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.1; top: 2; decimals: 2 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("tip_radius", v) }
+                        }
+                        Label { text: "mm" }
+
+                        Label {
+                            text: "Hệ số chiều cao:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: tipHeightMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Chiều cao mỗi bước tip tỷ lệ diện tích × hệ số này.\nGiá trị lớn → tip dài hơn, chuyển tiếp mượt hơn.\nPhạm vi: 0.1 - 2"
+                            MouseArea { id: tipHeightMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fTipHeightFactor
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.1; top: 2; decimals: 2 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("tip_height_factor", v) }
+                        }
+                        Label { text: "" }
+                    }
+                }
+
+                // ─── NHÓM 5: NHÁNH CÂY ───
+                GroupBox {
+                    title: "  Nhánh cây (Branch Routing)  "
+                    Layout.fillWidth: true
+
+                    GridLayout {
+                        columns: 3
+                        columnSpacing: 8
+                        rowSpacing: 6
+                        anchors.fill: parent
+
+                        Label {
+                            text: "Bước mô phỏng:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: stepSizeMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Khoảng cách mỗi bước di chuyển nhánh.\nGiá trị nhỏ → mượt hơn nhưng chậm.\nPhạm vi: 0.1 - 2 mm"
+                            MouseArea { id: stepSizeMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fStepSize
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.1; top: 2; decimals: 2 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("branch_step_size", v) }
+                        }
+                        Label { text: "mm" }
+
+                        Label {
+                            text: "Trọng lực:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: gravityMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Trọng số lực kéo nhánh đi thẳng xuống.\nGiá trị lớn → nhánh thẳng hơn.\nPhạm vi: 0.1 - 5"
+                            MouseArea { id: gravityMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fGravity
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.1; top: 5; decimals: 2 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("gravity_weight", v) }
+                        }
+                        Label { text: "" }
+
+                        Label {
+                            text: "Lực gộp nhánh:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: mergeWeightMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Trọng số lực kéo nhánh về phía nhau để gộp.\nGiá trị lớn → gộp nhanh hơn, ít chân hơn.\nPhạm vi: 0 - 2"
+                            MouseArea { id: mergeWeightMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fMergeWeight
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0; top: 2; decimals: 2 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("merge_weight", v) }
+                        }
+                        Label { text: "" }
+
+                        Label {
+                            text: "Khoảng gộp tối đa:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: mergeDistMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Giới hạn khoảng cách gộp nhánh tối đa.\nNgăn gộp nhánh quá xa gây mất cân bằng.\nPhạm vi: 5 - 100 mm"
+                            MouseArea { id: mergeDistMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fMergeDistMax
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 5; top: 100; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("merge_distance_max", v) }
+                        }
+                        Label { text: "mm" }
+
+                        Label {
+                            text: "Hệ số tăng diện tích:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: areaGrowthMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Diện tích nhánh tăng theo: A = A₀ × (1 + hệ_số × Δz).\nGiá trị lớn → nhánh dày nhanh hơn.\nPhạm vi: 0.01 - 0.5"
+                            MouseArea { id: areaGrowthMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fAreaGrowth
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.01; top: 0.5; decimals: 3 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("area_growth_coeff", v) }
+                        }
+                        Label { text: "/mm" }
+
+                        Label {
+                            text: "Quán tính:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: momentumMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Hệ số quán tính (0 = không quán tính, 1 = quán tính tối đa).\nGiá trị cao → đường mượt hơn, đổi hướng chậm.\nPhạm vi: 0 - 0.9"
+                            MouseArea { id: momentumMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fMomentum
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0; top: 0.9; decimals: 2 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("momentum_alpha", v) }
+                        }
+                        Label { text: "" }
+                    }
+                }
+
+                // ─── NHÓM 6: TRÁNH VA CHẠM (BVH + SDF) ───
                 GroupBox {
                     title: "  Tránh va chạm (BVH + SDF)  "
                     Layout.fillWidth: true
@@ -173,7 +382,7 @@ Window {
                             Layout.preferredWidth: 180
                             ToolTip.visible: minClearanceMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Khoảng cách tối thiểu giữa nhánh support và bề mặt vật thể.\nNhánh vi phạm sẽ bị đẩy ra xa bằng gradient SDF.\nGiá trị lớn → an toàn hơn nhưng nhánh xa vật thể.\nPhạm vi: 0.5 - 10 mm"
+                            ToolTip.text: "Khoảng cách tối thiểu giữa nhánh support và bề mặt vật thể.\nNhánh vi phạm sẽ bị đẩy ra xa bằng gradient SDF.\nPhạm vi: 0.5 - 10 mm"
                             MouseArea { id: minClearanceMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
@@ -186,11 +395,28 @@ Window {
                         Label { text: "mm" }
 
                         Label {
+                            text: "Lực chống va chạm:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: collisionWeightMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Trọng số lực đẩy nhánh ra xa vật thể.\nGiá trị lớn → tránh xa hơn nhưng nhánh có thể bị bẻ cong mạnh.\nPhạm vi: 0.1 - 5"
+                            MouseArea { id: collisionWeightMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fCollisionWeight
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.1; top: 5; decimals: 2 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("collision_weight", v) }
+                        }
+                        Label { text: "" }
+
+                        Label {
                             text: "Độ phân giải SDF:"
                             Layout.preferredWidth: 180
                             ToolTip.visible: sdfResolutionMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Kích thước ô lưới 3D của trường khoảng cách (SDF).\nGiá trị nhỏ → chính xác hơn nhưng tốn RAM và thời gian tính.\nGiá trị lớn → nhanh, ít RAM nhưng kém chính xác.\nPhạm vi: 1 - 10 mm"
+                            ToolTip.text: "Kích thước ô lưới 3D của trường khoảng cách (SDF).\nGiá trị nhỏ → chính xác hơn nhưng tốn RAM.\nPhạm vi: 1 - 10 mm"
                             MouseArea { id: sdfResolutionMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
@@ -207,7 +433,7 @@ Window {
                             Layout.preferredWidth: 180
                             ToolTip.visible: sdfPaddingMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Mở rộng lưới SDF ra ngoài bounding box của vật thể.\nĐảm bảo nhánh đi vòng ngoài vẫn có dữ liệu va chạm.\nGiá trị lớn → phạm vi rộng hơn nhưng tốn thêm RAM.\nPhạm vi: 2 - 30 mm"
+                            ToolTip.text: "Mở rộng lưới SDF ra ngoài bounding box.\nĐảm bảo nhánh đi vòng ngoài vẫn có dữ liệu va chạm.\nPhạm vi: 2 - 30 mm"
                             MouseArea { id: sdfPaddingMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
@@ -305,7 +531,18 @@ Window {
         fMinHeight.text         = manager.getSetting("min_overhang_height").toFixed(1)
         fShellThickness.text    = manager.getSetting("shell_thickness").toFixed(1)
         fShellGap.text          = manager.getSetting("shell_gap").toFixed(1)
+        fMinPolyArea.text       = manager.getSetting("min_polygon_area").toFixed(2)
+        fMaxPolyArea.text       = manager.getSetting("max_polygon_area").toFixed(1)
+        fTipRadius.text         = manager.getSetting("tip_radius").toFixed(2)
+        fTipHeightFactor.text   = manager.getSetting("tip_height_factor").toFixed(2)
+        fStepSize.text          = manager.getSetting("branch_step_size").toFixed(2)
+        fGravity.text           = manager.getSetting("gravity_weight").toFixed(2)
+        fMergeWeight.text       = manager.getSetting("merge_weight").toFixed(2)
+        fMergeDistMax.text      = manager.getSetting("merge_distance_max").toFixed(1)
+        fAreaGrowth.text        = manager.getSetting("area_growth_coeff").toFixed(3)
+        fMomentum.text          = manager.getSetting("momentum_alpha").toFixed(2)
         fMinClearance.text      = manager.getSetting("min_clearance").toFixed(1)
+        fCollisionWeight.text   = manager.getSetting("collision_weight").toFixed(2)
         fSdfResolution.text     = manager.getSetting("sdf_resolution").toFixed(1)
         fSdfPadding.text        = manager.getSetting("sdf_padding").toFixed(1)
     }

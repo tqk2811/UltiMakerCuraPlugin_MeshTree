@@ -786,3 +786,156 @@ class CollisionField:
             avoidance = gradient * strength * 0.5
 
         return avoidance, distance
+
+    # -----------------------------------------------------------------
+    # Batch API: xử lý nhiều điểm cùng lúc bằng NumPy vectorized
+    # -----------------------------------------------------------------
+
+    def get_distances_batch(self, points):
+        """
+        Tra cứu SDF cho mảng điểm (vectorized trilinear interpolation).
+
+        Tham số:
+            points : numpy array (N, 3)
+
+        Trả về:
+            distances : numpy array (N,) - khoảng cách (inf nếu ngoài lưới)
+        """
+        pts = np.asarray(points, dtype=np.float64)
+        N = len(pts)
+        if N == 0:
+            return np.array([], dtype=np.float64)
+
+        # Tọa độ lưới liên tục
+        fx = (pts[:, 0] - self._origin[0]) / self._resolution
+        fy = (pts[:, 1] - self._origin[1]) / self._resolution
+        fz = (pts[:, 2] - self._origin[2]) / self._resolution
+
+        nx, ny, nz = self._dims
+
+        # Ngoài lưới → inf
+        out = (fx < 0) | (fx > nx - 1) | (fy < 0) | (fy > ny - 1) | \
+              (fz < 0) | (fz > nz - 1)
+
+        # Clamp để nội suy an toàn
+        fx = np.clip(fx, 0, nx - 1 - 1e-6)
+        fy = np.clip(fy, 0, ny - 1 - 1e-6)
+        fz = np.clip(fz, 0, nz - 1 - 1e-6)
+
+        ix = fx.astype(np.int32)
+        iy = fy.astype(np.int32)
+        iz = fz.astype(np.int32)
+
+        # Clamp index tối đa
+        ix = np.minimum(ix, nx - 2)
+        iy = np.minimum(iy, ny - 2)
+        iz = np.minimum(iz, nz - 2)
+
+        # Phần lẻ
+        dx = fx - ix
+        dy = fy - iy
+        dz = fz - iz
+
+        # 8 góc cube
+        c000 = self._sdf[ix, iy, iz]
+        c100 = self._sdf[ix + 1, iy, iz]
+        c010 = self._sdf[ix, iy + 1, iz]
+        c110 = self._sdf[ix + 1, iy + 1, iz]
+        c001 = self._sdf[ix, iy, iz + 1]
+        c101 = self._sdf[ix + 1, iy, iz + 1]
+        c011 = self._sdf[ix, iy + 1, iz + 1]
+        c111 = self._sdf[ix + 1, iy + 1, iz + 1]
+
+        # Trilinear interpolation
+        c00 = c000 * (1 - dx) + c100 * dx
+        c10 = c010 * (1 - dx) + c110 * dx
+        c01 = c001 * (1 - dx) + c101 * dx
+        c11 = c011 * (1 - dx) + c111 * dx
+        c0 = c00 * (1 - dy) + c10 * dy
+        c1 = c01 * (1 - dy) + c11 * dy
+        result = c0 * (1 - dz) + c1 * dz
+
+        result[out] = np.inf
+        return result
+
+    def get_avoidance_vectors_batch(self, points, min_clearance):
+        """
+        Tính vector tránh va chạm cho mảng điểm (vectorized).
+
+        Tham số:
+            points        : numpy array (N, 3)
+            min_clearance : float
+
+        Trả về:
+            avoidance : numpy array (N, 3) - vector bẻ hướng
+            distances : numpy array (N,) - khoảng cách SDF
+        """
+        pts = np.asarray(points, dtype=np.float64)
+        N = len(pts)
+        if N == 0:
+            return np.zeros((0, 3), dtype=np.float64), np.array([], dtype=np.float64)
+
+        distances = self.get_distances_batch(pts)
+        avoidance = np.zeros((N, 3), dtype=np.float64)
+
+        # Chỉ xử lý điểm cần bẻ hướng
+        need_avoid = distances < min_clearance
+        if not np.any(need_avoid):
+            return avoidance, distances
+
+        pts_avoid = pts[need_avoid]
+
+        # Batch interpolation trên gradient grids
+        gx = self._batch_interpolate(self._grad_x, pts_avoid)
+        gy = self._batch_interpolate(self._grad_y, pts_avoid)
+        gz = self._batch_interpolate(self._grad_z, pts_avoid)
+
+        grad = np.column_stack([gx, gy, gz])
+        grad_len = np.linalg.norm(grad, axis=1, keepdims=True)
+        small = grad_len.ravel() < 1e-6
+        grad_len[small] = 1.0
+        grad /= grad_len
+        grad[small] = [0.0, 0.0, 1.0]
+
+        d = distances[need_avoid]
+        inside = d < 0
+        strength = np.where(
+            inside,
+            1.0,
+            np.clip((min_clearance - d) / min_clearance, 0.0, 1.0)
+        )
+        scale = np.where(inside, 1.0, 0.5)
+
+        avoidance[need_avoid] = grad * (strength * scale)[:, np.newaxis]
+        return avoidance, distances
+
+    def _batch_interpolate(self, grid, points):
+        """Trilinear interpolation batch trên 1 grid."""
+        fx = (points[:, 0] - self._origin[0]) / self._resolution
+        fy = (points[:, 1] - self._origin[1]) / self._resolution
+        fz = (points[:, 2] - self._origin[2]) / self._resolution
+        nx, ny, nz = self._dims
+        fx = np.clip(fx, 0, nx - 1 - 1e-6)
+        fy = np.clip(fy, 0, ny - 1 - 1e-6)
+        fz = np.clip(fz, 0, nz - 1 - 1e-6)
+        ix = np.minimum(fx.astype(np.int32), nx - 2)
+        iy = np.minimum(fy.astype(np.int32), ny - 2)
+        iz = np.minimum(fz.astype(np.int32), nz - 2)
+        dx = fx - ix
+        dy = fy - iy
+        dz = fz - iz
+        c000 = grid[ix, iy, iz]
+        c100 = grid[ix + 1, iy, iz]
+        c010 = grid[ix, iy + 1, iz]
+        c110 = grid[ix + 1, iy + 1, iz]
+        c001 = grid[ix, iy, iz + 1]
+        c101 = grid[ix + 1, iy, iz + 1]
+        c011 = grid[ix, iy + 1, iz + 1]
+        c111 = grid[ix + 1, iy + 1, iz + 1]
+        c00 = c000 * (1 - dx) + c100 * dx
+        c10 = c010 * (1 - dx) + c110 * dx
+        c01 = c001 * (1 - dx) + c101 * dx
+        c11 = c011 * (1 - dx) + c111 * dx
+        c0 = c00 * (1 - dy) + c10 * dy
+        c1 = c01 * (1 - dy) + c11 * dy
+        return c0 * (1 - dz) + c1 * dz
