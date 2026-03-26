@@ -176,14 +176,14 @@ def _connect_rings_same(ring0, ring1):
     for i in range(n):
         j = (i + 1) % n
         base = i * 6
-        # Tri 1
+        # Tri 1 - winding CCW từ ngoài → normal hướng ra ngoài
         tris[base] = ring0[i]
-        tris[base + 1] = ring1[i]
-        tris[base + 2] = ring0[j]
+        tris[base + 1] = ring0[j]
+        tris[base + 2] = ring1[i]
         # Tri 2
         tris[base + 3] = ring0[j]
-        tris[base + 4] = ring1[i]
-        tris[base + 5] = ring1[j]
+        tris[base + 4] = ring1[j]
+        tris[base + 5] = ring1[i]
 
     return tris
 

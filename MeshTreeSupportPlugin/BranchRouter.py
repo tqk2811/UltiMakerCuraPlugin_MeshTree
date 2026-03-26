@@ -177,7 +177,7 @@ def route_branches(points_a, collision_field, settings, cancel_check=None):
 
         # Đảm bảo Z giảm tối thiểu: clamp Z rồi renorm chỉ phần XY
         # Không renorm toàn bộ vector (sẽ làm Z drift > -0.5)
-        z_min = -0.5  # sin(30°) = 0.5 → nhánh nghiêng tối thiểu 30° so với nằm ngang
+        z_min = -0.707  # sin(45°) = 0.707 → nhánh nghiêng tối thiểu 45° so với nằm ngang
         z_clamped = np.minimum(blended[:, 2], z_min)
         xy = blended[:, :2]
         xy_len = np.linalg.norm(xy, axis=1, keepdims=True)
