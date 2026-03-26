@@ -305,11 +305,11 @@ def _build_base_pad(node):
     axis = np.array([0.0, 0.0, -1.0])
     ring = _make_ring(center, axis, _N_SIDES, base_radius)
 
-    # Fan triangulation
+    # Fan triangulation - winding CW → normal hướng +Z (lên phía vật thể)
     tris = []
     for i in range(_N_SIDES):
         j = (i + 1) % _N_SIDES
-        tris.append([center, ring[i], ring[j]])
+        tris.append([center, ring[j], ring[i]])
 
     return np.array(tris, dtype=np.float64).reshape(-1, 3)
 

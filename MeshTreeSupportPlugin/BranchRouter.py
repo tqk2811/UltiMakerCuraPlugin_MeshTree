@@ -175,8 +175,8 @@ def route_branches(points_a, collision_field, settings, cancel_check=None):
         bl_len = np.maximum(bl_len, 1e-10)
         blended /= bl_len
 
-        # Đảm bảo Z giảm (nhánh phải đi xuống)
-        blended[:, 2] = np.minimum(blended[:, 2], -0.1)
+        # Đảm bảo Z giảm: min Z = -0.5 → nhánh nghiêng tối thiểu ~30° so với nằm ngang
+        blended[:, 2] = np.minimum(blended[:, 2], -0.5)
         bl_len2 = np.linalg.norm(blended, axis=1, keepdims=True)
         bl_len2 = np.maximum(bl_len2, 1e-10)
         blended /= bl_len2
