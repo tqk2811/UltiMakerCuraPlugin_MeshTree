@@ -345,7 +345,9 @@ def _process_merges(active, positions, areas, radii, directions,
 
             # Threshold thực tế cho merge: bán kính tổng + step_size
             actual_threshold = radii[ai] + radii[aj] + step_size * 2
-            if d < actual_threshold:
+            # Chỉ merge nếu chênh lệch Z nhỏ (nhánh ở cùng "tầng")
+            dz = abs(positions[ai, 2] - positions[aj, 2])
+            if d < actual_threshold and dz < actual_threshold * 2:
                 pairs.append((d, ai, aj))
 
     if not pairs:
@@ -369,11 +371,14 @@ def _process_merges(active, positions, areas, radii, directions,
         new_area = areas[ai] + areas[aj]
         new_radius = _radius_from_area_oct(new_area)
 
-        # Vị trí mới = trung bình trọng số theo area
+        # Vị trí mới = trung bình trọng số XY, Z lấy thấp hơn (nhánh không đi ngược lên)
         w_ai = areas[ai] / new_area
         w_aj = areas[aj] / new_area
         new_pos = positions[ai] * w_ai + positions[aj] * w_aj
+        new_pos[2] = min(positions[ai, 2], positions[aj, 2])  # Z không tăng lên
+
         new_dir = directions[ai] * w_ai + directions[aj] * w_aj
+        new_dir[2] = min(new_dir[2], -0.1)  # luôn đi xuống
         d_len = np.linalg.norm(new_dir)
         if d_len > 1e-10:
             new_dir /= d_len
