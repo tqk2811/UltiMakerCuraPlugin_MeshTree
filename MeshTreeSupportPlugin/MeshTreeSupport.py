@@ -375,7 +375,7 @@ class MeshTreeSupport(QObject, Extension):
         elif value <= 80:
             self._status_text = "Bước 3/4: Xây dựng trường va chạm SDF..."
         elif value < 100:
-            self._status_text = "Bước 4/4: Lọc tip points..."
+            self._status_text = "Bước 4/4: Loại bỏ shell va chạm..."
         else:
             self._status_text = "Hoàn tất!"
 

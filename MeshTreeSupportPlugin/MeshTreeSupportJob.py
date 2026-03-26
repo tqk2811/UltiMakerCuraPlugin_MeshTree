@@ -134,30 +134,33 @@ class MeshTreeSupportJob(Job):
             return
 
         # =====================================================================
-        # BƯỚC 4: LỌC TIP POINTS KHÔNG ĐỦ KHÔNG GIAN
-        # Kiểm tra SDF tại mỗi tip point (trọng tâm overhang).
-        # Nếu SDF < 0 → tip nằm bên trong vật thể → loại bỏ.
+        # BƯỚC 4: LOẠI BỎ TAM GIÁC SHELL VA CHẠM VỚI VẬT THỂ
+        # Kiểm tra SDF tại mỗi đỉnh shell. Nếu bất kỳ đỉnh nào có SDF < 0
+        # (nằm bên trong vật thể) → loại bỏ cả tam giác đó.
         # =====================================================================
         self.progress.emit(80)
+        Logger.log("d", "Buoc 4/4: Loai bo tam giac shell va cham...")
 
-        tip_points = overhang_points.copy()
-        tip_normals = overhang_normals.copy()
+        num_tris = len(shell_verts) // 3
+        safe_mask = np.ones(num_tris, dtype=bool)
 
-        clearance_threshold = 0.0
-        valid_mask = np.ones(len(tip_points), dtype=bool)
-        for i, tp in enumerate(tip_points):
-            dist = collision_field.get_distance(tp)
-            if dist < clearance_threshold:
-                valid_mask[i] = False
+        for t in range(num_tris):
+            for v in range(3):
+                dist = collision_field.get_distance(
+                    shell_verts[t * 3 + v].astype(np.float64)
+                )
+                if dist < 0:
+                    safe_mask[t] = False
+                    break
 
-        removed_count = int(np.sum(~valid_mask))
-        if removed_count > 0:
-            tip_points = tip_points[valid_mask]
-            tip_normals = tip_normals[valid_mask]
-            Logger.log("i", "  -> Loai %d tip point khong du khong gian (SDF < %.1fmm), con lai %d",
-                       removed_count, clearance_threshold, len(tip_points))
-
-        Logger.log("i", "  -> %d tip points sau loc", len(tip_points))
+        removed = int(np.sum(~safe_mask))
+        if removed > 0:
+            tri_verts = shell_verts.reshape(num_tris, 3, 3)
+            tri_normals = shell_normals.reshape(num_tris, 3, 3)
+            shell_verts = tri_verts[safe_mask].reshape(-1, 3)
+            shell_normals = tri_normals[safe_mask].reshape(-1, 3)
+            Logger.log("i", "  -> Loai %d/%d tam giac shell va cham, con lai %d",
+                       removed, num_tris, num_tris - removed)
 
         if self._cancelled:
             return
