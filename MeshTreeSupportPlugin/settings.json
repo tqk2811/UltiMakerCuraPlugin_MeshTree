@@ -7,14 +7,14 @@
   "sdf_resolution": 3.0,
   "sdf_padding": 10.0,
   "min_polygon_area": 0.5,
-  "max_polygon_area": 10.0,
+  "max_polygon_area": 2.0,
   "tip_radius": 0.4,
   "tip_height_factor": 0.5,
   "branch_step_size": 0.5,
   "gravity_weight": 1.0,
   "merge_weight": 0.3,
   "merge_distance_max": 30.0,
-  "area_growth_coeff": 0.05,
+  "area_growth_coeff": 0.01,
   "momentum_alpha": 0.3,
   "collision_weight": 1.0
 }

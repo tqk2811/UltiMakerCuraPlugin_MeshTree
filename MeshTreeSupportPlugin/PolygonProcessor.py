@@ -23,15 +23,16 @@ from collections import defaultdict
 class PolygonInfo:
     """Thông tin một đa giác đã xử lý (merge/split)."""
     __slots__ = ['centroid', 'area', 'normal', 'n_sides',
-                 'face_indices', 'outer_position']
+                 'face_indices', 'outer_position', 'boundary_verts']
 
     def __init__(self, centroid, area, normal, n_sides, face_indices):
         self.centroid = centroid          # (3,) vị trí trọng tâm
         self.area = area                  # float, diện tích (mm²)
         self.normal = normal              # (3,) outward normal đơn vị
-        self.n_sides = n_sides            # int, số cạnh regular polygon tương đương
+        self.n_sides = n_sides            # int, số cạnh (= len(boundary_verts))
         self.face_indices = face_indices  # list[int] chỉ số face gốc trong overhang
         self.outer_position = None        # (3,) sẽ tính sau = centroid + outward*(gap+thickness)
+        self.boundary_verts = None        # (K, 3) đỉnh biên thực tế trên outer surface, theo thứ tự
 
 
 def process_polygons(vertices, faces, overhang_mask, face_normals,
@@ -68,6 +69,24 @@ def process_polygons(vertices, faces, overhang_mask, face_normals,
     areas = 0.5 * np.linalg.norm(np.cross(v1 - v0, v2 - v0), axis=1)
     centroids = (v0 + v1 + v2) / 3.0
 
+    # --- Tính per-vertex outward normal + outer surface positions ---
+    unique_vert_indices = np.unique(oh_faces.ravel())
+    num_unique = len(unique_vert_indices)
+    idx_map = np.full(vertices.shape[0], -1, dtype=np.int64)
+    idx_map[unique_vert_indices] = np.arange(num_unique)
+    local_oh_faces = idx_map[oh_faces]  # (K, 3) remapped to local vertex indices
+
+    vert_pos = vertices[unique_vert_indices].copy().astype(np.float64)
+    vert_normals = np.zeros((num_unique, 3), dtype=np.float64)
+    np.add.at(vert_normals, local_oh_faces[:, 0], oh_normals)
+    np.add.at(vert_normals, local_oh_faces[:, 1], oh_normals)
+    np.add.at(vert_normals, local_oh_faces[:, 2], oh_normals)
+    lengths = np.linalg.norm(vert_normals, axis=1, keepdims=True)
+    vert_normals /= np.maximum(lengths, 1e-10)
+    outward = -vert_normals
+    offset_dist = gap + thickness
+    outer_verts = vert_pos + outward * offset_dist  # (U, 3)
+
     # --- Xây adjacency graph (tolerance-based) ---
     adjacency = _build_adjacency(oh_faces, vertices, tol=0.01)
 
@@ -86,7 +105,6 @@ def process_polygons(vertices, faces, overhang_mask, face_normals,
 
     # --- Tạo PolygonInfo cho mỗi group ---
     result = []
-    offset_dist = gap + thickness
 
     for gid, members in split_data.items():
         g_areas = areas[members]
@@ -108,10 +126,16 @@ def process_polygons(vertices, faces, overhang_mask, face_normals,
             avg_normal /= nlen
         outward_normal = -avg_normal
 
-        # Số cạnh regular polygon tương đương (cap tại 8)
-        n_sides = min(3 + len(members) - 1, 8)
-        if len(members) == 1:
-            n_sides = 3
+        # Trích boundary vertices thực tế trên outer surface
+        boundary = _extract_boundary_loop(members, local_oh_faces, outer_verts)
+
+        # Số cạnh = số đỉnh boundary thực tế
+        if boundary is not None:
+            n_sides = len(boundary)
+        else:
+            n_sides = min(3 + len(members) - 1, 8)
+            if len(members) == 1:
+                n_sides = 3
 
         info = PolygonInfo(
             centroid=weighted_centroid,
@@ -122,6 +146,7 @@ def process_polygons(vertices, faces, overhang_mask, face_normals,
         )
         # Vị trí trên outer shell surface
         info.outer_position = weighted_centroid + outward_normal * offset_dist
+        info.boundary_verts = boundary
 
         result.append(info)
 
@@ -269,6 +294,63 @@ def _split_large_polygons(groups, areas, centroids, normals,
                 next_id += 1
 
     return result
+
+
+def _extract_boundary_loop(members, local_faces, outer_verts):
+    """
+    Trích xuất vòng biên (boundary loop) của một nhóm tam giác trên outer surface.
+
+    Tìm các cạnh chỉ thuộc 1 tam giác trong nhóm (boundary edges),
+    rồi nối chúng thành vòng đỉnh có thứ tự.
+
+    Tham số:
+        members     : list[int] - chỉ số face cục bộ trong nhóm
+        local_faces : (K, 3) - mảng face với vertex index cục bộ
+        outer_verts : (U, 3) - tọa độ đỉnh trên outer surface
+
+    Trả về:
+        numpy array (N, 3) - đỉnh biên theo thứ tự, hoặc None nếu thất bại
+    """
+    # Đếm số lần mỗi cạnh (undirected) xuất hiện trong nhóm
+    edge_face_count = defaultdict(int)
+    edge_directed = defaultdict(list)
+
+    for m in members:
+        f = local_faces[m]
+        for i in range(3):
+            a, b = int(f[i]), int(f[(i + 1) % 3])
+            key = (min(a, b), max(a, b))
+            edge_face_count[key] += 1
+            edge_directed[key].append((a, b))
+
+    # Cạnh biên = xuất hiện đúng 1 lần
+    boundary_edges = []
+    for key, count in edge_face_count.items():
+        if count == 1:
+            boundary_edges.append(edge_directed[key][0])
+
+    if len(boundary_edges) < 3:
+        return None
+
+    # Xây map: vertex → vertex tiếp theo
+    next_map = {}
+    for a, b in boundary_edges:
+        next_map[a] = b
+
+    # Đi vòng theo thứ tự
+    start = boundary_edges[0][0]
+    loop = [start]
+    current = next_map.get(start)
+    for _ in range(len(boundary_edges)):
+        if current is None or current == start:
+            break
+        loop.append(current)
+        current = next_map.get(current)
+
+    if len(loop) < 3:
+        return None
+
+    return outer_verts[np.array(loop)].copy()
 
 
 def _spatial_split(members, member_centroids, n_parts):

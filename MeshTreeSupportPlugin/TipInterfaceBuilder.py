@@ -56,7 +56,6 @@ def build_tip_interfaces(polygons, tip_radius=0.4, height_factor=0.5):
 
     for pi, poly in enumerate(polygons):
         start_area = poly.area
-        start_n = min(poly.n_sides, 8)
         start_pos = poly.outer_position
         direction = poly.normal.copy()
 
@@ -67,6 +66,16 @@ def build_tip_interfaces(polygons, tip_radius=0.4, height_factor=0.5):
             tip_dir /= tip_len
         else:
             tip_dir = np.array([0.0, 0.0, -1.0])
+
+        # Ring đầu tiên = boundary thực tế từ shell (đúng góc, đúng số cạnh)
+        has_boundary = (poly.boundary_verts is not None and
+                        len(poly.boundary_verts) >= 3)
+        if has_boundary:
+            ring0_verts = poly.boundary_verts  # (N, 3) actual shape
+            start_n = len(ring0_verts)
+        else:
+            start_n = min(poly.n_sides, 8)
+            ring0_verts = None  # sẽ dùng _make_ring fallback
 
         # Nếu diện tích bắt đầu nhỏ hơn hoặc bằng target → tip tối giản
         if start_area <= target_area * 1.1:
@@ -81,30 +90,43 @@ def build_tip_interfaces(polygons, tip_radius=0.4, height_factor=0.5):
             continue
 
         # --- Tính các bước morphing ---
-        # Số bước = 8 - start_n (tăng 1 cạnh mỗi bước)
-        num_steps = max(8 - start_n, 1)
+        # Số bước dựa trên khoảng cách giữa start_n và 8
+        if start_n <= 8:
+            num_steps = max(8 - start_n, 1)
+        else:
+            # Đa giác > 8 cạnh: giảm dần về 8
+            num_steps = max(start_n - 8, 1)
 
         # Hệ số co diện tích mỗi bước
         shrink_factor = (target_area / start_area) ** (1.0 / num_steps)
 
-        # Tạo cross-sections
-        sections = []  # list of (position, n_sides, radius, area)
+        # --- Tạo rings và nối mesh ---
         current_pos = start_pos.copy()
         current_area = start_area
+        prev_ring = None
 
         for step in range(num_steps + 1):
-            n = min(start_n + step, 8)
-
-            if step == num_steps:
+            if step == 0 and has_boundary:
+                # Bước đầu: dùng boundary thực tế từ shell
+                ring = ring0_verts.copy()
+            elif step == num_steps:
                 # Bước cuối: chính xác octagon target
-                r = tip_radius
-                a = target_area
+                ring = _make_ring(current_pos, tip_dir, 8, tip_radius)
             else:
+                # Bước trung gian: regular polygon
+                if start_n <= 8:
+                    n = min(start_n + step, 8)
+                else:
+                    n = max(start_n - step, 8)
                 a = current_area
-                # Radius từ diện tích regular n-gon: A = (n/2) × r² × sin(2π/n)
                 r = _radius_from_area(a, n)
+                ring = _make_ring(current_pos, tip_dir, n, r)
 
-            sections.append((current_pos.copy(), n, r, a))
+            if prev_ring is not None:
+                tris = _connect_rings(prev_ring, ring)
+                all_soup.append(tris)
+
+            prev_ring = ring
 
             if step < num_steps:
                 # Chiều cao bước tỷ lệ diện tích hiện tại
@@ -112,21 +134,9 @@ def build_tip_interfaces(polygons, tip_radius=0.4, height_factor=0.5):
                 current_pos = current_pos + tip_dir * step_h
                 current_area *= shrink_factor
 
-        # --- Tạo mesh giữa các cross-sections liên tiếp ---
-        for s in range(len(sections) - 1):
-            pos0, n0, r0, a0 = sections[s]
-            pos1, n1, r1, a1 = sections[s + 1]
-
-            ring0 = _make_ring(pos0, tip_dir, n0, r0)
-            ring1 = _make_ring(pos1, tip_dir, n1, r1)
-
-            tris = _connect_rings(ring0, ring1)
-            all_soup.append(tris)
-
         # Point A = vị trí cuối tip
-        final_pos = sections[-1][0]
         pt = PointA(
-            position=final_pos.copy(),
+            position=current_pos.copy(),
             radius=tip_radius,
             area=target_area,
             direction=tip_dir.copy(),
