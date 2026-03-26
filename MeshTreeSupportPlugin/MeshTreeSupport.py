@@ -53,28 +53,12 @@ _SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "setti
 _DEFAULT_SETTINGS = {
     "overhang_angle": 45.0,          # Góc overhang (độ)
     "min_overhang_height": 0.5,      # Chiều cao tối thiểu trên bàn in (mm)
-    "cone_top_radius": 0.5,           # Bán kính đáy lớn nón cụt - tiếp xúc vỏ overhang (mm)
-    "cone_bottom_radius": 0.2,        # Bán kính đáy bé nón cụt - chỗ mọc nhánh (mm)
-    "step_size": 1.0,                # Bước di chuyển mỗi lần lặp (mm)
-    "merge_distance": 5.0,           # Khoảng cách merge 2 nhánh (mm)
-    "max_merge_count": 5,            # Số nhánh tối đa gộp cùng lúc
-    "max_branch_angle": 40.0,        # Góc lệch tối đa so với trục Z (độ)
-    "cone_height": 3.0,              # Chiều dài nón cụt (mm)
-    "straight_drop_height": 10.0,    # Chiều cao rơi thẳng (mm) — dưới mức này: rơi thẳng, không merge
-    "radius_growth_rate": 0.02,      # Hệ số tăng bán kính mỗi bước (0-0.1)
-    "min_clearance": 2.0,            # Khoảng cách an toàn đến mesh (mm)
-    "sdf_resolution": 3.0,           # Độ phân giải lưới SDF (mm)
-    "sdf_padding": 10.0,             # Padding quanh mesh cho SDF (mm)
-    "base_brim_multiplier": 3.0,     # Đế rộng gấp bao nhiêu lần bán kính nhánh
-    "base_brim_height": 0.5,         # Chiều cao đế chống đổ (mm)
-    "cylinder_segments": 8,          # Số mặt bao ống trụ
     "shell_thickness": 0.5,          # Độ dày vỏ overhang (mm)
     "shell_gap": 0.3,                # Khoảng cách vỏ đến bề mặt vật thể (mm)
-    "departure_straight_down": 1.0,  # 1=đi thẳng xuống khi không va chạm, 0=vuông góc bề mặt
 }
 
 # Các key là integer (không phải float)
-_INT_SETTINGS = {"cylinder_segments"}
+_INT_SETTINGS = set()
 
 
 def _load_settings():
@@ -381,16 +365,10 @@ class MeshTreeSupport(QObject, Extension):
         self._progress_value = value
 
         # Suy ra trạng thái từ giá trị tiến độ
-        if value <= 10:
-            self._status_text = "Bước 1/5: Phát hiện vùng lơ lửng..."
-        elif value <= 18:
-            self._status_text = "Bước 2/5: Gom cụm điểm (KD-Tree)..."
-        elif value <= 35:
-            self._status_text = "Bước 3/5: Tính trường va chạm SDF..."
-        elif value <= 75:
-            self._status_text = "Bước 4/5: Sinh nhánh cây..."
+        if value <= 20:
+            self._status_text = "Bước 1/2: Phát hiện vùng lơ lửng..."
         elif value < 100:
-            self._status_text = "Bước 5/5: Tạo mesh ống trụ..."
+            self._status_text = "Bước 2/2: Tạo vỏ overhang..."
         else:
             self._status_text = "Hoàn tất!"
 
