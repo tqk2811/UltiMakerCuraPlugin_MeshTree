@@ -244,7 +244,9 @@ def _build_junction(paths, child_ids, parent_id):
             p_dir = np.array([0.0, 0.0, -1.0])
 
         # Bézier: P0=child_end, P1=child_end+c_dir*L, P2=merge-p_dir*L, P3=merge
-        L = np.linalg.norm(c_end.position - merge_node.position) * 0.4
+        # Dùng khoảng cách dọc (Z) để tránh control points chéo → Bézier bẻ ngược lên
+        vert_dist = abs(c_end.position[2] - merge_node.position[2])
+        L = max(vert_dist * 0.4, 0.3)  # tối thiểu 0.3mm để curve mượt
         P0 = c_end.position
         P1 = c_end.position + c_dir * L
         P2 = merge_node.position - p_dir * L

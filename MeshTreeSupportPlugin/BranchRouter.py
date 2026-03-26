@@ -94,6 +94,8 @@ def route_branches(points_a, collision_field, settings, cancel_check=None):
     collision_w = float(settings.get("collision_weight", 1.0))
     min_clearance = float(settings.get("min_clearance", 2.0))
     tip_radius = float(settings.get("tip_radius", 0.4))
+    # Murray's law exponent: n=2 = Da Vinci (A1+A2), n=2.5 = cây thực vật (nhánh cha nhỏ hơn)
+    murray_exp = float(settings.get("murray_exponent", 2.5))
 
     # Hệ số merge distance: √area × coeff = 10mm tại tip
     tip_area = 2.0 * np.sqrt(2.0) * tip_radius ** 2
@@ -261,7 +263,7 @@ def route_branches(points_a, collision_field, settings, cancel_check=None):
         _process_merges(
             active, positions, areas, radii, directions,
             head_areas, head_z, paths, graph,
-            merge_coeff, merge_dist_max, step_size
+            merge_coeff, merge_dist_max, step_size, murray_exp
         )
 
     Logger.log("i", "BranchRouter: %d nhanh, %d merge events, %d landings",
@@ -316,7 +318,7 @@ def _compute_merge_forces(active_idx, positions, areas, merge_coeff,
 
 def _process_merges(active, positions, areas, radii, directions,
                     head_areas, head_z, paths, graph,
-                    merge_coeff, merge_dist_max, step_size):
+                    merge_coeff, merge_dist_max, step_size, murray_exp=2.5):
     """
     Gộp nhánh: closest pair priority, anti-3-merge.
     Mỗi bước Z chỉ gộp 1 cặp gần nhất cho mỗi nhánh.
@@ -367,9 +369,10 @@ def _process_merges(active, positions, areas, radii, directions,
         if areas[aj] > areas[ai]:
             ai, aj = aj, ai
 
-        # Da Vinci: parent_area = Σ(child_areas)
-        new_area = areas[ai] + areas[aj]
-        new_radius = _radius_from_area_oct(new_area)
+        # Murray's law: r_parent = (r1^n + r2^n)^(1/n)
+        # n=2 = Da Vinci (diện tích bảo toàn), n=2.5 = cây thực vật (nhánh cha nhỏ hơn)
+        new_radius = (radii[ai] ** murray_exp + radii[aj] ** murray_exp) ** (1.0 / murray_exp)
+        new_area = _area_from_radius_oct(new_radius)
 
         # Vị trí mới = trung bình trọng số XY, Z lấy thấp hơn (nhánh không đi ngược lên)
         w_ai = areas[ai] / new_area
@@ -408,3 +411,8 @@ def _process_merges(active, positions, areas, radii, directions,
 def _radius_from_area_oct(area):
     """Bán kính octagon từ diện tích: A = 2√2 × r² → r = √(A / 2√2)."""
     return np.sqrt(max(area, 1e-10) / (2.0 * np.sqrt(2.0)))
+
+
+def _area_from_radius_oct(r):
+    """Diện tích octagon từ bán kính: A = 2√2 × r²."""
+    return 2.0 * np.sqrt(2.0) * r * r
