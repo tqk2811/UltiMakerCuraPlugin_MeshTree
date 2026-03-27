@@ -50,10 +50,17 @@ def build_overhang_shell(vertices, faces, overhang_mask, face_normals,
 
     oh_face_indices = np.where(overhang_mask)[0]
     oh_faces = faces[oh_face_indices]        # (K, 3)
-    oh_normals = face_normals[oh_face_indices]  # (K, 3) inward normals
+    oh_normals = face_normals[oh_face_indices].copy()  # (K, 3) inward normals
 
     if len(oh_faces) == 0:
         return np.zeros((0, 3), dtype=np.float32), np.zeros((0, 3), dtype=np.float32)
+
+    # --- Bước 0: Chuẩn hóa oh_normals thành nhất quán ---
+    # Overhang face có INWARD normal hướng LÊN (nz > 0).
+    # Mesh gốc có thể có winding không nhất quán → một số face cho nz < 0.
+    # Flip những face đó để tất cả oh_normals đều hướng lên (nz > 0).
+    flip_oh = oh_normals[:, 2] < 0
+    oh_normals[flip_oh] *= -1
 
     # --- Bước 1: Ánh xạ vertex index gốc → index cục bộ ---
     unique_vert_indices = np.unique(oh_faces.ravel())
@@ -168,22 +175,11 @@ def build_overhang_shell(vertices, faces, overhang_mask, face_normals,
     fn /= fn_len
 
     # --- Bước 9: Post-process winding correction ---
-    # Dùng reference hình học thuần túy (không phụ thuộc oh_normals vì mesh gốc
-    # có thể có winding không nhất quán):
-    #   inner: expected = orig_centroid - inner_centroid (từ inner hướng về vật thể)
-    #   outer: expected = outer_centroid - orig_centroid (từ vật thể hướng ra ngoài)
-    #   side:  expected = outward tại 2 đỉnh biên (per-vertex average, ổn hơn per-face)
-
-    orig_v0 = vert_pos[local_faces[:, 0]]
-    orig_v1 = vert_pos[local_faces[:, 1]]
-    orig_v2 = vert_pos[local_faces[:, 2]]
-    orig_centroids = (orig_v0 + orig_v1 + orig_v2) / 3.0  # (K, 3)
-
-    inner_centroids = (inner_v0 + inner_v1 + inner_v2) / 3.0  # (K, 3)
-    outer_centroids = (outer_v0 + outer_v1 + outer_v2) / 3.0  # (K, 3)
-
-    inner_expected = orig_centroids - inner_centroids  # hướng từ inner về vật thể
-    outer_expected = outer_centroids - orig_centroids  # hướng từ vật thể ra outer
+    # oh_normals đã được chuẩn hóa nhất quán (nz > 0 = inward = hướng lên).
+    # inner expected = inward = oh_normals
+    # outer expected = outward = -oh_normals
+    inner_expected = oh_normals                    # (K, 3) hướng lên về vật thể
+    outer_expected = -oh_normals                   # (K, 3) hướng xuống ra ngoài
 
     if len(side_expected) > 0:
         all_expected = np.concatenate([inner_expected, outer_expected, side_expected], axis=0)
