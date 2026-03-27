@@ -168,12 +168,23 @@ def build_overhang_shell(vertices, faces, overhang_mask, face_normals,
     fn /= fn_len
 
     # --- Bước 9: Post-process winding correction ---
-    # Xây expected normal cho toàn bộ triangle soup
-    # inner: expected = oh_normals (inward)
-    # outer: expected = -oh_normals (outward)
-    # side:  expected = side_expected (outward từ biên)
-    inner_expected = -oh_normals                   # (K, 3) inner faces toward object
-    outer_expected = oh_normals                    # (K, 3) outer faces away from object
+    # Dùng reference hình học thuần túy (không phụ thuộc oh_normals vì mesh gốc
+    # có thể có winding không nhất quán):
+    #   inner: expected = orig_centroid - inner_centroid (từ inner hướng về vật thể)
+    #   outer: expected = outer_centroid - orig_centroid (từ vật thể hướng ra ngoài)
+    #   side:  expected = outward tại 2 đỉnh biên (per-vertex average, ổn hơn per-face)
+
+    orig_v0 = vert_pos[local_faces[:, 0]]
+    orig_v1 = vert_pos[local_faces[:, 1]]
+    orig_v2 = vert_pos[local_faces[:, 2]]
+    orig_centroids = (orig_v0 + orig_v1 + orig_v2) / 3.0  # (K, 3)
+
+    inner_centroids = (inner_v0 + inner_v1 + inner_v2) / 3.0  # (K, 3)
+    outer_centroids = (outer_v0 + outer_v1 + outer_v2) / 3.0  # (K, 3)
+
+    inner_expected = orig_centroids - inner_centroids  # hướng từ inner về vật thể
+    outer_expected = outer_centroids - orig_centroids  # hướng từ vật thể ra outer
+
     if len(side_expected) > 0:
         all_expected = np.concatenate([inner_expected, outer_expected, side_expected], axis=0)
     else:
