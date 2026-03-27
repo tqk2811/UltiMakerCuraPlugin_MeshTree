@@ -172,8 +172,8 @@ def build_overhang_shell(vertices, faces, overhang_mask, face_normals,
     # inner: expected = oh_normals (inward)
     # outer: expected = -oh_normals (outward)
     # side:  expected = side_expected (outward từ biên)
-    inner_expected = oh_normals                    # (K, 3) inward
-    outer_expected = -oh_normals                   # (K, 3) outward
+    inner_expected = -oh_normals                   # (K, 3) inner faces toward object
+    outer_expected = oh_normals                    # (K, 3) outer faces away from object
     if len(side_expected) > 0:
         all_expected = np.concatenate([inner_expected, outer_expected, side_expected], axis=0)
     else:
