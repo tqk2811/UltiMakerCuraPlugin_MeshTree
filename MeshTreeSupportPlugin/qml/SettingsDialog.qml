@@ -23,24 +23,19 @@ Window {
     id: root
     title: "Mesh Tree Support - Cài đặt"
     width: 560
-    height: 920
+    height: 960
     minimumWidth: 500
     minimumHeight: 750
-    // Gắn làm cửa sổ con của Cura (luôn nổi trên Cura, đóng khi Cura đóng)
     transientParent: mainWindow
     flags: Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
     modality: Qt.NonModal
     color: "#f5f5f5"
 
-    // =========================================================================
-    // Layout chính: Header → Settings (scrollable) → Progress → Buttons
-    // =========================================================================
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 16
         spacing: 10
 
-        // === Tiêu đề ===
         Label {
             text: "Cây chống đỡ - Cài đặt"
             font.pixelSize: 18
@@ -50,7 +45,6 @@ Window {
 
         Rectangle { height: 1; Layout.fillWidth: true; color: "#cccccc" }
 
-        // === Vùng settings cuộn được ===
         ScrollView {
             id: scrollView
             Layout.fillWidth: true
@@ -95,7 +89,7 @@ Window {
                             Layout.preferredWidth: 180
                             ToolTip.visible: minHeightMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Bỏ qua các vùng lơ lửng có chiều cao (Z) thấp hơn giá trị này.\nGiúp lọc bỏ các overhang nhỏ sát bàn in không cần support.\nPhạm vi: 0 - 50 mm"
+                            ToolTip.text: "Bỏ qua các vùng lơ lửng có chiều cao (Z) thấp hơn giá trị này.\nPhạm vi: 0 - 50 mm"
                             MouseArea { id: minHeightMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
@@ -106,7 +100,6 @@ Window {
                             onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("min_overhang_height", v) }
                         }
                         Label { text: "mm" }
-
                     }
                 }
 
@@ -126,7 +119,7 @@ Window {
                             Layout.preferredWidth: 180
                             ToolTip.visible: shellThicknessMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Độ dày lớp vỏ mỏng ôm sát bề mặt lơ lửng.\nVỏ gồm 2 lớp (trong + ngoài) tạo thành mặt cong hỗ trợ.\nPhạm vi: 0.1 - 5 mm"
+                            ToolTip.text: "Độ dày lớp vỏ mỏng ôm sát bề mặt lơ lửng.\nPhạm vi: 0.1 - 5 mm"
                             MouseArea { id: shellThicknessMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
@@ -143,7 +136,7 @@ Window {
                             Layout.preferredWidth: 180
                             ToolTip.visible: shellGapMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Khoảng cách giữa bề mặt vật thể và lớp trong của vỏ overhang.\nGiá trị lớn → dễ tách support, giá trị nhỏ → bám sát hơn.\nPhạm vi: 0 - 3 mm"
+                            ToolTip.text: "Khoảng cách giữa bề mặt vật thể và lớp trong của vỏ overhang.\nPhạm vi: 0 - 3 mm"
                             MouseArea { id: shellGapMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
@@ -173,7 +166,7 @@ Window {
                             Layout.preferredWidth: 180
                             ToolTip.visible: minPolyAreaMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Đa giác nhỏ hơn giá trị này sẽ được gộp với hàng xóm nhỏ nhất.\nGiảm số lượng nhánh ở vùng chi tiết nhỏ.\nPhạm vi: 0.1 - 5 mm²"
+                            ToolTip.text: "Đa giác nhỏ hơn giá trị này sẽ được gộp với hàng xóm.\nPhạm vi: 0.1 - 5 mm²"
                             MouseArea { id: minPolyAreaMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
@@ -190,7 +183,7 @@ Window {
                             Layout.preferredWidth: 180
                             ToolTip.visible: maxPolyAreaMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Đa giác lớn hơn giá trị này sẽ được chia nhỏ.\nĐảm bảo mỗi nhánh hỗ trợ vùng vừa phải.\nPhạm vi: 2 - 50 mm²"
+                            ToolTip.text: "Đa giác lớn hơn giá trị này sẽ được chia nhỏ.\nPhạm vi: 2 - 50 mm²"
                             MouseArea { id: maxPolyAreaMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
@@ -220,7 +213,7 @@ Window {
                             Layout.preferredWidth: 180
                             ToolTip.visible: tipRadiusMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Bán kính octagon tại Point A (đầu nhánh).\nGiá trị nhỏ → nhánh mảnh, giá trị lớn → nhánh dày.\nPhạm vi: 0.1 - 2 mm"
+                            ToolTip.text: "Bán kính octagon tại Point A (đầu nhánh).\nPhạm vi: 0.1 - 2 mm"
                             MouseArea { id: tipRadiusMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
@@ -237,7 +230,7 @@ Window {
                             Layout.preferredWidth: 180
                             ToolTip.visible: tipHeightMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Chiều cao mỗi bước tip tỷ lệ diện tích × hệ số này.\nGiá trị lớn → tip dài hơn, chuyển tiếp mượt hơn.\nPhạm vi: 0.1 - 2"
+                            ToolTip.text: "Chiều cao tip tỷ lệ với diện tích đa giác × hệ số.\nPhạm vi: 0.1 - 2"
                             MouseArea { id: tipHeightMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
@@ -251,9 +244,9 @@ Window {
                     }
                 }
 
-                // ─── NHÓM 5: NHÁNH CÂY ───
+                // ─── NHÓM 5: NHÁNH CÂY (Space Colonization) ───
                 GroupBox {
-                    title: "  Nhánh cây (Branch Routing)  "
+                    title: "  Nhánh cây (Space Colonization)  "
                     Layout.fillWidth: true
 
                     GridLayout {
@@ -267,100 +260,166 @@ Window {
                             Layout.preferredWidth: 180
                             ToolTip.visible: stepSizeMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Khoảng cách mỗi bước di chuyển nhánh.\nGiá trị nhỏ → mượt hơn nhưng chậm.\nPhạm vi: 0.1 - 2 mm"
+                            ToolTip.text: "Khoảng cách mỗi bước di chuyển nhánh.\nGiá trị nhỏ → mượt hơn nhưng chậm hơn.\nPhạm vi: 0.5 - 5 mm"
                             MouseArea { id: stepSizeMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
                             id: fStepSize
                             Layout.preferredWidth: 80
                             horizontalAlignment: TextInput.AlignHCenter
-                            validator: DoubleValidator { bottom: 0.1; top: 2; decimals: 2 }
-                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("branch_step_size", v) }
+                            validator: DoubleValidator { bottom: 0.5; top: 5; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("step_size", v) }
                         }
                         Label { text: "mm" }
 
                         Label {
-                            text: "Trọng lực:"
-                            Layout.preferredWidth: 180
-                            ToolTip.visible: gravityMA.containsMouse
-                            ToolTip.delay: 500
-                            ToolTip.text: "Trọng số lực kéo nhánh đi thẳng xuống.\nGiá trị lớn → nhánh thẳng hơn.\nPhạm vi: 0.1 - 5"
-                            MouseArea { id: gravityMA; anchors.fill: parent; hoverEnabled: true }
-                        }
-                        TextField {
-                            id: fGravity
-                            Layout.preferredWidth: 80
-                            horizontalAlignment: TextInput.AlignHCenter
-                            validator: DoubleValidator { bottom: 0.1; top: 5; decimals: 2 }
-                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("gravity_weight", v) }
-                        }
-                        Label { text: "" }
-
-                        Label {
-                            text: "Lực gộp nhánh:"
-                            Layout.preferredWidth: 180
-                            ToolTip.visible: mergeWeightMA.containsMouse
-                            ToolTip.delay: 500
-                            ToolTip.text: "Trọng số lực kéo nhánh về phía nhau để gộp.\nGiá trị lớn → gộp nhanh hơn, ít chân hơn.\nPhạm vi: 0 - 2"
-                            MouseArea { id: mergeWeightMA; anchors.fill: parent; hoverEnabled: true }
-                        }
-                        TextField {
-                            id: fMergeWeight
-                            Layout.preferredWidth: 80
-                            horizontalAlignment: TextInput.AlignHCenter
-                            validator: DoubleValidator { bottom: 0; top: 2; decimals: 2 }
-                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("merge_weight", v) }
-                        }
-                        Label { text: "" }
-
-                        Label {
-                            text: "Khoảng gộp tối đa:"
+                            text: "Khoảng cách gộp:"
                             Layout.preferredWidth: 180
                             ToolTip.visible: mergeDistMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Giới hạn khoảng cách gộp nhánh tối đa.\nNgăn gộp nhánh quá xa gây mất cân bằng.\nPhạm vi: 5 - 100 mm"
+                            ToolTip.text: "Khoảng cách tối đa để 2 nhánh gộp vào nhau.\nGiá trị lớn → nhánh gộp nhiều hơn, ít chân hơn.\nPhạm vi: 5 - 50 mm"
                             MouseArea { id: mergeDistMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
-                            id: fMergeDistMax
+                            id: fMergeDist
                             Layout.preferredWidth: 80
                             horizontalAlignment: TextInput.AlignHCenter
-                            validator: DoubleValidator { bottom: 5; top: 100; decimals: 1 }
-                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("merge_distance_max", v) }
+                            validator: DoubleValidator { bottom: 5; top: 50; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("merge_distance", v) }
                         }
                         Label { text: "mm" }
 
                         Label {
-                            text: "Hệ số tăng diện tích:"
+                            text: "Số nhánh gộp tối đa:"
                             Layout.preferredWidth: 180
-                            ToolTip.visible: areaGrowthMA.containsMouse
+                            ToolTip.visible: maxMergeMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Diện tích nhánh tăng theo: A = A₀ × (1 + hệ_số × Δz).\nGiá trị lớn → nhánh dày nhanh hơn.\nPhạm vi: 0.01 - 0.5"
-                            MouseArea { id: areaGrowthMA; anchors.fill: parent; hoverEnabled: true }
+                            ToolTip.text: "Số nhánh tối đa được gộp cùng lúc tại 1 điểm.\nPhạm vi: 2 - 10"
+                            MouseArea { id: maxMergeMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
-                            id: fAreaGrowth
+                            id: fMaxMergeCount
                             Layout.preferredWidth: 80
                             horizontalAlignment: TextInput.AlignHCenter
-                            validator: DoubleValidator { bottom: 0.01; top: 0.5; decimals: 3 }
-                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("area_growth_coeff", v) }
+                            validator: IntValidator { bottom: 2; top: 10 }
+                            onEditingFinished: { var v = parseInt(text); if (!isNaN(v)) manager.updateSetting("max_merge_count", v) }
                         }
-                        Label { text: "/mm" }
+                        Label { text: "nhánh" }
 
                         Label {
-                            text: "Quán tính:"
+                            text: "Góc nhánh tối đa:"
                             Layout.preferredWidth: 180
-                            ToolTip.visible: momentumMA.containsMouse
+                            ToolTip.visible: maxAngleMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Hệ số quán tính (0 = không quán tính, 1 = quán tính tối đa).\nGiá trị cao → đường mượt hơn, đổi hướng chậm.\nPhạm vi: 0 - 0.9"
-                            MouseArea { id: momentumMA; anchors.fill: parent; hoverEnabled: true }
+                            ToolTip.text: "Góc lệch tối đa của nhánh so với phương thẳng đứng.\nGiá trị nhỏ → nhánh thẳng hơn.\nPhạm vi: 10 - 70°"
+                            MouseArea { id: maxAngleMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
-                            id: fMomentum
+                            id: fMaxBranchAngle
                             Layout.preferredWidth: 80
                             horizontalAlignment: TextInput.AlignHCenter
-                            validator: DoubleValidator { bottom: 0; top: 0.9; decimals: 2 }
-                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("momentum_alpha", v) }
+                            validator: DoubleValidator { bottom: 10; top: 70; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("max_branch_angle", v) }
+                        }
+                        Label { text: "độ" }
+
+                        Label {
+                            text: "Chiều dài nón departure:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: coneHeightMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Chiều dài đoạn hình nón cụt xuất phát từ tip interface.\nGiúp tạo chân vuông góc dễ tách support.\nPhạm vi: 0.5 - 20 mm"
+                            MouseArea { id: coneHeightMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fConeHeight
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.5; top: 20; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("cone_height", v) }
+                        }
+                        Label { text: "mm" }
+
+                        Label {
+                            text: "Chiều cao rơi thẳng:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: straightDropMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Dưới chiều cao này, nhánh rơi thẳng đứng xuống bàn in.\nTạo chân đế ổn định.\nPhạm vi: 0 - 50 mm"
+                            MouseArea { id: straightDropMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fStraightDrop
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0; top: 50; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("straight_drop_height", v) }
+                        }
+                        Label { text: "mm" }
+
+                        Label {
+                            text: "Tốc độ tăng bán kính:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: radiusGrowthMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Hệ số tăng bán kính mỗi bước: r *= (1 + hệ_số).\n0 = chỉ tăng khi gộp nhánh (Murray).\nPhạm vi: 0 - 0.1"
+                            MouseArea { id: radiusGrowthMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fRadiusGrowth
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0; top: 0.1; decimals: 3 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("radius_growth_rate", v) }
+                        }
+                        Label { text: "/bước" }
+
+                        Label {
+                            text: "Bán kính đầu nón (lớn):"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: coneTopMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Bán kính đáy lớn của nón cụt xuất phát (tiếp xúc tip interface).\nPhạm vi: 0.2 - 3 mm"
+                            MouseArea { id: coneTopMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fConeTopRadius
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.2; top: 3; decimals: 2 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("cone_top_radius", v) }
+                        }
+                        Label { text: "mm" }
+
+                        Label {
+                            text: "Bán kính đầu nón (nhỏ):"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: coneBotMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Bán kính đáy nhỏ của nón cụt (chỗ bắt đầu routing).\nPhạm vi: 0.1 - 2 mm"
+                            MouseArea { id: coneBotMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fConeBottomRadius
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.1; top: 2; decimals: 2 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("cone_bottom_radius", v) }
+                        }
+                        Label { text: "mm" }
+
+                        Label {
+                            text: "Departure thẳng xuống:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: depStraightMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Bật: đoạn departure đi thẳng xuống (-Z).\nTắt: đi theo hướng vuông góc bề mặt overhang."
+                            MouseArea { id: depStraightMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        CheckBox {
+                            id: fDepartureStraight
+                            Layout.preferredWidth: 80
+                            onCheckedChanged: manager.updateSetting("departure_straight_down", checked ? 1.0 : 0.0)
                         }
                         Label { text: "" }
                     }
@@ -382,7 +441,7 @@ Window {
                             Layout.preferredWidth: 180
                             ToolTip.visible: minClearanceMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Khoảng cách tối thiểu giữa nhánh support và bề mặt vật thể.\nNhánh vi phạm sẽ bị đẩy ra xa bằng gradient SDF.\nPhạm vi: 0.5 - 10 mm"
+                            ToolTip.text: "Khoảng cách tối thiểu giữa nhánh support và bề mặt vật thể.\nPhạm vi: 0.5 - 10 mm"
                             MouseArea { id: minClearanceMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
@@ -393,23 +452,6 @@ Window {
                             onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("min_clearance", v) }
                         }
                         Label { text: "mm" }
-
-                        Label {
-                            text: "Lực chống va chạm:"
-                            Layout.preferredWidth: 180
-                            ToolTip.visible: collisionWeightMA.containsMouse
-                            ToolTip.delay: 500
-                            ToolTip.text: "Trọng số lực đẩy nhánh ra xa vật thể.\nGiá trị lớn → tránh xa hơn nhưng nhánh có thể bị bẻ cong mạnh.\nPhạm vi: 0.1 - 5"
-                            MouseArea { id: collisionWeightMA; anchors.fill: parent; hoverEnabled: true }
-                        }
-                        TextField {
-                            id: fCollisionWeight
-                            Layout.preferredWidth: 80
-                            horizontalAlignment: TextInput.AlignHCenter
-                            validator: DoubleValidator { bottom: 0.1; top: 5; decimals: 2 }
-                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("collision_weight", v) }
-                        }
-                        Label { text: "" }
 
                         Label {
                             text: "Độ phân giải SDF:"
@@ -433,7 +475,7 @@ Window {
                             Layout.preferredWidth: 180
                             ToolTip.visible: sdfPaddingMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Mở rộng lưới SDF ra ngoài bounding box.\nĐảm bảo nhánh đi vòng ngoài vẫn có dữ liệu va chạm.\nPhạm vi: 2 - 30 mm"
+                            ToolTip.text: "Mở rộng lưới SDF ra ngoài bounding box.\nPhạm vi: 2 - 30 mm"
                             MouseArea { id: sdfPaddingMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
@@ -446,6 +488,71 @@ Window {
                         Label { text: "mm" }
                     }
                 }
+
+                // ─── NHÓM 7: MESH NHÁNH CÂY ───
+                GroupBox {
+                    title: "  Mesh nhánh cây  "
+                    Layout.fillWidth: true
+
+                    GridLayout {
+                        columns: 3
+                        columnSpacing: 8
+                        rowSpacing: 6
+                        anchors.fill: parent
+
+                        Label {
+                            text: "Số cạnh mặt cắt:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: segmentsMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Số cạnh của đa giác mặt cắt ngang ống nhánh.\n8 = bát giác (mặc định), nhiều hơn → tròn hơn nhưng nhiều tam giác hơn.\nPhạm vi: 4 - 16"
+                            MouseArea { id: segmentsMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fCylSegments
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: IntValidator { bottom: 4; top: 16 }
+                            onEditingFinished: { var v = parseInt(text); if (!isNaN(v)) manager.updateSetting("cylinder_segments", v) }
+                        }
+                        Label { text: "cạnh" }
+
+                        Label {
+                            text: "Hệ số mở rộng đế:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: brimMultMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Bán kính đế = bán kính nhánh × hệ số này.\nGiá trị lớn → đế rộng hơn, bám bàn in tốt hơn.\nPhạm vi: 1 - 10"
+                            MouseArea { id: brimMultMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fBrimMultiplier
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 1; top: 10; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("base_brim_multiplier", v) }
+                        }
+                        Label { text: "×" }
+
+                        Label {
+                            text: "Chiều cao đế:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: brimHeightMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Chiều cao của phần đế hình nón mở rộng tại chân cây.\nPhạm vi: 0.1 - 5 mm"
+                            MouseArea { id: brimHeightMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fBrimHeight
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.1; top: 5; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("base_brim_height", v) }
+                        }
+                        Label { text: "mm" }
+                    }
+                }
+
             }
         }
 
@@ -513,37 +620,39 @@ Window {
     // =========================================================================
     // NẠP / TẢI LẠI THÔNG SỐ
     // =========================================================================
-
-    // Nạp giá trị ban đầu từ Python khi dialog mở
     Component.onCompleted: reloadSettings()
 
-    // Khi Python phát signal settingsChanged (VD: sau khi Reset) → reload tất cả
     Connections {
         target: manager
         function onSettingsChanged() { reloadSettings() }
     }
 
-    // Hàm nạp lại tất cả giá trị từ Python backend
     function reloadSettings() {
         if (!manager) return
 
-        fOverhangAngle.text     = manager.getSetting("overhang_angle").toFixed(1)
-        fMinHeight.text         = manager.getSetting("min_overhang_height").toFixed(1)
-        fShellThickness.text    = manager.getSetting("shell_thickness").toFixed(1)
-        fShellGap.text          = manager.getSetting("shell_gap").toFixed(1)
-        fMinPolyArea.text       = manager.getSetting("min_polygon_area").toFixed(2)
-        fMaxPolyArea.text       = manager.getSetting("max_polygon_area").toFixed(1)
-        fTipRadius.text         = manager.getSetting("tip_radius").toFixed(2)
-        fTipHeightFactor.text   = manager.getSetting("tip_height_factor").toFixed(2)
-        fStepSize.text          = manager.getSetting("branch_step_size").toFixed(2)
-        fGravity.text           = manager.getSetting("gravity_weight").toFixed(2)
-        fMergeWeight.text       = manager.getSetting("merge_weight").toFixed(2)
-        fMergeDistMax.text      = manager.getSetting("merge_distance_max").toFixed(1)
-        fAreaGrowth.text        = manager.getSetting("area_growth_coeff").toFixed(3)
-        fMomentum.text          = manager.getSetting("momentum_alpha").toFixed(2)
-        fMinClearance.text      = manager.getSetting("min_clearance").toFixed(1)
-        fCollisionWeight.text   = manager.getSetting("collision_weight").toFixed(2)
-        fSdfResolution.text     = manager.getSetting("sdf_resolution").toFixed(1)
-        fSdfPadding.text        = manager.getSetting("sdf_padding").toFixed(1)
+        fOverhangAngle.text      = manager.getSetting("overhang_angle").toFixed(1)
+        fMinHeight.text          = manager.getSetting("min_overhang_height").toFixed(1)
+        fShellThickness.text     = manager.getSetting("shell_thickness").toFixed(1)
+        fShellGap.text           = manager.getSetting("shell_gap").toFixed(1)
+        fMinPolyArea.text        = manager.getSetting("min_polygon_area").toFixed(2)
+        fMaxPolyArea.text        = manager.getSetting("max_polygon_area").toFixed(1)
+        fTipRadius.text          = manager.getSetting("tip_radius").toFixed(2)
+        fTipHeightFactor.text    = manager.getSetting("tip_height_factor").toFixed(2)
+        fStepSize.text           = manager.getSetting("step_size").toFixed(1)
+        fMergeDist.text          = manager.getSetting("merge_distance").toFixed(1)
+        fMaxMergeCount.text      = manager.getSetting("max_merge_count").toFixed(0)
+        fMaxBranchAngle.text     = manager.getSetting("max_branch_angle").toFixed(1)
+        fConeHeight.text         = manager.getSetting("cone_height").toFixed(1)
+        fStraightDrop.text       = manager.getSetting("straight_drop_height").toFixed(1)
+        fRadiusGrowth.text       = manager.getSetting("radius_growth_rate").toFixed(3)
+        fConeTopRadius.text      = manager.getSetting("cone_top_radius").toFixed(2)
+        fConeBottomRadius.text   = manager.getSetting("cone_bottom_radius").toFixed(2)
+        fDepartureStraight.checked = manager.getSetting("departure_straight_down") > 0.5
+        fMinClearance.text       = manager.getSetting("min_clearance").toFixed(1)
+        fSdfResolution.text      = manager.getSetting("sdf_resolution").toFixed(1)
+        fSdfPadding.text         = manager.getSetting("sdf_padding").toFixed(1)
+        fCylSegments.text        = manager.getSetting("cylinder_segments").toFixed(0)
+        fBrimMultiplier.text     = manager.getSetting("base_brim_multiplier").toFixed(1)
+        fBrimHeight.text         = manager.getSetting("base_brim_height").toFixed(1)
     }
 }
