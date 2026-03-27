@@ -179,6 +179,18 @@ def _build_bend_bezier(p_from, p_bend, p_to, radius, segments):
     # Sample đủ điểm dọc curve
     n_samples = max(5, int(np.linalg.norm(P3 - P0) / 0.5) + 1)
 
+    # --- Parallel transport: khởi tạo perp1 từ d_in, transport qua từng ring ---
+    # Tránh cross-section bị flip/twist khi nhánh bẻ sang hướng khác
+    if abs(d_in[2]) < 0.9:
+        ref0 = np.array([0.0, 0.0, 1.0])
+    else:
+        ref0 = np.array([1.0, 0.0, 0.0])
+    perp1 = np.cross(d_in, ref0)
+    pl0 = np.linalg.norm(perp1)
+    if pl0 < 1e-6:
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int32)
+    perp1 /= pl0
+
     rings = []  # list of (segments, 3) arrays
     for si in range(n_samples):
         t = si / (n_samples - 1)
@@ -193,12 +205,8 @@ def _build_bend_bezier(p_from, p_bend, p_to, radius, segments):
         else:
             tangent /= tl
 
-        # Xây ring vuông góc với tangent
-        if abs(tangent[2]) < 0.9:
-            ref = np.array([0.0, 0.0, 1.0])
-        else:
-            ref = np.array([1.0, 0.0, 0.0])
-        perp1 = np.cross(tangent, ref)
+        # Parallel transport: chiếu perp1 vuông góc với tangent mới
+        perp1 = perp1 - np.dot(perp1, tangent) * tangent
         pl = np.linalg.norm(perp1)
         if pl < 1e-6:
             continue
@@ -340,28 +348,34 @@ def build_tree_mesh(all_nodes, all_edges, segments=8,
         froms = incoming_edges.get(node_idx, [])
         tos = outgoing_edges.get(node_idx, [])
 
-        for f_idx in froms:
-            p_from = np.asarray(all_nodes[f_idx][0], dtype=np.float64)
-            for t_idx in tos:
-                p_to = np.asarray(all_nodes[t_idx][0], dtype=np.float64)
+        # Chỉ áp dụng Bézier cho single-path bend (1 incoming, 1 outgoing)
+        # Junction nodes (2+ incoming) bỏ qua: frustum per edge đã đủ,
+        # nhiều Bézier cùng kết thúc tại P3 gây fin artifacts
+        if len(froms) != 1 or len(tos) != 1:
+            continue
 
-                # Kiểm tra cặp này có bẻ góc không
-                d_in = p_bend - p_from
-                d_out = p_to - p_bend
-                l_in = np.linalg.norm(d_in)
-                l_out = np.linalg.norm(d_out)
-                if l_in < 1e-6 or l_out < 1e-6:
-                    continue
-                if np.dot(d_in / l_in, d_out / l_out) >= _COS_BEND_THRESHOLD:
-                    continue  # Không bẻ góc, bỏ qua
+        f_idx = froms[0]
+        t_idx = tos[0]
+        p_from = np.asarray(all_nodes[f_idx][0], dtype=np.float64)
+        p_to   = np.asarray(all_nodes[t_idx][0], dtype=np.float64)
 
-                bend_v, bend_f = _build_bend_bezier(p_from, p_bend, p_to, radius, segments)
-                if len(bend_v) == 0:
-                    continue
+        # Kiểm tra góc bẻ
+        d_in  = p_bend - p_from
+        d_out = p_to - p_bend
+        l_in  = np.linalg.norm(d_in)
+        l_out = np.linalg.norm(d_out)
+        if l_in < 1e-6 or l_out < 1e-6:
+            continue
+        if np.dot(d_in / l_in, d_out / l_out) >= _COS_BEND_THRESHOLD:
+            continue
 
-                all_verts_list.append(bend_v)
-                all_faces_list.append(bend_f + vertex_offset)
-                vertex_offset += len(bend_v)
+        bend_v, bend_f = _build_bend_bezier(p_from, p_bend, p_to, radius, segments)
+        if len(bend_v) == 0:
+            continue
+
+        all_verts_list.append(bend_v)
+        all_faces_list.append(bend_f + vertex_offset)
+        vertex_offset += len(bend_v)
 
     # --- Bước 4: Nắp tip và đế base ---
     tip_nodes = parent_set - child_set
