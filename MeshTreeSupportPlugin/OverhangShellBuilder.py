@@ -183,15 +183,20 @@ def build_overhang_shell(vertices, faces, overhang_mask, face_normals,
     wrong = np.sum(fn * all_expected, axis=1) < 0  # (num_tris,)
     if np.any(wrong):
         # Swap v1 ↔ v2 cho tam giác sai
-        old_v1 = all_soup[1::3][wrong].copy()
-        old_v2 = all_soup[2::3][wrong].copy()
-        all_soup[1::3][wrong] = old_v2
-        all_soup[2::3][wrong] = old_v1
+        # Dùng flat index (i*3+1, i*3+2) vì double-indexing numpy tạo copy
+        wrong_idx = np.where(wrong)[0]
+        idx_v1 = wrong_idx * 3 + 1
+        idx_v2 = wrong_idx * 3 + 2
+        old_v1 = all_soup[idx_v1].copy()
+        old_v2 = all_soup[idx_v2].copy()
+        all_soup[idx_v1] = old_v2
+        all_soup[idx_v2] = old_v1
         # Recompute normals cho các tam giác đã flip
+        sv0_new = all_soup[0::3]
         sv1_new = all_soup[1::3]
         sv2_new = all_soup[2::3]
-        e1_new = sv1_new - sv0
-        e2_new = sv2_new - sv0
+        e1_new = sv1_new - sv0_new
+        e2_new = sv2_new - sv0_new
         fn_new = np.cross(e1_new, e2_new)
         fn_new_len = np.linalg.norm(fn_new, axis=1, keepdims=True)
         fn_new_len = np.maximum(fn_new_len, 1e-10)
