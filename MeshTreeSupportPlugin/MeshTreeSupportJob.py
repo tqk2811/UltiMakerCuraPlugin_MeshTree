@@ -291,14 +291,12 @@ class MeshTreeSupportJob(Job):
         all_mesh_parts = []
         all_normal_parts = []
 
-        # Shell (lưu riêng để xuất thành object độc lập)
+        # Shell (object riêng biệt, không gộp vào mesh chung)
         if shell_verts is not None and len(shell_verts) > 0:
             self._result_shell_mesh_data = MeshData(
                 vertices=shell_verts.astype(np.float32),
                 normals=shell_normals.astype(np.float32)
             )
-            all_mesh_parts.append(shell_verts.astype(np.float32))
-            all_normal_parts.append(shell_normals.astype(np.float32))
 
         # Tip interface
         if tip_verts is not None and len(tip_verts) > 0:
