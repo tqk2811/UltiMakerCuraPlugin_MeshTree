@@ -245,39 +245,7 @@ def _connect_rings(ring0, ring1):
     if not tris:
         return np.zeros((0, 3), dtype=np.float64)
 
-    soup = np.array(tris, dtype=np.float64).reshape(-1, 3)
-
-    # --- Post-process: đảm bảo normal hướng ra ngoài trục frustum ---
-    center0 = np.mean(ring0, axis=0)
-    center1 = np.mean(ring1, axis=0)
-    axis = center1 - center0
-    axis_len = np.linalg.norm(axis)
-    if axis_len > 1e-10:
-        axis /= axis_len
-
-    num_tris = len(soup) // 3
-    v0 = soup[0::3]
-    v1 = soup[1::3]
-    v2 = soup[2::3]
-    face_normals = np.cross(v1 - v0, v2 - v0)
-
-    # Tâm mỗi tam giác → vector từ trục ra tâm tam giác
-    tri_centers = (v0 + v1 + v2) / 3.0
-    # Project tâm tam giác lên trục → tìm điểm gần nhất trên trục
-    t = np.sum((tri_centers - center0) * axis, axis=1, keepdims=True)
-    closest_on_axis = center0 + t * axis
-    outward_dir = tri_centers - closest_on_axis  # hướng ra ngoài
-
-    # Normal phải cùng hướng với outward_dir
-    dot = np.sum(face_normals * outward_dir, axis=1)
-    wrong = dot < 0
-    if np.any(wrong):
-        wrong_idx = np.where(wrong)[0]
-        idx1 = wrong_idx * 3 + 1
-        idx2 = wrong_idx * 3 + 2
-        soup[idx1], soup[idx2] = soup[idx2].copy(), soup[idx1].copy()
-
-    return soup
+    return np.array(tris, dtype=np.float64).reshape(-1, 3)
 
 
 def _compute_soup_normals(all_verts):
