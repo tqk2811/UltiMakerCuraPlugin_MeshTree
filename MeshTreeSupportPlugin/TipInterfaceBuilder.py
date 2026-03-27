@@ -207,45 +207,71 @@ def _connect_rings(ring0, ring1):
 
     tris = []
 
-    if n0 == n1:
-        # Cùng số đỉnh: quad strip
-        # Cả 2 ring đều CCW → swap vertex order để normal hướng ra ngoài
-        for i in range(n0):
-            i_next = (i + 1) % n0
-            tris.append([ring0[i], ring0[i_next], ring1[i]])
-            tris.append([ring0[i_next], ring1[i_next], ring1[i]])
-    else:
-        # Khác số đỉnh: dùng dual-pointer fan
-        i0 = 0
-        i1 = 0
-        total_tris = n0 + n1
+    if n0 != n1:
+        # Resample ring lớn về cùng số đỉnh với ring nhỏ
+        # Dùng interpolation dọc theo boundary để giữ hình dạng
+        if n0 > n1:
+            ring0 = _resample_ring(ring0, n1)
+            n0 = n1
+        else:
+            ring1 = _resample_ring(ring1, n0)
+            n1 = n0
 
-        for _ in range(total_tris):
-            if i0 >= n0 and i1 >= n1:
-                break
-
-            i0_next = (i0 + 1) % n0 if i0 < n0 else i0 % n0
-            i1_next = (i1 + 1) % n1 if i1 < n1 else i1 % n1
-
-            ratio0 = i0 / n0 if n0 > 0 else 0
-            ratio1 = i1 / n1 if n1 > 0 else 0
-
-            if ratio0 <= ratio1 and i0 < n0:
-                tris.append([ring0[i0 % n0], ring0[i0_next], ring1[i1 % n1]])
-                i0 += 1
-            elif i1 < n1:
-                tris.append([ring0[i0 % n0], ring1[i1_next], ring1[i1 % n1]])
-                i1 += 1
-            elif i0 < n0:
-                tris.append([ring0[i0 % n0], ring0[i0_next], ring1[i1 % n1]])
-                i0 += 1
-            else:
-                break
+    # Quad strip: cả 2 ring cùng số đỉnh, cùng CCW
+    for i in range(n0):
+        i_next = (i + 1) % n0
+        tris.append([ring0[i], ring0[i_next], ring1[i]])
+        tris.append([ring0[i_next], ring1[i_next], ring1[i]])
 
     if not tris:
         return np.zeros((0, 3), dtype=np.float64)
 
     return np.array(tris, dtype=np.float64).reshape(-1, 3)
+
+
+def _resample_ring(ring, target_n):
+    """
+    Resample ring (M đỉnh) thành target_n đỉnh bằng interpolation dọc boundary.
+    Giữ hình dạng ring, chỉ thay đổi số đỉnh.
+    """
+    m = len(ring)
+    if m == target_n:
+        return ring.copy()
+
+    # Tính cumulative arc length dọc ring (closed loop)
+    diffs = np.diff(ring, axis=0, append=ring[:1])  # wrap around
+    seg_lengths = np.linalg.norm(diffs, axis=1)
+    cum_len = np.cumsum(seg_lengths)
+    total_len = cum_len[-1]
+
+    if total_len < 1e-10:
+        return np.tile(ring[0], (target_n, 1))
+
+    cum_len_normalized = cum_len / total_len  # [0..1], cum_len_normalized[-1] = 1.0
+
+    # Tạo target_n điểm phân bố đều trên [0, 1)
+    target_params = np.linspace(0, 1, target_n, endpoint=False)
+
+    result = np.zeros((target_n, 3), dtype=np.float64)
+    for i, t in enumerate(target_params):
+        # Tìm segment chứa t
+        # cum_len_normalized[j-1] <= t < cum_len_normalized[j]
+        idx = np.searchsorted(cum_len_normalized, t, side='right')
+        idx = idx % m
+
+        prev_cum = cum_len_normalized[idx - 1] if idx > 0 else 0.0
+        next_cum = cum_len_normalized[idx]
+        seg_range = next_cum - prev_cum
+        if seg_range < 1e-10:
+            frac = 0.0
+        else:
+            frac = (t - prev_cum) / seg_range
+
+        p0 = ring[idx]
+        p1 = ring[(idx + 1) % m]
+        result[i] = p0 + frac * (p1 - p0)
+
+    return result
 
 
 def _compute_soup_normals(all_verts):
