@@ -1,433 +1,509 @@
 # ==============================================================================
-# Module: Mô phỏng nhánh cây (Branch Router)
+# Module: Sinh nhánh cây (Branch Routing)
 #
-# Mô phỏng nhánh support từ Point A đi xuống sàn Z=0 (hoặc đáp lên vật thể).
+# Thuật toán: Space Colonization Algorithm (biến thể bottom-up)
 #
-# Thuật toán:
-#   - Step-by-step simulation từ Z cao → Z=0
-#   - 3 lực: trọng lực, lực hấp dẫn gộp (2D gravity center), chống va chạm
-#   - Quán tính (momentum) làm mượt đường đi
-#   - Gộp nhánh: closest pair priority, anti-3-merge
-#   - Diện tích tăng dần: area = area_head × (1 + coeff × |Δz|)
-#   - Landing: nhánh chạm vật thể → tạo landing pad
-#   - Da Vinci: tại merge → parent_area = Σ(child_areas)
+# Thuật toán Space Colonization gốc (Runions et al., 2007):
+# - Đặt "attraction points" trong không gian (mô phỏng tán cây)
+# - Cây mọc lên TỪ DƯỚI, hướng về các attraction points
+# - Dùng để sinh cây thực vật trong đồ họa máy tính
 #
-# Đầu vào: list[PointA], CollisionField, settings
-# Đầu ra: BranchGraph — đồ thị cây (paths + radii + merge info)
+# Biến thể bottom-up cho Tree Support:
+# - "Attraction points" = bàn in (Z=0) và trọng tâm các nhánh
+# - Nhánh bắt đầu TỪ TRÊN (điểm overhang) rồi mọc XUỐNG
+# - Các nhánh gần nhau hội tụ (merge) thành thân chính khi đi xuống
+# - Áp dụng tránh va chạm (collision avoidance) tại mỗi bước
+# - Kết thúc bằng đoạn thẳng đứng (straight drop) xuống bàn in
 #
-# Luồng thực thi: worker thread (trong Job.run())
+# Hệ tọa độ: Z-up (Z = chiều cao, bàn in tại Z=0)
+#
+# Đầu vào: tip points (K,3), CollisionField, các tham số
+# Đầu ra: skeleton = danh sách (nodes, edges) cho TreeMeshBuilder
+#
+# Luồng thực thi: Chạy trong worker thread (bên trong Job.run())
 # ==============================================================================
 
 import numpy as np
-from UM.Logger import Logger
 
 
-class BranchNode:
-    """Nút trong đồ thị nhánh cây."""
-    __slots__ = ['position', 'radius', 'area', 'parent', 'children',
-                 'is_merge_point', 'is_landing', 'landing_normal']
+# ==============================================================================
+# PHẦN 1: CẤU TRÚC DỮ LIỆU NHÁNH CÂY
+# ==============================================================================
 
-    def __init__(self, position, radius, area):
-        self.position = position        # (3,)
-        self.radius = radius            # float
-        self.area = area                # float, cross-section area
-        self.parent = None              # BranchNode hoặc None
-        self.children = []              # list[BranchNode]
-        self.is_merge_point = False
-        self.is_landing = False
-        self.landing_normal = None      # (3,) normal bề mặt landing
-
-
-class BranchPath:
-    """Đường đi của 1 nhánh (chuỗi nodes)."""
-    __slots__ = ['nodes', 'branch_id', 'merged_into', 'landed']
-
-    def __init__(self, branch_id):
-        self.nodes = []               # list[BranchNode]
-        self.branch_id = branch_id
-        self.merged_into = None       # branch_id đích merge (hoặc None)
-        self.landed = False           # True nếu đáp lên vật thể
-
-
-class BranchGraph:
-    """Kết quả toàn bộ branch routing."""
-
-    def __init__(self):
-        self.paths = []               # list[BranchPath]
-        self.merge_events = []        # list[(z, child_ids, parent_id)]
-        self.landing_events = []      # list[(branch_id, position, normal)]
-
-
-def route_branches(points_a, collision_field, settings, cancel_check=None):
+class BranchTip:
     """
-    Mô phỏng nhánh cây từ Point A đi xuống sàn.
+    Đại diện cho 1 nhánh đang hoạt động (active branch).
+
+    Mỗi nhánh bắt đầu tại 1 điểm overhang (tip) và mọc xuống dưới.
+    Khi hai nhánh merge, 1 nhánh bị hủy, nhánh còn lại kế thừa bán kính.
+
+    Thuộc tính:
+        position      : numpy array (3,) - vị trí hiện tại của đầu nhánh
+        radius        : float - bán kính nhánh hiện tại (mm)
+        node_index    : int - chỉ số nút cuối cùng trong skeleton
+        tip_count     : int - số lượng tip gốc đã merge vào nhánh này
+                        Dùng để tính bán kính theo định luật Murray
+        prev_direction : numpy array (3,) - hướng di chuyển bước trước
+                        Dùng để smoothing, tránh gấp khúc đột ngột
+    """
+
+    def __init__(self, position, radius, node_index, tip_count=1):
+        self.position = position.copy()
+        self.radius = radius
+        self.node_index = node_index
+        self.tip_count = tip_count
+        self.prev_direction = np.array([0.0, 0.0, -1.0])  # Mặc định: đi xuống
+        self.steps_taken = 0  # Đếm số bước routing (dùng để skip merge trong departure)
+        self.merge_target = None        # (3,) - điểm hội tụ đã cam kết
+        self.merge_group_id = -1        # ID nhóm merge (-1 = chưa có nhóm)
+
+
+def _murray_radius_n(radii):
+    """Murray's Law cho N nhánh: r_parent³ = r1³ + r2³ + ... + rn³"""
+    return sum(r ** 3 for r in radii) ** (1.0 / 3.0)
+
+
+# ==============================================================================
+# PHẦN 2: THUẬT TOÁN SPACE COLONIZATION BOTTOM-UP
+# ==============================================================================
+
+def route_branches(tip_points, collision_field,
+                   step_size=1.0, merge_distance=5.0, min_clearance=2.0,
+                   cone_top_radius=0.5, cone_bottom_radius=0.2,
+                   straight_drop_height=10.0,
+                   tip_normals=None, radius_growth_rate=0.02,
+                   max_branch_angle=40.0, cone_height=3.0,
+                   departure_straight_down=True,
+                   max_merge_count=5,
+                   cancel_check=None):
+    """
+    Sinh nhánh cây support bằng Space Colonization bottom-up.
 
     Tham số:
-        points_a        : list[PointA] từ TipInterfaceBuilder
-        collision_field : CollisionField từ CollisionAvoider
-        settings        : dict chứa các tham số
-        cancel_check    : callable → True nếu cần huỷ
-
-    Settings cần:
-        branch_step_size    : float (mm)
-        gravity_weight      : float
-        merge_weight        : float
-        merge_distance_max  : float (mm)
-        area_growth_coeff   : float
-        momentum_alpha      : float (0-1)
-        collision_weight    : float
-        min_clearance       : float (mm)
-        tip_radius          : float (mm)
+        tip_points    : numpy array (K, 3) - điểm overhang (đầu nhánh)
+        collision_field : CollisionField - trường va chạm (SDF + gradient)
+        step_size     : float - bước di chuyển mỗi lần lặp (mm)
+        merge_distance : float - khoảng cách để merge 2 nhánh (mm)
+        min_clearance : float - khoảng cách an toàn tối thiểu đến mesh (mm)
+        cone_top_radius : float - bán kính đáy lớn nón cụt (mm)
+        cone_bottom_radius : float - bán kính đáy bé nón cụt (mm)
+        straight_drop_height : float - chiều cao rơi thẳng (mm)
+        max_merge_count : int - số nhánh tối đa được gộp cùng lúc
+        tip_normals   : numpy array (K, 3) hoặc None - inward normals tại mỗi tip
+        radius_growth_rate : float - hệ số tăng bán kính mỗi bước
+        max_branch_angle : float - góc lệch tối đa so với trục Z (độ)
+        cone_height : float - chiều dài đoạn departure (mm)
+        departure_straight_down : bool - True = departure thẳng xuống
 
     Trả về:
-        BranchGraph
+        all_nodes : list of (position, radius) - tất cả nút trong skeleton
+        all_edges : list of (parent_idx, child_idx) - các cạnh nối nút
     """
-    if not points_a:
-        return BranchGraph()
 
-    step_size = float(settings.get("branch_step_size", 0.5))
-    gravity_w = float(settings.get("gravity_weight", 1.0))
-    merge_w = float(settings.get("merge_weight", 0.3))
-    merge_dist_max = float(settings.get("merge_distance_max", 30.0))
-    area_growth = float(settings.get("area_growth_coeff", 0.05))
-    momentum = float(settings.get("momentum_alpha", 0.3))
-    collision_w = float(settings.get("collision_weight", 1.0))
-    min_clearance = float(settings.get("min_clearance", 2.0))
-    tip_radius = float(settings.get("tip_radius", 0.4))
-    # Murray's law exponent: n=2 = Da Vinci (A1+A2), n=2.5 = cây thực vật (nhánh cha nhỏ hơn)
-    murray_exp = float(settings.get("murray_exponent", 2.5))
+    if len(tip_points) == 0:
+        return [], []
 
-    # Hệ số merge distance: √area × coeff = 10mm tại tip
-    tip_area = 2.0 * np.sqrt(2.0) * tip_radius ** 2
-    merge_coeff = 10.0 / (np.sqrt(tip_area) + 1e-10)
+    # --- Tính hướng departure ---
+    departure_dirs = []
+    for i in range(len(tip_points)):
+        tip_pos = tip_points[i]
+        path_blocked = False
+        check_z = tip_pos[2] - step_size
+        while check_z > 0:
+            check_point = np.array([tip_pos[0], tip_pos[1], check_z])
+            dist = collision_field.get_distance(check_point)
+            if dist < 0:
+                path_blocked = True
+                break
+            check_z -= step_size
 
-    graph = BranchGraph()
+        use_normal = path_blocked or (not departure_straight_down)
 
-    # --- Khởi tạo nhánh từ mỗi Point A ---
-    N = len(points_a)
-    positions = np.zeros((N, 3), dtype=np.float64)
-    directions = np.zeros((N, 3), dtype=np.float64)
-    areas = np.zeros(N, dtype=np.float64)
-    radii = np.zeros(N, dtype=np.float64)
-    head_areas = np.zeros(N, dtype=np.float64)
-    head_z = np.zeros(N, dtype=np.float64)
-    active = np.ones(N, dtype=bool)
+        if use_normal and tip_normals is not None and i < len(tip_normals):
+            outward = -tip_normals[i]
+            n_len = np.linalg.norm(outward)
+            if n_len > 1e-6:
+                outward /= n_len
+            else:
+                outward = np.array([0.0, 0.0, -1.0])
+            departure_dirs.append(outward)
+        else:
+            departure_dirs.append(np.array([0.0, 0.0, -1.0]))
 
-    paths = []
-    for i, pt in enumerate(points_a):
-        positions[i] = pt.position
-        directions[i] = pt.direction
-        areas[i] = pt.area
-        radii[i] = pt.radius
-        head_areas[i] = pt.area
-        head_z[i] = pt.position[2]
+    departure_steps = max(1, round(cone_height / step_size))
 
-        path = BranchPath(branch_id=i)
-        node = BranchNode(pt.position.copy(), pt.radius, pt.area)
-        path.nodes.append(node)
-        paths.append(path)
+    # --- Khởi tạo skeleton ---
+    all_nodes = []  # [(numpy array (3,), float), ...]
+    all_edges = []  # [(int, int), ...]
 
-    graph.paths = paths
+    # --- Khởi tạo nhánh từ tip points ---
+    branches = []
+    for i in range(len(tip_points)):
+        node_pos = tip_points[i].copy()
+        node_idx = len(all_nodes)
+        all_nodes.append((node_pos.copy(), cone_top_radius))
 
-    # --- Simulation loop ---
-    max_steps = int(np.max(positions[:, 2]) / step_size) + 100
-    stall_counter = np.zeros(N, dtype=np.int32)
-    max_stall = 50  # Timeout nếu Z không giảm
+        dep_dir = departure_dirs[i]
+        prev_idx = node_idx
+        current_pos = node_pos.copy()
+        for step in range(departure_steps):
+            current_pos = current_pos + dep_dir * step_size
+            current_pos[2] = max(0.0, current_pos[2])
+            new_idx = len(all_nodes)
+            t = (step + 1) / departure_steps
+            step_radius = cone_top_radius * (1.0 - t) + cone_bottom_radius * t
+            all_nodes.append((current_pos.copy(), step_radius))
+            all_edges.append((prev_idx, new_idx))
+            prev_idx = new_idx
 
-    for step_idx in range(max_steps):
-        if cancel_check and cancel_check():
-            raise InterruptedError()
+        branch = BranchTip(current_pos, cone_bottom_radius, prev_idx, tip_count=1)
+        branch.prev_direction = dep_dir.copy()
+        branches.append(branch)
 
-        n_active = int(np.sum(active))
-        if n_active == 0:
+    cos_angle_limit = np.cos(np.radians(max_branch_angle))
+    sin_angle_limit = np.sin(np.radians(max_branch_angle))
+
+    active_indices = list(range(len(branches)))
+    merge_groups = {}
+    next_group_id = 0
+    max_iterations = 10000
+    iteration = 0
+
+    while active_indices and iteration < max_iterations:
+        iteration += 1
+
+        if cancel_check is not None and cancel_check():
+            return all_nodes, all_edges
+
+        active_indices = [
+            i for i in active_indices
+            if branches[i].position[2] > 0.01
+        ]
+
+        if not active_indices:
             break
 
-        active_idx = np.where(active)[0]
-        pos_active = positions[active_idx]
+        new_positions = {}
 
-        # --- 1. Trọng lực ---
-        gravity = np.zeros_like(pos_active)
-        gravity[:, 2] = -gravity_w
+        for idx in active_indices:
+            branch = branches[idx]
+            pos = branch.position
+            current_z = pos[2]
 
-        # --- 2. Lực hấp dẫn gộp (2D gravity center trong XY) ---
-        merge_force = _compute_merge_forces(
-            active_idx, positions, areas, merge_coeff, merge_dist_max, merge_w, gravity_w
-        )
-
-        # --- 3. Chống va chạm ---
-        avoidance, sdf_dists = collision_field.get_avoidance_vectors_batch(
-            pos_active, min_clearance
-        )
-        avoidance *= collision_w
-
-        # --- 4. Tổng hợp lực + quán tính ---
-        net_force = gravity + merge_force + avoidance
-
-        # Normalize
-        net_len = np.linalg.norm(net_force, axis=1, keepdims=True)
-        net_len = np.maximum(net_len, 1e-10)
-        new_dirs = net_force / net_len
-
-        # Quán tính: blend với hướng trước
-        old_dirs = directions[active_idx]
-        blended = momentum * new_dirs + (1.0 - momentum) * old_dirs
-        bl_len = np.linalg.norm(blended, axis=1, keepdims=True)
-        bl_len = np.maximum(bl_len, 1e-10)
-        blended /= bl_len
-
-        # Đảm bảo Z giảm tối thiểu: clamp Z rồi renorm chỉ phần XY
-        # Không renorm toàn bộ vector (sẽ làm Z drift > -0.5)
-        z_min = -0.707  # sin(45°) = 0.707 → nhánh nghiêng tối thiểu 45° so với nằm ngang
-        z_clamped = np.minimum(blended[:, 2], z_min)
-        xy = blended[:, :2]
-        xy_len = np.linalg.norm(xy, axis=1, keepdims=True)
-        # Tính scale XY sao cho vector tổng thể là đơn vị: xy_scale² + z² = 1
-        xy_scale = np.sqrt(np.maximum(1.0 - z_clamped ** 2, 0.0))
-        safe_xy = np.where(xy_len > 1e-10,
-                           xy / xy_len * xy_scale[:, np.newaxis],
-                           np.zeros_like(xy))
-        blended = np.concatenate([safe_xy, z_clamped[:, np.newaxis]], axis=1)
-
-        # --- 5. Cập nhật vị trí ---
-        new_pos = pos_active + blended * step_size
-
-        # --- 6. Kiểm tra landing / base ---
-        for ii, ai in enumerate(active_idx):
-            old_z = positions[ai, 2]
-            nz = new_pos[ii, 2]
-
-            # Đạt sàn Z=0
-            if nz <= 0:
-                new_pos[ii, 2] = 0.0
-                positions[ai] = new_pos[ii]
-                directions[ai] = blended[ii]
-                node = BranchNode(new_pos[ii].copy(), radii[ai], areas[ai])
-                paths[ai].nodes.append(node)
-                active[ai] = False
-                continue
-
-            # Kiểm tra SDF: nếu đi vào bên trong mesh → landing
-            if sdf_dists[ii] < 0:
-                # Binary search tìm bề mặt
-                p_safe = pos_active[ii]
-                p_inside = new_pos[ii]
-                for _ in range(10):
-                    mid = (p_safe + p_inside) / 2.0
-                    d = collision_field.get_distance(mid.astype(np.float64))
-                    if d < 0:
-                        p_inside = mid
-                    else:
-                        p_safe = mid
-
-                landing_pos = (p_safe + p_inside) / 2.0
-
-                # Landing normal = SDF gradient
-                _, landing_d = collision_field.get_avoidance_vectors_batch(
-                    landing_pos.reshape(1, 3), min_clearance
-                )
-                av_vec, _ = collision_field.get_avoidance_vectors_batch(
-                    landing_pos.reshape(1, 3), 999.0
-                )
-                landing_normal = av_vec[0]
-                ln_len = np.linalg.norm(landing_normal)
-                if ln_len > 1e-6:
-                    landing_normal /= ln_len
+            # Committed merge
+            if branch.merge_target is not None:
+                to_target = branch.merge_target - pos
+                dist_to_target = np.linalg.norm(to_target)
+                if dist_to_target > step_size:
+                    d = to_target / dist_to_target
+                    new_pos = pos + d * step_size
+                    new_pos[2] = max(0.0, new_pos[2])
+                    sd = new_pos - pos
+                    sl = np.linalg.norm(sd)
+                    if sl > 1e-6:
+                        branch.prev_direction = (sd / sl).copy()
+                    branch.steps_taken += 1
+                    new_positions[idx] = new_pos
                 else:
-                    landing_normal = np.array([0.0, 0.0, 1.0])
-
-                node = BranchNode(landing_pos.copy(), radii[ai], areas[ai])
-                node.is_landing = True
-                node.landing_normal = landing_normal
-                paths[ai].nodes.append(node)
-                paths[ai].landed = True
-                graph.landing_events.append(
-                    (ai, landing_pos.copy(), landing_normal.copy())
-                )
-                active[ai] = False
+                    branch.position = branch.merge_target.copy()
+                    branch.position[2] = max(0.0, branch.position[2])
                 continue
 
-            # Cập nhật
-            positions[ai] = new_pos[ii]
-            directions[ai] = blended[ii]
+            # Straight drop
+            if current_z <= straight_drop_height:
+                new_z = max(0.0, current_z - step_size)
+                new_pos = np.array([pos[0], pos[1], new_z])
+                new_positions[idx] = new_pos
+                continue
 
-            # Tăng diện tích: area = head_area × (1 + coeff × |Δz|)
-            dz = abs(head_z[ai] - new_pos[ii, 2])
-            areas[ai] = head_areas[ai] * (1.0 + area_growth * dz)
-            radii[ai] = _radius_from_area_oct(areas[ai])
+            # Tính hướng
+            direction = np.array([0.0, 0.0, -1.0])
+            avoidance, _ = collision_field.get_avoidance_vector(pos, min_clearance)
+            direction += avoidance
 
-            node = BranchNode(new_pos[ii].copy(), radii[ai], areas[ai])
-            paths[ai].nodes.append(node)
+            dir_length = np.linalg.norm(direction)
+            if dir_length > 1e-6:
+                direction /= dir_length
 
-            # Stall detection
-            if abs(old_z - nz) < step_size * 0.01:
-                stall_counter[ai] += 1
-                if stall_counter[ai] > max_stall:
-                    active[ai] = False
+            if direction[2] > -cos_angle_limit:
+                xy_len = np.linalg.norm(direction[:2])
+                if xy_len > 1e-6:
+                    direction[:2] = (direction[:2] / xy_len) * sin_angle_limit
+                    direction[2] = -cos_angle_limit
+                else:
+                    direction[2] = -1.0
+                dir_length = np.linalg.norm(direction)
+                if dir_length > 1e-6:
+                    direction /= dir_length
+
+            # Smoothing
+            old_weight = 0.3
+            smoothed = (1.0 - old_weight) * direction + old_weight * branch.prev_direction
+            sm_len = np.linalg.norm(smoothed)
+            if sm_len > 1e-6:
+                smoothed /= sm_len
             else:
-                stall_counter[ai] = 0
+                smoothed = direction
 
-        # --- 7. Gộp nhánh (closest pair priority) ---
-        _process_merges(
-            active, positions, areas, radii, directions,
-            head_areas, head_z, paths, graph,
-            merge_coeff, merge_dist_max, step_size, murray_exp
-        )
+            if smoothed[2] > -cos_angle_limit:
+                xy_len = np.linalg.norm(smoothed[:2])
+                if xy_len > 1e-6:
+                    smoothed[:2] = (smoothed[:2] / xy_len) * sin_angle_limit
+                    smoothed[2] = -cos_angle_limit
+                else:
+                    smoothed[2] = -1.0
+                sm_len = np.linalg.norm(smoothed)
+                if sm_len > 1e-6:
+                    smoothed /= sm_len
 
-    Logger.log("i", "BranchRouter: %d nhanh, %d merge events, %d landings",
-               len(graph.paths), len(graph.merge_events), len(graph.landing_events))
+            new_pos = pos + smoothed * step_size
+            new_pos[2] = max(0.0, new_pos[2])
 
-    return graph
+            post_dist = collision_field.get_distance(new_pos)
+            if post_dist < min_clearance:
+                push_vec, _ = collision_field.get_avoidance_vector(new_pos, min_clearance)
+                push_len = np.linalg.norm(push_vec)
+                if push_len > 1e-6:
+                    if post_dist < 0:
+                        push_amount = min(abs(post_dist) + min_clearance, step_size * 3)
+                    else:
+                        push_amount = min(min_clearance - post_dist + 0.2, step_size)
+                    new_pos += (push_vec / push_len) * push_amount
+                    new_pos[2] = max(0.0, new_pos[2])
 
+            actual_step = new_pos - pos
+            actual_step_len = np.linalg.norm(actual_step)
+            if actual_step_len > 1e-6:
+                actual_dir = actual_step / actual_step_len
+                if actual_dir[2] > -cos_angle_limit:
+                    xy_len = np.linalg.norm(actual_dir[:2])
+                    if xy_len > 1e-6:
+                        actual_dir[:2] = (actual_dir[:2] / xy_len) * sin_angle_limit
+                        actual_dir[2] = -cos_angle_limit
+                    else:
+                        actual_dir[2] = -1.0
+                    ad_len = np.linalg.norm(actual_dir)
+                    if ad_len > 1e-6:
+                        actual_dir /= ad_len
+                    new_pos = pos + actual_dir * step_size
+                    new_pos[2] = max(0.0, new_pos[2])
 
-def _compute_merge_forces(active_idx, positions, areas, merge_coeff,
-                          merge_dist_max, merge_weight, gravity_weight=2.0):
-    """
-    Tính lực hấp dẫn 2D (XY) cho mỗi nhánh active.
-    Dùng inverse-linear (1/d) thay vì inverse-square (1/d²) để tránh bùng nổ khi gần.
-    Tổng lực merge bị giới hạn tối đa = gravity_weight × 0.5 → nhánh không đi ngang.
+            step_dir = new_pos - pos
+            step_dir_len = np.linalg.norm(step_dir)
+            if step_dir_len > 1e-6:
+                branch.prev_direction = (step_dir / step_dir_len).copy()
+            else:
+                branch.prev_direction = smoothed.copy()
+            branch.steps_taken += 1
 
-    Trả về: numpy array (len(active_idx), 3)
-    """
-    N = len(active_idx)
-    forces = np.zeros((N, 3), dtype=np.float64)
-    if N <= 1:
-        return forces
+            new_positions[idx] = new_pos
 
-    pos = positions[active_idx]
-    area = areas[active_idx]
-    max_force_xy = gravity_weight * 0.5  # giới hạn: merge force ≤ 50% gravity
+        # --- Merge ---
+        merged_set = set()
+        merge_pairs = []
+        down = np.array([0.0, 0.0, -1.0])
+        active_set = set(active_indices)
 
-    for i in range(N):
-        my_merge_dist = min(np.sqrt(area[i]) * merge_coeff, merge_dist_max)
+        if len(active_indices) > 1:
+            positions_array = np.array([
+                new_positions.get(i, branches[i].position) for i in active_indices
+            ])
 
-        fx = fy = 0.0
-        for j in range(N):
-            if i == j:
+            # Committed groups
+            for gid in list(merge_groups.keys()):
+                members = merge_groups[gid]
+                alive = [i for i in members if i in active_set and i not in merged_set]
+
+                if len(alive) < 2:
+                    for i in members:
+                        branches[i].merge_target = None
+                        branches[i].merge_group_id = -1
+                    del merge_groups[gid]
+                    continue
+
+                all_arrived = all(
+                    np.linalg.norm(branches[i].position - branches[i].merge_target) < step_size
+                    for i in alive
+                )
+
+                if not all_arrived:
+                    continue
+
+                alive_sorted = sorted(alive, key=lambda i: branches[i].tip_count, reverse=True)
+                s_idx = alive_sorted[0]
+                victims = alive_sorted[1:]
+
+                for v_idx in victims:
+                    merge_pairs.append((s_idx, v_idx))
+                    merged_set.add(v_idx)
+
+                s_br = branches[s_idx]
+                merge_pos = s_br.merge_target.copy()
+                new_positions[s_idx] = merge_pos
+
+                edge_dir = merge_pos - np.asarray(all_nodes[s_br.node_index][0], dtype=np.float64)
+                edge_len = np.linalg.norm(edge_dir)
+                if edge_len > 1e-6:
+                    s_br.prev_direction = edge_dir / edge_len
+                s_br.radius = _murray_radius_n([branches[i].radius for i in alive])
+                s_br.tip_count = sum(branches[i].tip_count for i in alive)
+
+                for i in alive:
+                    branches[i].merge_target = None
+                    branches[i].merge_group_id = -1
+                del merge_groups[gid]
+
+            # Phát hiện merge mới
+            tan_limit = sin_angle_limit / cos_angle_limit
+
+            eligible = []
+            for ai in range(len(active_indices)):
+                idx = active_indices[ai]
+                if idx in merged_set or branches[idx].merge_group_id >= 0:
+                    continue
+                pos = positions_array[ai]
+                if pos[2] <= straight_drop_height:
+                    continue
+                if branches[idx].steps_taken < departure_steps:
+                    continue
+                eligible.append((ai, idx))
+
+            if len(eligible) >= 2:
+                eli_indices = [idx for _, idx in eligible]
+                eli_pos = {
+                    idx: np.asarray(
+                        new_positions.get(idx, branches[idx].position), dtype=np.float64
+                    )[:2]
+                    for idx in eli_indices
+                }
+
+                pairs = []
+                for a in range(len(eli_indices)):
+                    for b in range(a + 1, len(eli_indices)):
+                        ia, ib = eli_indices[a], eli_indices[b]
+                        d = np.linalg.norm(eli_pos[ia] - eli_pos[ib])
+                        if d < merge_distance:
+                            pairs.append((d, ia, ib))
+                pairs.sort(key=lambda x: x[0])
+
+                group_of = {}
+                groups = {}
+                next_gid = 0
+
+                for _, ia, ib in pairs:
+                    ga = group_of.get(ia)
+                    gb = group_of.get(ib)
+
+                    if ga is None and gb is None:
+                        gid = next_gid; next_gid += 1
+                        groups[gid] = [ia, ib]
+                        group_of[ia] = gid
+                        group_of[ib] = gid
+                    elif ga is None and gb is not None:
+                        if len(groups[gb]) < max_merge_count:
+                            groups[gb].append(ia)
+                            group_of[ia] = gb
+                    elif ga is not None and gb is None:
+                        if len(groups[ga]) < max_merge_count:
+                            groups[ga].append(ib)
+                            group_of[ib] = ga
+
+                pending_groups = [m for m in groups.values() if len(m) >= 2]
+
+                for group in pending_groups:
+                    remaining = list(group)
+                    pruned = []
+
+                    while len(remaining) >= 2:
+                        pp_map = {
+                            i: np.asarray(
+                                new_positions.get(i, branches[i].position), dtype=np.float64
+                            )
+                            for i in remaining
+                        }
+
+                        total_tips = sum(branches[i].tip_count for i in remaining)
+                        m_xy = np.zeros(2)
+                        for i in remaining:
+                            m_xy += (branches[i].tip_count / total_tips) * pp_map[i][:2]
+
+                        if tan_limit > 1e-6:
+                            mz_vals = [pp_map[i][2] - np.linalg.norm(pp_map[i][:2] - m_xy) / tan_limit
+                                       for i in remaining]
+                            m_z = max(0.0, min(mz_vals))
+                        else:
+                            m_z = 0.0
+
+                        merge_target = np.array([m_xy[0], m_xy[1], m_z])
+
+                        angle_ok = True
+                        for i in remaining:
+                            edge = merge_target - pp_map[i]
+                            el = np.linalg.norm(edge)
+                            if el > 1e-6:
+                                cos_a = np.dot(edge / el, down)
+                                if cos_a < cos_angle_limit:
+                                    angle_ok = False
+                                    break
+
+                        if angle_ok:
+                            gid = next_group_id
+                            next_group_id += 1
+                            merge_groups[gid] = list(remaining)
+                            for i in remaining:
+                                branches[i].merge_target = merge_target.copy()
+                                branches[i].merge_group_id = gid
+                            break
+
+                        max_dist = -1.0
+                        farthest = remaining[0]
+                        for i in remaining:
+                            d = np.linalg.norm(pp_map[i][:2] - m_xy)
+                            if d > max_dist:
+                                max_dist = d
+                                farthest = i
+                        remaining.remove(farthest)
+                        pruned.append(farthest)
+
+                    if len(pruned) >= 2:
+                        pending_groups.append(pruned)
+
+        # --- Tạo nút và cạnh mới ---
+        for idx in active_indices:
+            if idx in merged_set:
                 continue
-            dx = pos[j, 0] - pos[i, 0]
-            dy = pos[j, 1] - pos[i, 1]
-            d2 = dx * dx + dy * dy
-            d = np.sqrt(d2) if d2 > 0 else 1e-6
 
-            if d > my_merge_dist:
+            branch = branches[idx]
+
+            if branch.merge_target is not None and idx not in new_positions:
                 continue
 
-            # Inverse-linear: F = mass_j / d (không bùng nổ khi gần như 1/d²)
-            mass_j = area[j]
-            strength = mass_j / (d + 1e-6)
-            fx += (dx / d) * strength
-            fy += (dy / d) * strength
+            new_pos = new_positions.get(idx, branch.position)
 
-        # Giới hạn tổng lực merge ≤ max_force_xy
-        f_xy = fx * merge_weight
-        f_yy = fy * merge_weight
-        f_mag = np.sqrt(f_xy * f_xy + f_yy * f_yy)
-        if f_mag > max_force_xy:
-            scale = max_force_xy / f_mag
-            f_xy *= scale
-            f_yy *= scale
+            if radius_growth_rate > 0:
+                branch.radius *= (1.0 + radius_growth_rate)
 
-        forces[i, 0] = f_xy
-        forces[i, 1] = f_yy
+            new_node_idx = len(all_nodes)
+            all_nodes.append((new_pos.copy(), branch.radius))
+            all_edges.append((branch.node_index, new_node_idx))
 
-    return forces
+            for s, v in merge_pairs:
+                if s == idx:
+                    victim = branches[v]
+                    all_edges.append((victim.node_index, new_node_idx))
 
+            branch.position = new_pos.copy()
+            branch.node_index = new_node_idx
 
-def _process_merges(active, positions, areas, radii, directions,
-                    head_areas, head_z, paths, graph,
-                    merge_coeff, merge_dist_max, step_size, murray_exp=2.5):
-    """
-    Gộp nhánh: closest pair priority, anti-3-merge.
-    Mỗi bước Z chỉ gộp 1 cặp gần nhất cho mỗi nhánh.
-    """
-    active_idx = np.where(active)[0]
-    N = len(active_idx)
-    if N < 2:
-        return
+        active_indices = [i for i in active_indices if i not in merged_set]
 
-    # Tính khoảng cách tất cả cặp trong XY
-    pos_xy = positions[active_idx, :2]
-    merged_this_step = set()
-    pairs = []
+    # --- Đảm bảo tất cả nhánh chạm bàn in ---
+    for idx in active_indices:
+        branch = branches[idx]
+        if branch.position[2] > 0.01:
+            base_pos = np.array([branch.position[0], branch.position[1], 0.0])
+            base_idx = len(all_nodes)
+            all_nodes.append((base_pos, branch.radius))
+            all_edges.append((branch.node_index, base_idx))
 
-    for i in range(N):
-        ai = active_idx[i]
-        my_merge_dist = min(np.sqrt(areas[ai]) * merge_coeff, merge_dist_max)
-
-        for j in range(i + 1, N):
-            aj = active_idx[j]
-            d = np.linalg.norm(pos_xy[i] - pos_xy[j])
-
-            # Khoảng cách gộp = min(merge_dist_i, merge_dist_j)
-            other_merge_dist = min(np.sqrt(areas[aj]) * merge_coeff, merge_dist_max)
-            threshold = min(my_merge_dist, other_merge_dist)
-
-            # Threshold thực tế cho merge: bán kính tổng + step_size × 6
-            actual_threshold = radii[ai] + radii[aj] + step_size * 6
-            if d < actual_threshold:
-                pairs.append((d, ai, aj))
-
-    if not pairs:
-        return
-
-    # Sắp xếp theo khoảng cách tăng dần
-    pairs.sort(key=lambda x: x[0])
-
-    for d, ai, aj in pairs:
-        if ai in merged_this_step or aj in merged_this_step:
-            continue
-        if not active[ai] or not active[aj]:
-            continue
-
-        # --- Gộp aj vào ai (ai là nhánh nhận) ---
-        # Nhánh nhận = nhánh có area lớn hơn
-        if areas[aj] > areas[ai]:
-            ai, aj = aj, ai
-
-        # Murray's law: r_parent = (r1^n + r2^n)^(1/n)
-        # n=2 = Da Vinci (diện tích bảo toàn), n=2.5 = cây thực vật (nhánh cha nhỏ hơn)
-        new_radius = (radii[ai] ** murray_exp + radii[aj] ** murray_exp) ** (1.0 / murray_exp)
-        new_area = _area_from_radius_oct(new_radius)
-
-        # Vị trí mới = trung bình trọng số XY, Z lấy thấp hơn (nhánh không đi ngược lên)
-        w_ai = areas[ai] / new_area
-        w_aj = areas[aj] / new_area
-        new_pos = positions[ai] * w_ai + positions[aj] * w_aj
-        new_pos[2] = min(positions[ai, 2], positions[aj, 2])  # Z không tăng lên
-
-        new_dir = directions[ai] * w_ai + directions[aj] * w_aj
-        new_dir[2] = min(new_dir[2], -0.1)  # luôn đi xuống
-        d_len = np.linalg.norm(new_dir)
-        if d_len > 1e-10:
-            new_dir /= d_len
-
-        # Cập nhật nhánh ai
-        positions[ai] = new_pos
-        areas[ai] = new_area
-        radii[ai] = new_radius
-        directions[ai] = new_dir
-        head_areas[ai] = new_area
-        head_z[ai] = new_pos[2]
-
-        # Đánh dấu merge node
-        merge_node = BranchNode(new_pos.copy(), new_radius, new_area)
-        merge_node.is_merge_point = True
-        paths[ai].nodes.append(merge_node)
-
-        # Vô hiệu hóa nhánh aj
-        active[aj] = False
-        paths[aj].merged_into = ai
-
-        graph.merge_events.append((new_pos[2], [aj, ai], ai))
-        merged_this_step.add(ai)
-        merged_this_step.add(aj)
-
-
-def _radius_from_area_oct(area):
-    """Bán kính octagon từ diện tích: A = 2√2 × r² → r = √(A / 2√2)."""
-    return np.sqrt(max(area, 1e-10) / (2.0 * np.sqrt(2.0)))
-
-
-def _area_from_radius_oct(r):
-    """Diện tích octagon từ bán kính: A = 2√2 × r²."""
-    return 2.0 * np.sqrt(2.0) * r * r
+    return all_nodes, all_edges

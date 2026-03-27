@@ -10,8 +10,8 @@
 #   4. Loại bỏ tam giác shell va chạm
 #   5. Xử lý đa giác (merge/split) (PolygonProcessor)
 #   6. Tạo tip interface (TipInterfaceBuilder)
-#   7. Mô phỏng nhánh cây (BranchRouter)
-#   8. Tạo mesh nhánh (BranchMeshBuilder)
+#   7. Mô phỏng nhánh cây (BranchRouter - Space Colonization)
+#   8. Tạo mesh nhánh (TreeMeshBuilder - Frustum + Bézier bends)
 #
 # Kết quả (MeshData) được lưu trong self._result_mesh_data.
 # Khi Job hoàn thành, signal finished được phát → Extension lấy kết quả.
@@ -31,8 +31,8 @@ from . import OverhangShellBuilder
 from .CollisionAvoider import CollisionField
 from .PolygonProcessor import process_polygons
 from .TipInterfaceBuilder import build_tip_interfaces
-from .BranchRouter import route_branches
-from .BranchMeshBuilder import build_branch_mesh
+from . import BranchRouter
+from . import TreeMeshBuilder
 
 
 class MeshTreeSupportJob(Job):
@@ -216,38 +216,65 @@ class MeshTreeSupportJob(Job):
             return
 
         # =====================================================================
-        # BƯỚC 7: MÔ PHỎNG NHÁNH CÂY (Branch Routing)
+        # BƯỚC 7: MÔ PHỎNG NHÁNH CÂY (Branch Routing - Space Colonization)
         # =====================================================================
         self.progress.emit(40)
         Logger.log("d", "Buoc 7/8: Mo phong nhanh cay (%d nhanh)...", len(points_a))
 
-        branch_graph = route_branches(
-            points_a, collision_field, s,
+        # Chuyển list[PointA] → numpy arrays cho BranchRouter (Plan3)
+        tip_points_arr = np.array([pa.position for pa in points_a], dtype=np.float64)
+        # tip_normals: Plan3 dùng inward normal rồi negate → truyền -direction để
+        # BranchRouter nhận được đúng outward departure direction
+        tip_inward_arr = np.array([-pa.direction for pa in points_a], dtype=np.float64)
+
+        all_nodes, all_edges = BranchRouter.route_branches(
+            tip_points=tip_points_arr,
+            collision_field=collision_field,
+            step_size=float(s.get("step_size", 2.0)),
+            merge_distance=float(s.get("merge_distance", 15.0)),
+            min_clearance=float(s.get("min_clearance", 2.0)),
+            cone_top_radius=float(s.get("cone_top_radius", 0.6)),
+            cone_bottom_radius=float(s.get("cone_bottom_radius", 0.5)),
+            straight_drop_height=float(s.get("straight_drop_height", 5.0)),
+            tip_normals=tip_inward_arr,
+            radius_growth_rate=float(s.get("radius_growth_rate", 0.01)),
+            max_branch_angle=float(s.get("max_branch_angle", 45.0)),
+            cone_height=float(s.get("cone_height", 2.0)),
+            departure_straight_down=bool(s.get("departure_straight_down", False)),
+            max_merge_count=int(s.get("max_merge_count", 5)),
             cancel_check=self.isCancelled
         )
 
-        Logger.log("i", "  -> %d nhanh, %d merge, %d landing",
-                   len(branch_graph.paths),
-                   len(branch_graph.merge_events),
-                   len(branch_graph.landing_events))
+        Logger.log("i", "  -> Skeleton: %d nut, %d canh", len(all_nodes), len(all_edges))
 
         if self._cancelled:
             return
 
+        if not all_edges:
+            Logger.log("w", "MeshTreeSupport: Khong tao duoc nhanh nao. Hoan tat.")
+            self.progress.emit(100)
+            return
+
         # =====================================================================
-        # BƯỚC 8: TẠO MESH NHÁNH (Tubes + Junctions + Bases + Landings)
+        # BƯỚC 8: TẠO MESH NHÁNH (Frustum + Bézier bends + Base)
         # =====================================================================
         self.progress.emit(75)
-        Logger.log("d", "Buoc 8/8: Tao mesh nhanh cay...")
+        Logger.log("d", "Buoc 8/8: Tao mesh nhanh cay (%d segments)...",
+                   int(s.get("cylinder_segments", 8)))
 
-        branch_verts, branch_normals = build_branch_mesh(
-            branch_graph,
-            collision_field=collision_field,
-            shell_gap=shell_gap,
-            shell_thickness=shell_thickness
+        branch_mesh = TreeMeshBuilder.build_tree_mesh(
+            all_nodes, all_edges,
+            segments=int(s.get("cylinder_segments", 8)),
+            base_brim_multiplier=float(s.get("base_brim_multiplier", 3.0)),
+            base_brim_height=float(s.get("base_brim_height", 0.5)),
+            cancel_check=self.isCancelled
         )
 
-        Logger.log("i", "  -> Mesh nhanh: %d dinh", len(branch_verts))
+        branch_verts = branch_mesh.getVertices() if branch_mesh is not None else None
+        branch_normals = branch_mesh.getNormals() if branch_mesh is not None else None
+
+        Logger.log("i", "  -> Mesh nhanh: %d dinh",
+                   len(branch_verts) if branch_verts is not None else 0)
 
         if self._cancelled:
             return
