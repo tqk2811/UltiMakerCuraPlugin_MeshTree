@@ -42,6 +42,7 @@ Window {
             x = wx
             y = wy
         }
+        reloadSettings()
     }
 
     ColumnLayout {
@@ -582,8 +583,6 @@ Window {
     // =========================================================================
     // NẠP / TẢI LẠI THÔNG SỐ
     // =========================================================================
-    Component.onCompleted: reloadSettings()
-
     Connections {
         target: manager
         function onSettingsChanged() { reloadSettings() }
