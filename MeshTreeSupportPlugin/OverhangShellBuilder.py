@@ -50,166 +50,84 @@ def build_overhang_shell(vertices, faces, overhang_mask, face_normals,
 
     oh_face_indices = np.where(overhang_mask)[0]
     oh_faces = faces[oh_face_indices]        # (K, 3)
-    oh_normals = face_normals[oh_face_indices].copy()  # (K, 3) inward normals
+    oh_normals = face_normals[oh_face_indices].copy().astype(np.float64)  # (K, 3) inward
 
     if len(oh_faces) == 0:
         return np.zeros((0, 3), dtype=np.float32), np.zeros((0, 3), dtype=np.float32)
 
-    # --- Bước 0: Chuẩn hóa oh_normals thành nhất quán ---
-    # Overhang face có INWARD normal hướng LÊN (nz > 0).
-    # Mesh gốc có thể có winding không nhất quán → một số face cho nz < 0.
-    # Flip những face đó để tất cả oh_normals đều hướng lên (nz > 0).
-    flip_oh = oh_normals[:, 2] < 0
-    oh_normals[flip_oh] *= -1
+    num_oh_faces = len(oh_faces)
 
     # --- Bước 1: Ánh xạ vertex index gốc → index cục bộ ---
     unique_vert_indices = np.unique(oh_faces.ravel())
-    num_unique = len(unique_vert_indices)
-
-    # Bảng ánh xạ: global_idx → local_idx
     idx_map = np.full(vertices.shape[0], -1, dtype=np.int64)
-    idx_map[unique_vert_indices] = np.arange(num_unique)
-
-    # Remap face indices sang local
+    idx_map[unique_vert_indices] = np.arange(len(unique_vert_indices))
     local_faces = idx_map[oh_faces]  # (K, 3)
-
-    # Lấy tọa độ vertex
     vert_pos = vertices[unique_vert_indices].copy().astype(np.float64)  # (U, 3)
 
-    # --- Bước 2: Tính per-vertex normal ---
-    # Trung bình pháp tuyến các mặt kề cho mỗi đỉnh
-    vert_normals = np.zeros((num_unique, 3), dtype=np.float64)
-    np.add.at(vert_normals, local_faces[:, 0], oh_normals)
-    np.add.at(vert_normals, local_faces[:, 1], oh_normals)
-    np.add.at(vert_normals, local_faces[:, 2], oh_normals)
+    # --- Bước 2: Per-face offset ---
+    # Mỗi tam giác offset độc lập theo normal của chính nó → không dùng per-vertex
+    # averaging (averaging từ faces có hướng khác nhau gây deform và winding lỗi).
+    #
+    # Uniform offset giữ nguyên shape và winding của tam giác:
+    #   inner: cross(e1, e2) = oh_normals[i] (inward, hướng lên) ✓
+    #   outer: flip v1↔v2 → cross(e1, e2) = -oh_normals[i] (outward, hướng xuống) ✓
+    outward = -oh_normals  # (K, 3) outward per face
 
-    # Chuẩn hóa
-    lengths = np.linalg.norm(vert_normals, axis=1, keepdims=True)
-    lengths = np.maximum(lengths, 1e-10)
-    vert_normals /= lengths
+    orig_v = vert_pos[local_faces]  # (K, 3, 3)
+    inner_v = orig_v + outward[:, np.newaxis, :] * gap               # (K, 3, 3)
+    outer_v = orig_v + outward[:, np.newaxis, :] * (gap + thickness) # (K, 3, 3)
 
-    # Hướng outward = -inward (ra xa vật thể, hướng xuống cho overhang)
-    outward = -vert_normals
+    # Inner surface: v0, v1, v2 → normal = oh_normals[i] (inward/upward)
+    inner_soup = inner_v.reshape(-1, 3)  # (K*3, 3)
 
-    # --- Bước 3: Tạo inner và outer vertices ---
-    inner_verts = vert_pos + outward * gap                # (U, 3)
-    outer_verts = vert_pos + outward * (gap + thickness)  # (U, 3)
+    # Outer surface: v0, v2, v1 (swap v1↔v2) → normal = -oh_normals[i] (outward/downward)
+    outer_flipped = outer_v[:, [0, 2, 1], :]  # (K, 3, 3)
+    outer_soup = outer_flipped.reshape(-1, 3)  # (K*3, 3)
 
-    num_oh_faces = len(local_faces)
-
-    # --- Bước 4: Tạo inner surface (raw, winding chưa cần đúng) ---
-    inner_v0 = inner_verts[local_faces[:, 0]]
-    inner_v1 = inner_verts[local_faces[:, 1]]
-    inner_v2 = inner_verts[local_faces[:, 2]]
-
-    inner_soup = np.zeros((num_oh_faces * 3, 3), dtype=np.float64)
-    inner_soup[0::3] = inner_v0
-    inner_soup[1::3] = inner_v1
-    inner_soup[2::3] = inner_v2
-
-    # --- Bước 5: Tạo outer surface (raw) ---
-    outer_v0 = outer_verts[local_faces[:, 0]]
-    outer_v1 = outer_verts[local_faces[:, 1]]
-    outer_v2 = outer_verts[local_faces[:, 2]]
-
-    outer_soup = np.zeros((num_oh_faces * 3, 3), dtype=np.float64)
-    outer_soup[0::3] = outer_v0
-    outer_soup[1::3] = outer_v1
-    outer_soup[2::3] = outer_v2
-
-    # --- Bước 6: Tạo side walls tại boundary edges ---
+    # --- Bước 3: Side walls tại boundary edges ---
+    # Boundary edge = cạnh chỉ thuộc 1 face overhang
+    # Lưu (fi, i_edge) để lấy đúng inner/outer vertex per-face
     edge_info = defaultdict(list)
     for fi in range(num_oh_faces):
         f = local_faces[fi]
         for i in range(3):
             a, b = int(f[i]), int(f[(i + 1) % 3])
             key = (min(a, b), max(a, b))
-            edge_info[key].append((a, b))
+            edge_info[key].append((fi, i))
 
     side_soup_list = []
-    side_expected_list = []  # expected outward normal cho mỗi tri side wall
     for key, entries in edge_info.items():
         if len(entries) != 1:
             continue
-        a, b = entries[0]
-        ia = inner_verts[a]
-        ib = inner_verts[b]
-        oa = outer_verts[a]
-        ob = outer_verts[b]
-
-        # Expected outward normal = trung bình outward normal của 2 đỉnh biên,
-        # chiếu vuông góc với cạnh (hướng ra khỏi shell boundary)
-        expected_dir = (outward[a] + outward[b]) / 2.0
-
-        tri1 = np.array([ib, ia, oa], dtype=np.float64)
-        tri2 = np.array([ib, oa, ob], dtype=np.float64)
-        side_soup_list.append(tri1)
-        side_soup_list.append(tri2)
-        side_expected_list.append(expected_dir)
-        side_expected_list.append(expected_dir)
+        fi, i_edge = entries[0]
+        ia = inner_v[fi, i_edge]
+        ib = inner_v[fi, (i_edge + 1) % 3]
+        oa = outer_v[fi, i_edge]
+        ob = outer_v[fi, (i_edge + 1) % 3]
+        # Winding đã đúng: tri1=(ib,ia,oa), tri2=(ib,oa,ob) cho normal hướng ra ngoài biên
+        # (chứng minh: cross(ia-ib, oa-ib) ∝ cross(edge_a→b, outward) = outward hướng biên)
+        side_soup_list.append(np.array([ib, ia, oa], dtype=np.float64))
+        side_soup_list.append(np.array([ib, oa, ob], dtype=np.float64))
 
     if side_soup_list:
         side_soup = np.vstack(side_soup_list)
-        side_expected = np.array(side_expected_list, dtype=np.float64)  # (S, 3)
     else:
         side_soup = np.zeros((0, 3), dtype=np.float64)
-        side_expected = np.zeros((0, 3), dtype=np.float64)
 
-    # --- Bước 7: Ghép tất cả ---
+    # --- Bước 4: Ghép và tính normals ---
     all_soup = np.concatenate([inner_soup, outer_soup, side_soup], axis=0)
 
     if len(all_soup) == 0:
         return np.zeros((0, 3), dtype=np.float32), np.zeros((0, 3), dtype=np.float32)
 
-    # --- Bước 8: Tính face normals ---
-    num_tris = len(all_soup) // 3
     sv0 = all_soup[0::3]
     sv1 = all_soup[1::3]
     sv2 = all_soup[2::3]
-
-    e1 = sv1 - sv0
-    e2 = sv2 - sv0
-    fn = np.cross(e1, e2)
+    fn = np.cross(sv1 - sv0, sv2 - sv0)
     fn_len = np.linalg.norm(fn, axis=1, keepdims=True)
     fn_len = np.maximum(fn_len, 1e-10)
     fn /= fn_len
 
-    # --- Bước 9: Post-process winding correction ---
-    # oh_normals đã được chuẩn hóa nhất quán (nz > 0 = inward = hướng lên).
-    # inner expected = inward = oh_normals
-    # outer expected = outward = -oh_normals
-    inner_expected = oh_normals                    # (K, 3) hướng lên về vật thể
-    outer_expected = -oh_normals                   # (K, 3) hướng xuống ra ngoài
-
-    if len(side_expected) > 0:
-        all_expected = np.concatenate([inner_expected, outer_expected, side_expected], axis=0)
-    else:
-        all_expected = np.concatenate([inner_expected, outer_expected], axis=0)
-
-    # Flip tam giác nếu fn ngược chiều expected
-    wrong = np.sum(fn * all_expected, axis=1) < 0  # (num_tris,)
-    if np.any(wrong):
-        # Swap v1 ↔ v2 cho tam giác sai
-        # Dùng flat index (i*3+1, i*3+2) vì double-indexing numpy tạo copy
-        wrong_idx = np.where(wrong)[0]
-        idx_v1 = wrong_idx * 3 + 1
-        idx_v2 = wrong_idx * 3 + 2
-        old_v1 = all_soup[idx_v1].copy()
-        old_v2 = all_soup[idx_v2].copy()
-        all_soup[idx_v1] = old_v2
-        all_soup[idx_v2] = old_v1
-        # Recompute normals cho các tam giác đã flip
-        sv0_new = all_soup[0::3]
-        sv1_new = all_soup[1::3]
-        sv2_new = all_soup[2::3]
-        e1_new = sv1_new - sv0_new
-        e2_new = sv2_new - sv0_new
-        fn_new = np.cross(e1_new, e2_new)
-        fn_new_len = np.linalg.norm(fn_new, axis=1, keepdims=True)
-        fn_new_len = np.maximum(fn_new_len, 1e-10)
-        fn = fn_new / fn_new_len
-
-    # Gán cùng normal cho 3 đỉnh mỗi tam giác (flat shading)
     all_normals = np.zeros_like(all_soup)
     all_normals[0::3] = fn
     all_normals[1::3] = fn
