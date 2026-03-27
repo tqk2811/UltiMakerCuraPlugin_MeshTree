@@ -90,28 +90,38 @@ def build_overhang_shell(vertices, faces, overhang_mask, face_normals,
 
     num_oh_faces = len(local_faces)
 
-    # --- Bước 4: Tạo inner surface (mặt hướng về vật thể) ---
-    # Giữ nguyên winding gốc → cross(e1,e2) cho inward normal (hướng lên = về vật thể)
-    # Trong hệ Z-up left-handed, winding CW khi nhìn từ trên → normal hướng lên
+    # --- Bước 4: Tạo inner surface (mặt hướng về vật thể = inward normal) ---
     inner_v0 = inner_verts[local_faces[:, 0]]
     inner_v1 = inner_verts[local_faces[:, 1]]
     inner_v2 = inner_verts[local_faces[:, 2]]
 
+    # Kiểm tra và chỉnh winding: cross(e1,e2) phải cùng hướng với inward normal
+    e1i = inner_v1 - inner_v0
+    e2i = inner_v2 - inner_v0
+    test_n_inner = np.cross(e1i, e2i)
+    flip_inner = np.sum(test_n_inner * oh_normals, axis=1) < 0  # oh_normals là inward
+
+    iv1 = np.where(flip_inner[:, None], inner_v2, inner_v1)
+    iv2 = np.where(flip_inner[:, None], inner_v1, inner_v2)
+
     inner_soup = np.zeros((num_oh_faces * 3, 3), dtype=np.float64)
     inner_soup[0::3] = inner_v0
-    inner_soup[1::3] = inner_v1
-    inner_soup[2::3] = inner_v2
+    inner_soup[1::3] = iv1
+    inner_soup[2::3] = iv2
 
-    # --- Bước 5: Tạo outer surface (mặt hướng ra ngoài = về phía tree tip) ---
-    # Đảo winding → normal hướng xuống (ra xa vật thể)
+    # --- Bước 5: Tạo outer surface (mặt hướng ra ngoài = outward normal = -inward) ---
     outer_v0 = outer_verts[local_faces[:, 0]]
     outer_v1 = outer_verts[local_faces[:, 1]]
     outer_v2 = outer_verts[local_faces[:, 2]]
 
+    # Outer phải có normal ngược với inner → dùng kết quả flip_inner để đảo ngược
+    ov1 = np.where(flip_inner[:, None], outer_v1, outer_v2)
+    ov2 = np.where(flip_inner[:, None], outer_v2, outer_v1)
+
     outer_soup = np.zeros((num_oh_faces * 3, 3), dtype=np.float64)
     outer_soup[0::3] = outer_v0
-    outer_soup[1::3] = outer_v2  # đảo v1 ↔ v2
-    outer_soup[2::3] = outer_v1
+    outer_soup[1::3] = ov1
+    outer_soup[2::3] = ov2
 
     # --- Bước 6: Tạo side walls tại boundary edges ---
     # Boundary edge = cạnh chỉ thuộc 1 mặt overhang (biên vùng overhang)
