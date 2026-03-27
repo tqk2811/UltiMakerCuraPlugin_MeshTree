@@ -75,8 +75,6 @@ _DEFAULT_SETTINGS = {
     "cone_height": 2.0,              # Chiều dài nón departure (mm)
     "straight_drop_height": 5.0,     # Chiều cao rơi thẳng (mm)
     "radius_growth_rate": 0.01,      # Tốc độ tăng bán kính mỗi bước
-    "cone_top_radius": 0.6,          # Bán kính đáy lớn nón departure (mm)
-    "cone_bottom_radius": 0.5,       # Bán kính đáy nhỏ nón departure (mm)
     "departure_straight_down": 0.0,  # 1=thẳng xuống, 0=vuông góc bề mặt
     # --- Mesh nhánh cây ---
     "cylinder_segments": 8,          # Số cạnh mặt cắt ngang (bát giác)

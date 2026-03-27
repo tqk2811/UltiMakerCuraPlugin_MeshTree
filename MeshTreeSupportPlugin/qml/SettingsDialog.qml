@@ -324,23 +324,6 @@ Window {
                         Label { text: "độ" }
 
                         Label {
-                            text: "Chiều dài nón departure:"
-                            Layout.preferredWidth: 180
-                            ToolTip.visible: coneHeightMA.containsMouse
-                            ToolTip.delay: 500
-                            ToolTip.text: "Chiều dài đoạn hình nón cụt xuất phát từ tip interface.\nGiúp tạo chân vuông góc dễ tách support.\nPhạm vi: 0.5 - 20 mm"
-                            MouseArea { id: coneHeightMA; anchors.fill: parent; hoverEnabled: true }
-                        }
-                        TextField {
-                            id: fConeHeight
-                            Layout.preferredWidth: 80
-                            horizontalAlignment: TextInput.AlignHCenter
-                            validator: DoubleValidator { bottom: 0.5; top: 20; decimals: 1 }
-                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("cone_height", v) }
-                        }
-                        Label { text: "mm" }
-
-                        Label {
                             text: "Chiều cao rơi thẳng:"
                             Layout.preferredWidth: 180
                             ToolTip.visible: straightDropMA.containsMouse
@@ -373,40 +356,6 @@ Window {
                             onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("radius_growth_rate", v) }
                         }
                         Label { text: "/bước" }
-
-                        Label {
-                            text: "Bán kính đầu nón (lớn):"
-                            Layout.preferredWidth: 180
-                            ToolTip.visible: coneTopMA.containsMouse
-                            ToolTip.delay: 500
-                            ToolTip.text: "Bán kính đáy lớn của nón cụt xuất phát (tiếp xúc tip interface).\nPhạm vi: 0.2 - 3 mm"
-                            MouseArea { id: coneTopMA; anchors.fill: parent; hoverEnabled: true }
-                        }
-                        TextField {
-                            id: fConeTopRadius
-                            Layout.preferredWidth: 80
-                            horizontalAlignment: TextInput.AlignHCenter
-                            validator: DoubleValidator { bottom: 0.2; top: 3; decimals: 2 }
-                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("cone_top_radius", v) }
-                        }
-                        Label { text: "mm" }
-
-                        Label {
-                            text: "Bán kính đầu nón (nhỏ):"
-                            Layout.preferredWidth: 180
-                            ToolTip.visible: coneBotMA.containsMouse
-                            ToolTip.delay: 500
-                            ToolTip.text: "Bán kính đáy nhỏ của nón cụt (chỗ bắt đầu routing).\nPhạm vi: 0.1 - 2 mm"
-                            MouseArea { id: coneBotMA; anchors.fill: parent; hoverEnabled: true }
-                        }
-                        TextField {
-                            id: fConeBottomRadius
-                            Layout.preferredWidth: 80
-                            horizontalAlignment: TextInput.AlignHCenter
-                            validator: DoubleValidator { bottom: 0.1; top: 2; decimals: 2 }
-                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("cone_bottom_radius", v) }
-                        }
-                        Label { text: "mm" }
 
                         Label {
                             text: "Departure thẳng xuống:"
@@ -642,11 +591,8 @@ Window {
         fMergeDist.text          = manager.getSetting("merge_distance").toFixed(1)
         fMaxMergeCount.text      = manager.getSetting("max_merge_count").toFixed(0)
         fMaxBranchAngle.text     = manager.getSetting("max_branch_angle").toFixed(1)
-        fConeHeight.text         = manager.getSetting("cone_height").toFixed(1)
         fStraightDrop.text       = manager.getSetting("straight_drop_height").toFixed(1)
         fRadiusGrowth.text       = manager.getSetting("radius_growth_rate").toFixed(3)
-        fConeTopRadius.text      = manager.getSetting("cone_top_radius").toFixed(2)
-        fConeBottomRadius.text   = manager.getSetting("cone_bottom_radius").toFixed(2)
         fDepartureStraight.checked = manager.getSetting("departure_straight_down") > 0.5
         fMinClearance.text       = manager.getSetting("min_clearance").toFixed(1)
         fSdfResolution.text      = manager.getSetting("sdf_resolution").toFixed(1)
