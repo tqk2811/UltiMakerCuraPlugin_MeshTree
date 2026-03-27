@@ -59,53 +59,80 @@ def build_overhang_shell(vertices, faces, overhang_mask, face_normals,
 
     # --- Bước 1: Ánh xạ vertex index gốc → index cục bộ ---
     unique_vert_indices = np.unique(oh_faces.ravel())
+    num_unique = len(unique_vert_indices)
     idx_map = np.full(vertices.shape[0], -1, dtype=np.int64)
-    idx_map[unique_vert_indices] = np.arange(len(unique_vert_indices))
+    idx_map[unique_vert_indices] = np.arange(num_unique)
     local_faces = idx_map[oh_faces]  # (K, 3)
     vert_pos = vertices[unique_vert_indices].copy().astype(np.float64)  # (U, 3)
 
-    # --- Bước 2: Per-face offset ---
-    # Mỗi tam giác offset độc lập theo normal của chính nó → không dùng per-vertex
-    # averaging (averaging từ faces có hướng khác nhau gây deform và winding lỗi).
-    #
-    # Uniform offset giữ nguyên shape và winding của tam giác:
-    #   inner: cross(e1, e2) = oh_normals[i] (inward, hướng lên) ✓
-    #   outer: flip v1↔v2 → cross(e1, e2) = -oh_normals[i] (outward, hướng xuống) ✓
-    outward = -oh_normals  # (K, 3) outward per face
+    # --- Bước 2: Per-vertex normal averaging → offset liền mạch ---
+    vert_normals = np.zeros((num_unique, 3), dtype=np.float64)
+    np.add.at(vert_normals, local_faces[:, 0], oh_normals)
+    np.add.at(vert_normals, local_faces[:, 1], oh_normals)
+    np.add.at(vert_normals, local_faces[:, 2], oh_normals)
+    lengths = np.linalg.norm(vert_normals, axis=1, keepdims=True)
+    lengths = np.maximum(lengths, 1e-10)
+    vert_normals /= lengths
+    outward = -vert_normals  # (U, 3) hướng ra xa vật thể
 
-    orig_v = vert_pos[local_faces]  # (K, 3, 3)
-    inner_v = orig_v + outward[:, np.newaxis, :] * gap               # (K, 3, 3)
-    outer_v = orig_v + outward[:, np.newaxis, :] * (gap + thickness) # (K, 3, 3)
+    inner_verts = vert_pos + outward * gap               # (U, 3)
+    outer_verts = vert_pos + outward * (gap + thickness)  # (U, 3)
 
-    # Inner surface: v0, v1, v2 → normal = oh_normals[i] (inward/upward)
-    inner_soup = inner_v.reshape(-1, 3)  # (K*3, 3)
+    # Inner surface: triangle soup từ local_faces
+    inner_soup = inner_verts[local_faces].reshape(-1, 3)  # (K*3, 3)
 
-    # Outer surface: v0, v2, v1 (swap v1↔v2) → normal = -oh_normals[i] (outward/downward)
-    outer_flipped = outer_v[:, [0, 2, 1], :]  # (K, 3, 3)
-    outer_soup = outer_flipped.reshape(-1, 3)  # (K*3, 3)
+    # Outer surface: swap v1↔v2 để flip winding
+    outer_faces_flipped = local_faces[:, [0, 2, 1]]
+    outer_soup = outer_verts[outer_faces_flipped].reshape(-1, 3)  # (K*3, 3)
+
+    # --- Bước 2b: Post-process fix winding ---
+    # Per-vertex averaging có thể gây sai winding ở vùng cong mạnh.
+    # Kiểm tra và sửa từng tam giác.
+
+    # Inner: expected normal = oh_normals[i] (inward)
+    iv0 = inner_soup[0::3]
+    iv1 = inner_soup[1::3]
+    iv2 = inner_soup[2::3]
+    inner_cross = np.cross(iv1 - iv0, iv2 - iv0)
+    inner_dot = np.sum(inner_cross * oh_normals, axis=1)
+    inner_wrong = inner_dot < 0
+    if np.any(inner_wrong):
+        # Swap v1 ↔ v2 cho các tam giác sai winding
+        wrong_idx = np.where(inner_wrong)[0]
+        idx1 = wrong_idx * 3 + 1
+        idx2 = wrong_idx * 3 + 2
+        inner_soup[idx1], inner_soup[idx2] = inner_soup[idx2].copy(), inner_soup[idx1].copy()
+
+    # Outer: expected normal = -oh_normals[i] (outward)
+    ov0 = outer_soup[0::3]
+    ov1 = outer_soup[1::3]
+    ov2 = outer_soup[2::3]
+    outer_cross = np.cross(ov1 - ov0, ov2 - ov0)
+    outer_expected = -oh_normals
+    outer_dot = np.sum(outer_cross * outer_expected, axis=1)
+    outer_wrong = outer_dot < 0
+    if np.any(outer_wrong):
+        wrong_idx = np.where(outer_wrong)[0]
+        idx1 = wrong_idx * 3 + 1
+        idx2 = wrong_idx * 3 + 2
+        outer_soup[idx1], outer_soup[idx2] = outer_soup[idx2].copy(), outer_soup[idx1].copy()
 
     # --- Bước 3: Side walls tại boundary edges ---
-    # Boundary edge = cạnh chỉ thuộc 1 face overhang
-    # Lưu (fi, i_edge) để lấy đúng inner/outer vertex per-face
     edge_info = defaultdict(list)
     for fi in range(num_oh_faces):
         f = local_faces[fi]
         for i in range(3):
             a, b = int(f[i]), int(f[(i + 1) % 3])
             key = (min(a, b), max(a, b))
-            edge_info[key].append((fi, i))
+            edge_info[key].append((a, b))
 
     side_soup_list = []
     for key, entries in edge_info.items():
         if len(entries) != 1:
             continue
-        fi, i_edge = entries[0]
-        ia = inner_v[fi, i_edge]
-        ib = inner_v[fi, (i_edge + 1) % 3]
-        oa = outer_v[fi, i_edge]
-        ob = outer_v[fi, (i_edge + 1) % 3]
-        # Winding đã đúng: tri1=(ib,ia,oa), tri2=(ib,oa,ob) cho normal hướng ra ngoài biên
-        # (chứng minh: cross(ia-ib, oa-ib) ∝ cross(edge_a→b, outward) = outward hướng biên)
+        a, b = entries[0]
+        ia, ib = inner_verts[a], inner_verts[b]
+        oa, ob = outer_verts[a], outer_verts[b]
         side_soup_list.append(np.array([ib, ia, oa], dtype=np.float64))
         side_soup_list.append(np.array([ib, oa, ob], dtype=np.float64))
 

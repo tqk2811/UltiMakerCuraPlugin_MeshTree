@@ -143,30 +143,12 @@ class MeshTreeSupportJob(Job):
             return
 
         # =====================================================================
-        # BƯỚC 4: LOẠI BỎ TAM GIÁC SHELL VA CHẠM VỚI VẬT THỂ
+        # BƯỚC 4: (Bỏ qua) Shell đã offset bởi gap → không cần SDF check
+        # SDF resolution (3mm) >> shell gap (0.3mm) gây xóa nhầm inner surface
         # =====================================================================
         self.progress.emit(25)
-        Logger.log("d", "Buoc 4/8: Loai bo tam giac shell va cham...")
-
-        num_tris = len(shell_verts) // 3
-        if num_tris > 0:
-            # Batch SDF check
-            dists = collision_field.get_distances_batch(
-                shell_verts.astype(np.float64)
-            )
-            # Reshape thành (num_tris, 3) — 3 đỉnh mỗi tam giác
-            dists_per_tri = dists.reshape(num_tris, 3)
-            # Tam giác safe = tất cả 3 đỉnh có SDF >= 0
-            safe_mask = np.all(dists_per_tri >= 0, axis=1)
-
-            removed = int(np.sum(~safe_mask))
-            if removed > 0:
-                tri_verts = shell_verts.reshape(num_tris, 3, 3)
-                tri_normals = shell_normals.reshape(num_tris, 3, 3)
-                shell_verts = tri_verts[safe_mask].reshape(-1, 3)
-                shell_normals = tri_normals[safe_mask].reshape(-1, 3)
-                Logger.log("i", "  -> Loai %d/%d tam giac shell va cham, con lai %d",
-                           removed, num_tris, num_tris - removed)
+        Logger.log("d", "Buoc 4/8: Bo qua SDF check cho shell (gap=%.1f, sdf_res=%.1f)",
+                   shell_gap, s["sdf_resolution"])
 
         if self._cancelled:
             return
