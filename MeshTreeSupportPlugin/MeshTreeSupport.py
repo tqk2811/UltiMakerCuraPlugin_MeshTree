@@ -51,28 +51,41 @@ _SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "setti
 
 # Giá trị mặc định cho tất cả tham số
 _DEFAULT_SETTINGS = {
+    # --- Phát hiện overhang ---
     "overhang_angle": 45.0,          # Góc overhang (độ)
     "min_overhang_height": 0.5,      # Chiều cao tối thiểu trên bàn in (mm)
+    # --- Vỏ overhang ---
     "shell_thickness": 0.5,          # Độ dày vỏ overhang (mm)
-    "shell_gap": 0.3,                # Khoảng cách vỏ đến bề mặt vật thể (mm)
+    "shell_gap": 0.1,                # Khoảng cách vỏ đến bề mặt vật thể (mm)
+    # --- Va chạm ---
     "min_clearance": 2.0,            # Khoảng cách an toàn đến mesh (mm)
     "sdf_resolution": 3.0,           # Độ phân giải lưới SDF (mm)
     "sdf_padding": 10.0,             # Padding quanh mesh cho SDF (mm)
+    # --- Đa giác ---
     "min_polygon_area": 0.5,         # Diện tích tối thiểu đa giác (mm²)
-    "max_polygon_area": 10.0,        # Diện tích tối đa đa giác (mm²)
+    "max_polygon_area": 2.0,         # Diện tích tối đa đa giác (mm²)
+    # --- Tip interface ---
     "tip_radius": 0.4,               # Bán kính tại Point A (mm)
-    "tip_height_factor": 0.5,        # Hệ số chiều cao tip (mm/mm²)
-    "branch_step_size": 0.5,         # Bước mô phỏng nhánh (mm)
-    "gravity_weight": 1.0,           # Trọng số trọng lực
-    "merge_weight": 0.3,             # Trọng số lực kéo gộp
-    "merge_distance_max": 30.0,      # Khoảng cách gộp tối đa (mm)
-    "area_growth_coeff": 0.05,       # Hệ số tăng diện tích/mm
-    "momentum_alpha": 0.3,           # Hệ số quán tính (0-1)
-    "collision_weight": 1.0,         # Trọng số lực chống va chạm
+    "tip_height_factor": 0.1,        # Hệ số chiều cao tip
+    # --- Nhánh cây (Space Colonization) ---
+    "step_size": 2.0,                # Bước mô phỏng nhánh (mm)
+    "merge_distance": 15.0,          # Khoảng cách gộp nhánh (mm)
+    "max_merge_count": 5,            # Số nhánh gộp tối đa
+    "max_branch_angle": 45.0,        # Góc nhánh tối đa so với -Z (độ)
+    "cone_height": 2.0,              # Chiều dài nón departure (mm)
+    "straight_drop_height": 5.0,     # Chiều cao rơi thẳng (mm)
+    "radius_growth_rate": 0.01,      # Tốc độ tăng bán kính mỗi bước
+    "cone_top_radius": 0.6,          # Bán kính đáy lớn nón departure (mm)
+    "cone_bottom_radius": 0.5,       # Bán kính đáy nhỏ nón departure (mm)
+    "departure_straight_down": 0.0,  # 1=thẳng xuống, 0=vuông góc bề mặt
+    # --- Mesh nhánh cây ---
+    "cylinder_segments": 8,          # Số cạnh mặt cắt ngang (bát giác)
+    "base_brim_multiplier": 3.0,     # Hệ số mở rộng đế
+    "base_brim_height": 0.5,         # Chiều cao đế (mm)
 }
 
 # Các key là integer (không phải float)
-_INT_SETTINGS = set()
+_INT_SETTINGS = {"max_merge_count", "cylinder_segments"}
 
 
 def _load_settings():
