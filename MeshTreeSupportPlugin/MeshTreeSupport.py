@@ -448,6 +448,11 @@ class MeshTreeSupport(QObject, Extension):
             Logger.log("w", "MeshTreeSupport: Job hoan thanh nhung khong co mesh.")
             return
 
+        # Thêm shell vào scene như object riêng biệt
+        shell_mesh_data = job.getResultShellMeshData()
+        if shell_mesh_data is not None:
+            self._add_support_to_scene(shell_mesh_data, name="MeshTreeSupport_Shell")
+
         # Thêm mesh support vào scene
         self._add_support_to_scene(mesh_data)
 
@@ -457,7 +462,7 @@ class MeshTreeSupport(QObject, Extension):
         self.progressChanged.emit()
         self.statusTextChanged.emit()
 
-    def _add_support_to_scene(self, mesh_data):
+    def _add_support_to_scene(self, mesh_data, name="MeshTreeSupport"):
         """
         Thêm mesh cây support vào scene Cura dưới dạng support mesh.
         Chuyển vertices Z-up → Y-up, tạo CuraSceneNode, đánh dấu support_mesh.
@@ -497,7 +502,7 @@ class MeshTreeSupport(QObject, Extension):
 
         # Tạo CuraSceneNode
         support_node = CuraSceneNode()
-        support_node.setName("MeshTreeSupport")
+        support_node.setName(name)
         support_node.setSelectable(True)
         support_node.setMeshData(cura_mesh_data)
 

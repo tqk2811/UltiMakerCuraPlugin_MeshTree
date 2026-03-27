@@ -50,6 +50,7 @@ class MeshTreeSupportJob(Job):
         self._faces = faces.astype(np.int32)
         self._settings = settings
         self._result_mesh_data = None
+        self._result_shell_mesh_data = None
         self._cancelled = False
 
     def requestCancel(self):
@@ -60,6 +61,9 @@ class MeshTreeSupportJob(Job):
 
     def getResultMeshData(self):
         return self._result_mesh_data
+
+    def getResultShellMeshData(self):
+        return self._result_shell_mesh_data
 
     def run(self):
         Logger.log("i", "MeshTreeSupport: Bat dau sinh support...")
@@ -287,8 +291,12 @@ class MeshTreeSupportJob(Job):
         all_mesh_parts = []
         all_normal_parts = []
 
-        # Shell
+        # Shell (lưu riêng để xuất thành object độc lập)
         if shell_verts is not None and len(shell_verts) > 0:
+            self._result_shell_mesh_data = MeshData(
+                vertices=shell_verts.astype(np.float32),
+                normals=shell_normals.astype(np.float32)
+            )
             all_mesh_parts.append(shell_verts.astype(np.float32))
             all_normal_parts.append(shell_normals.astype(np.float32))
 
