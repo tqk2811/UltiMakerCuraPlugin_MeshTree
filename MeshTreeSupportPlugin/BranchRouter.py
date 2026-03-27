@@ -103,36 +103,7 @@ def route_branches(tip_points, collision_field,
     if len(tip_points) == 0:
         return [], []
 
-    # --- Tính hướng departure ---
-    departure_dirs = []
-    for i in range(len(tip_points)):
-        tip_pos = tip_points[i]
-        path_blocked = False
-        check_z = tip_pos[2] - step_size
-        while check_z > 0:
-            check_point = np.array([tip_pos[0], tip_pos[1], check_z])
-            dist = collision_field.get_distance(check_point)
-            if dist < 0:
-                path_blocked = True
-                break
-            check_z -= step_size
-
-        use_normal = path_blocked or (not departure_straight_down)
-
-        if use_normal and tip_normals is not None and i < len(tip_normals):
-            outward = -tip_normals[i]
-            n_len = np.linalg.norm(outward)
-            if n_len > 1e-6:
-                outward /= n_len
-            else:
-                outward = np.array([0.0, 0.0, -1.0])
-            departure_dirs.append(outward)
-        else:
-            departure_dirs.append(np.array([0.0, 0.0, -1.0]))
-
-    departure_steps = max(1, round(cone_height / step_size))
-
-    # --- Khởi tạo skeleton ---
+# --- Khởi tạo skeleton ---
     all_nodes = []  # [(numpy array (3,), float), ...]
     all_edges = []  # [(int, int), ...]
 
@@ -143,21 +114,7 @@ def route_branches(tip_points, collision_field,
         node_idx = len(all_nodes)
         all_nodes.append((node_pos.copy(), cone_top_radius))
 
-        dep_dir = departure_dirs[i]
-        prev_idx = node_idx
-        current_pos = node_pos.copy()
-        for step in range(departure_steps):
-            current_pos = current_pos + dep_dir * step_size
-            current_pos[2] = max(0.0, current_pos[2])
-            new_idx = len(all_nodes)
-            t = (step + 1) / departure_steps
-            step_radius = cone_top_radius * (1.0 - t) + cone_bottom_radius * t
-            all_nodes.append((current_pos.copy(), step_radius))
-            all_edges.append((prev_idx, new_idx))
-            prev_idx = new_idx
-
-        branch = BranchTip(current_pos, cone_bottom_radius, prev_idx, tip_count=1)
-        branch.prev_direction = dep_dir.copy()
+        branch = BranchTip(node_pos, cone_top_radius, node_idx, tip_count=1)
         branches.append(branch)
 
     cos_angle_limit = np.cos(np.radians(max_branch_angle))
@@ -363,8 +320,6 @@ def route_branches(tip_points, collision_field,
                     continue
                 pos = positions_array[ai]
                 if pos[2] <= straight_drop_height:
-                    continue
-                if branches[idx].steps_taken < departure_steps:
                     continue
                 eligible.append((ai, idx))
 
