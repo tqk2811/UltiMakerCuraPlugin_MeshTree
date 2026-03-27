@@ -151,7 +151,7 @@ def route_branches(points_a, collision_field, settings, cancel_check=None):
 
         # --- 2. Lực hấp dẫn gộp (2D gravity center trong XY) ---
         merge_force = _compute_merge_forces(
-            active_idx, positions, areas, merge_coeff, merge_dist_max, merge_w
+            active_idx, positions, areas, merge_coeff, merge_dist_max, merge_w, gravity_w
         )
 
         # --- 3. Chống va chạm ---
@@ -280,10 +280,11 @@ def route_branches(points_a, collision_field, settings, cancel_check=None):
 
 
 def _compute_merge_forces(active_idx, positions, areas, merge_coeff,
-                          merge_dist_max, merge_weight):
+                          merge_dist_max, merge_weight, gravity_weight=2.0):
     """
     Tính lực hấp dẫn 2D (XY) cho mỗi nhánh active.
-    Dùng N-body gravity: F = direction × mass / d² (trong XY).
+    Dùng inverse-linear (1/d) thay vì inverse-square (1/d²) để tránh bùng nổ khi gần.
+    Tổng lực merge bị giới hạn tối đa = gravity_weight × 0.5 → nhánh không đi ngang.
 
     Trả về: numpy array (len(active_idx), 3)
     """
@@ -294,9 +295,9 @@ def _compute_merge_forces(active_idx, positions, areas, merge_coeff,
 
     pos = positions[active_idx]
     area = areas[active_idx]
+    max_force_xy = gravity_weight * 0.5  # giới hạn: merge force ≤ 50% gravity
 
     for i in range(N):
-        # Merge distance cho nhánh i
         my_merge_dist = min(np.sqrt(area[i]) * merge_coeff, merge_dist_max)
 
         fx = fy = 0.0
@@ -311,14 +312,23 @@ def _compute_merge_forces(active_idx, positions, areas, merge_coeff,
             if d > my_merge_dist:
                 continue
 
-            # Lực hấp dẫn: F = mass_j / d² (inverse-square)
+            # Inverse-linear: F = mass_j / d (không bùng nổ khi gần như 1/d²)
             mass_j = area[j]
-            strength = mass_j / (d2 + 1e-6)
+            strength = mass_j / (d + 1e-6)
             fx += (dx / d) * strength
             fy += (dy / d) * strength
 
-        forces[i, 0] = fx * merge_weight
-        forces[i, 1] = fy * merge_weight
+        # Giới hạn tổng lực merge ≤ max_force_xy
+        f_xy = fx * merge_weight
+        f_yy = fy * merge_weight
+        f_mag = np.sqrt(f_xy * f_xy + f_yy * f_yy)
+        if f_mag > max_force_xy:
+            scale = max_force_xy / f_mag
+            f_xy *= scale
+            f_yy *= scale
+
+        forces[i, 0] = f_xy
+        forces[i, 1] = f_yy
 
     return forces
 
