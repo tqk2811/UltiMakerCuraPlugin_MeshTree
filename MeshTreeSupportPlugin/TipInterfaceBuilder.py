@@ -209,15 +209,13 @@ def _connect_rings(ring0, ring1):
 
     if n0 == n1:
         # Cùng số đỉnh: quad strip
+        # Cả 2 ring đều CCW → swap vertex order để normal hướng ra ngoài
         for i in range(n0):
             i_next = (i + 1) % n0
-            # Tri 1: ring0[i], ring1[i], ring0[i_next]
-            tris.append([ring0[i], ring1[i], ring0[i_next]])
-            # Tri 2: ring0[i_next], ring1[i], ring1[i_next]
-            tris.append([ring0[i_next], ring1[i], ring1[i_next]])
+            tris.append([ring0[i], ring0[i_next], ring1[i]])
+            tris.append([ring0[i_next], ring1[i_next], ring1[i]])
     else:
         # Khác số đỉnh: dùng dual-pointer fan
-        # Map đỉnh ring0 sang ring1 theo tỷ lệ góc
         i0 = 0
         i1 = 0
         total_tris = n0 + n1
@@ -229,20 +227,17 @@ def _connect_rings(ring0, ring1):
             i0_next = (i0 + 1) % n0 if i0 < n0 else i0 % n0
             i1_next = (i1 + 1) % n1 if i1 < n1 else i1 % n1
 
-            # Quyết định advance ring0 hay ring1
             ratio0 = i0 / n0 if n0 > 0 else 0
             ratio1 = i1 / n1 if n1 > 0 else 0
 
             if ratio0 <= ratio1 and i0 < n0:
-                # Advance ring0
-                tris.append([ring0[i0 % n0], ring1[i1 % n1], ring0[i0_next]])
+                tris.append([ring0[i0 % n0], ring0[i0_next], ring1[i1 % n1]])
                 i0 += 1
             elif i1 < n1:
-                # Advance ring1
-                tris.append([ring0[i0 % n0], ring1[i1 % n1], ring1[i1_next]])
+                tris.append([ring0[i0 % n0], ring1[i1_next], ring1[i1 % n1]])
                 i1 += 1
             elif i0 < n0:
-                tris.append([ring0[i0 % n0], ring1[i1 % n1], ring0[i0_next]])
+                tris.append([ring0[i0 % n0], ring0[i0_next], ring1[i1 % n1]])
                 i0 += 1
             else:
                 break

@@ -342,8 +342,8 @@ def _extract_boundary_loop(members, local_faces, outer_verts):
     if len(loop) < 3:
         return None
 
-    # Đảo thứ tự: face gốc có winding inward, tip interface cần outward
-    loop.reverse()
+    # Giữ nguyên thứ tự CCW (khớp với _make_ring) để _connect_rings tạo
+    # winding nhất quán. Không reverse vì ring0 và ring1 cần cùng chiều.
     return outer_verts[np.array(loop)].copy()
 
 
