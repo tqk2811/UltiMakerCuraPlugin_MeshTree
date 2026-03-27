@@ -31,6 +31,19 @@ Window {
     modality: Qt.NonModal
     color: "#f5f5f5"
 
+    // Ghi nhớ vị trí cửa sổ
+    onXChanged: Qt.callLater(function() { manager.updateSetting("_win_x", x) })
+    onYChanged: Qt.callLater(function() { manager.updateSetting("_win_y", y) })
+
+    Component.onCompleted: {
+        var wx = manager.getSetting("_win_x")
+        var wy = manager.getSetting("_win_y")
+        if (wx !== 0 || wy !== 0) {
+            x = wx
+            y = wy
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 16
