@@ -165,8 +165,9 @@ Window {
                 }
 
                 // ─── NHÓM 3: XỬ LÝ ĐA GIÁC ───
+                // ─── NHÓM 4: TIP INTERFACE ───
                 GroupBox {
-                    title: "  Xử lý đa giác (Polygon)  "
+                    title: "  Tip Interface  "
                     Layout.fillWidth: true
 
                     GridLayout {
@@ -208,19 +209,6 @@ Window {
                             onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("max_polygon_area", v) }
                         }
                         Label { text: "mm²" }
-                    }
-                }
-
-                // ─── NHÓM 4: TIP INTERFACE ───
-                GroupBox {
-                    title: "  Tip Interface  "
-                    Layout.fillWidth: true
-
-                    GridLayout {
-                        columns: 3
-                        columnSpacing: 8
-                        rowSpacing: 6
-                        anchors.fill: parent
 
                         Label {
                             text: "Bán kính tip:"
