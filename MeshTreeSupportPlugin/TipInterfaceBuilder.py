@@ -26,18 +26,14 @@ class PointA:
         self.polygon_index = polygon_index  # int, chỉ số polygon gốc
 
 
-def build_tip_interfaces(polygons, tip_radius=0.4, height_factor=0.5, ring_thickness=0.3):
+def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3):
     """
     Tạo tip interface mesh cho tất cả đa giác.
-
-    Mỗi polygon → morphing frustum từ n-gon (diện tích gốc) → octagon (r=tip_radius).
-    Chiều cao mỗi bước tỷ lệ diện tích: step_height = area_at_step × height_factor.
 
     Tham số:
         polygons       : list[PolygonInfo] từ PolygonProcessor
         tip_radius     : float - bán kính tại Point A (mm)
-        height_factor  : float - hệ số chiều cao tip (mm/mm²)
-        ring_thickness : float - độ dày cố định mỗi ring (mm)
+        ring_thickness : float - độ dày mỗi ring (mm)
 
     Trả về:
         tip_verts   : numpy array (V, 3) float32 - triangle soup
@@ -135,12 +131,7 @@ def build_tip_interfaces(polygons, tip_radius=0.4, height_factor=0.5, ring_thick
             prev_ring = ring
 
             if step < num_steps:
-                # Dùng ring_thickness nếu > 0, ngược lại dùng height_factor * area
-                if ring_thickness > 0:
-                    step_h = ring_thickness
-                else:
-                    step_h = max(current_area * height_factor, 0.2)
-                current_pos = current_pos + tip_dir * step_h
+                current_pos = current_pos + tip_dir * ring_thickness
                 current_area *= shrink_factor
 
         # Point A = vị trí cuối tip

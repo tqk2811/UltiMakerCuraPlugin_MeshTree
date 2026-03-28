@@ -240,23 +240,6 @@ Window {
                         Label { text: "mm" }
 
                         Label {
-                            text: "Hệ số chiều cao:"
-                            Layout.preferredWidth: 180
-                            ToolTip.visible: tipHeightMA.containsMouse
-                            ToolTip.delay: 500
-                            ToolTip.text: "Chiều cao tip tỷ lệ với diện tích đa giác × hệ số.\nPhạm vi: 0.1 - 2"
-                            MouseArea { id: tipHeightMA; anchors.fill: parent; hoverEnabled: true }
-                        }
-                        TextField {
-                            id: fTipHeightFactor
-                            Layout.preferredWidth: 80
-                            horizontalAlignment: TextInput.AlignHCenter
-                            validator: DoubleValidator { bottom: 0.1; top: 2; decimals: 2 }
-                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("tip_height_factor", v) }
-                        }
-                        Label { text: "" }
-
-                        Label {
                             text: "Độ dày ring:"
                             Layout.preferredWidth: 180
                             ToolTip.visible: tipRingThickMA.containsMouse
@@ -615,7 +598,6 @@ Window {
         fMinPolyArea.text        = manager.getSetting("min_polygon_area").toFixed(2)
         fMaxPolyArea.text        = manager.getSetting("max_polygon_area").toFixed(1)
         fTipRadius.text          = manager.getSetting("tip_radius").toFixed(2)
-        fTipHeightFactor.text    = manager.getSetting("tip_height_factor").toFixed(2)
         fTipRingThickness.text   = manager.getSetting("tip_ring_thickness").toFixed(2)
         fStepSize.text           = manager.getSetting("step_size").toFixed(1)
         fMergeDist.text          = manager.getSetting("merge_distance").toFixed(1)
