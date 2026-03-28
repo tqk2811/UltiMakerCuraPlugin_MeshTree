@@ -12,6 +12,7 @@
 # ==============================================================================
 
 import numpy as np
+from UM.Logger import Logger
 
 
 class PointA:
@@ -100,7 +101,12 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3):
         shrink_factor = (target_area / start_area) ** (1.0 / num_steps)
 
         # --- Tạo rings và nối mesh ---
-        current_pos = start_pos.copy()
+        # Dùng center thực tế của ring0 (boundary_verts) thay vì outer_position
+        # để tránh lệch giữa ring0 và ring1
+        if has_boundary:
+            current_pos = np.mean(ring0_verts, axis=0)
+        else:
+            current_pos = start_pos.copy()
         current_area = start_area
         prev_ring = None
 
@@ -122,10 +128,40 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3):
                     n = max(start_n - step, 8)
                 a = current_area
                 r = _radius_from_area(a, n)
-                ring = _make_ring(current_pos, tip_dir, n, r)
+                regular_ring = _make_ring(current_pos, tip_dir, n, r)
+
+                # Blend: step đầu tiên (step=1) gần ring0 hơn để giảm overhang
+                # t=0 → giống ring0, t=1 → regular polygon hoàn toàn
+                if has_boundary and step <= 2:
+                    resampled = _resample_ring(
+                        ring0_verts + (current_pos - np.mean(ring0_verts, axis=0)),
+                        n)
+                    # Scale resampled về đúng radius
+                    res_center = np.mean(resampled, axis=0)
+                    res_radii = np.linalg.norm(resampled - res_center, axis=1, keepdims=True)
+                    avg_res_r = np.mean(res_radii)
+                    if avg_res_r > 1e-10:
+                        resampled = res_center + (resampled - res_center) * (r / avg_res_r)
+                    blend_t = step / min(3, num_steps)  # blend dần qua 3 steps
+                    ring = resampled * (1.0 - blend_t) + regular_ring * blend_t
+                else:
+                    ring = regular_ring
 
             if prev_ring is not None:
                 tris = _connect_rings(prev_ring, ring)
+                # Debug: log ring0→ring1 connection
+                num_t = len(tris) // 3
+                areas = []
+                for tt in range(num_t):
+                    tv0, tv1, tv2 = tris[tt*3], tris[tt*3+1], tris[tt*3+2]
+                    area = np.linalg.norm(np.cross(tv1 - tv0, tv2 - tv0)) * 0.5
+                    areas.append(area)
+                areas = np.array(areas)
+                degen = np.sum(areas < 1e-6)
+                Logger.log("d", f"TipInterface poly={pi} step={step}: "
+                           f"ring0={len(prev_ring)} ring1={len(ring)} "
+                           f"tris={num_t} degen={degen} "
+                           f"area_min={areas.min():.6f} area_max={areas.max():.6f}")
                 all_soup.append(tris)
 
             prev_ring = ring
@@ -198,30 +234,44 @@ def _make_ring(center, axis, n_sides, radius):
 def _connect_rings(ring0, ring1):
     """
     Nối 2 ring bằng triangle strip, căn chỉnh theo đỉnh gần nhất.
+    Đảm bảo cả 2 ring đi cùng chiều (CCW nhìn từ ngoài) trước khi nối.
 
     Trả về: numpy array (T*3, 3) triangle soup
     """
     n0 = len(ring0)
     n1 = len(ring1)
 
+    ring0_center = np.mean(ring0, axis=0)
+    ring1_center = np.mean(ring1, axis=0)
+    axis_vec = ring1_center - ring0_center
+    axis_len = np.linalg.norm(axis_vec)
+    if axis_len > 1e-10:
+        axis_dir = axis_vec / axis_len
+    else:
+        axis_dir = np.array([0.0, 0.0, 1.0])
+
+    # Đảm bảo ring0 đi CCW khi nhìn từ phía axis_dir
+    # Signed area projected lên axis: dương = CCW
+    def _signed_area_on_axis(ring, center, axis):
+        total = 0.0
+        n = len(ring)
+        for k in range(n):
+            v0 = ring[k] - center
+            v1 = ring[(k + 1) % n] - center
+            total += np.dot(np.cross(v0, v1), axis)
+        return total
+
+    if _signed_area_on_axis(ring0, ring0_center, axis_dir) < 0:
+        ring0 = ring0[::-1].copy()
+    if _signed_area_on_axis(ring1, ring1_center, axis_dir) < 0:
+        ring1 = ring1[::-1].copy()
+
     # Căn chỉnh điểm bắt đầu: ring1[j] gần ring0[0] nhất
     dists = np.linalg.norm(ring1 - ring0[0], axis=1)
     best_offset = int(np.argmin(dists))
     ring1 = np.roll(ring1, -best_offset, axis=0)
 
-    # Kiểm tra chiều đi: nếu ring1[1] gần ring0[-1] hơn ring0[1]
-    # → 2 ring đi ngược chiều → flip ring1
-    if n1 > 1 and n0 > 1:
-        dist_same = np.linalg.norm(ring1[1] - ring0[1 % n0])
-        dist_flip = np.linalg.norm(ring1[1] - ring0[-1])
-        if dist_flip < dist_same:
-            ring1 = ring1[::-1]
-            # Sau khi reverse, vertex đã align (index 0) chạy về cuối → roll lại
-            ring1 = np.roll(ring1, 1, axis=0)
-
-    # Advancing front: mỗi bước chọn tiến ring0 hay ring1
-    # dựa trên đường chéo nào ngắn hơn → đúng 1 đỉnh có 3 cạnh nối
-    # Chạy cho đến khi CẢ 2 ring đều đi hết một vòng
+    # Advancing front
     tris = []
     i, j = 0, 0
     steps_i, steps_j = 0, 0
@@ -251,29 +301,29 @@ def _connect_rings(ring0, ring1):
 
     result = np.array(tris, dtype=np.float64).reshape(-1, 3)
 
-    # Post-process: advancing front tạo winding nhất quán → chỉ cần check
-    # 1 tam giác đầu, nếu sai thì flip TẤT CẢ (không flip từng cái riêng lẻ)
-    ring0_center = np.mean(ring0, axis=0)
-    ring1_center = np.mean(ring1, axis=0)
-    axis_vec = ring1_center - ring0_center
-    axis_len = np.linalg.norm(axis_vec)
-    if axis_len > 1e-10:
-        axis_dir = axis_vec / axis_len
-    else:
-        axis_dir = np.array([0.0, 0.0, 1.0])
-
+    # Post-process: cả 2 ring đã CCW → winding nhất quán
+    # Chỉ cần check 1 tam giác, nếu sai thì flip TẤT CẢ
     num_tris_out = len(result) // 3
     if num_tris_out > 0:
-        # Kiểm tra tam giác đầu tiên
-        v0 = result[0]
-        v1 = result[1]
-        v2 = result[2]
-        face_normal = np.cross(v1 - v0, v2 - v0)
-        tri_center = (v0 + v1 + v2) / 3.0
-        radial = tri_center - ring0_center
-        radial = radial - np.dot(radial, axis_dir) * axis_dir
-        if np.dot(face_normal, radial) < 0:
-            # Flip tất cả tam giác: swap vertex 1 và 2
+        # Dùng majority vote từ vài tam giác để tránh sai do 1 tam giác degenerate
+        mid_center = (ring0_center + ring1_center) * 0.5
+        vote = 0
+        check_count = min(num_tris_out, 5)
+        step = max(1, num_tris_out // check_count)
+        for t in range(0, num_tris_out, step):
+            if t >= num_tris_out:
+                break
+            v0 = result[t * 3]
+            v1 = result[t * 3 + 1]
+            v2 = result[t * 3 + 2]
+            fn = np.cross(v1 - v0, v2 - v0)
+            tc = (v0 + v1 + v2) / 3.0
+            if np.dot(fn, tc - mid_center) >= 0:
+                vote += 1
+            else:
+                vote -= 1
+        Logger.log("d", f"_connect_rings: n0={n0} n1={n1} tris={num_tris_out} vote={vote}")
+        if vote < 0:
             for t in range(num_tris_out):
                 tmp = result[t * 3 + 1].copy()
                 result[t * 3 + 1] = result[t * 3 + 2]
