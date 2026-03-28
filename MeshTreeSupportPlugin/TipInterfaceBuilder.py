@@ -204,26 +204,32 @@ def _connect_rings(ring0, ring1):
     n0 = len(ring0)
     n1 = len(ring1)
 
-    if n0 != n1:
-        target_n = max(n0, n1)
-        if n0 < n1:
-            ring0 = _resample_ring(ring0, target_n)
-            n0 = target_n
-        else:
-            ring1 = _resample_ring(ring1, target_n)
-            n1 = target_n
-
-    # Tìm offset tốt nhất: ring1[offset] gần ring0[0] nhất
+    # Căn chỉnh điểm bắt đầu: ring1[j] gần ring0[0] nhất
     dists = np.linalg.norm(ring1 - ring0[0], axis=1)
     best_offset = int(np.argmin(dists))
     ring1 = np.roll(ring1, -best_offset, axis=0)
 
-    # Quad strip
+    # Advancing front: mỗi bước chọn tiến ring0 hay ring1
+    # dựa trên đường chéo nào ngắn hơn → đúng 1 đỉnh có 3 cạnh nối
     tris = []
-    for i in range(n0):
+    i, j = 0, 0
+    total = n0 + n1  # tổng số bước = n0 + n1 tam giác
+
+    for _ in range(total):
         i_next = (i + 1) % n0
-        tris.append([ring0[i], ring0[i_next], ring1[i]])
-        tris.append([ring0[i_next], ring1[i_next], ring1[i]])
+        j_next = (j + 1) % n1
+
+        # Đường chéo A: tiến i (tam giác ring0[i], ring0[i_next], ring1[j])
+        diag_a = np.linalg.norm(ring0[i_next] - ring1[j])
+        # Đường chéo B: tiến j (tam giác ring0[i], ring1[j], ring1[j_next])
+        diag_b = np.linalg.norm(ring0[i] - ring1[j_next])
+
+        if diag_a <= diag_b:
+            tris.append([ring0[i], ring0[i_next], ring1[j]])
+            i = i_next
+        else:
+            tris.append([ring0[i], ring1[j], ring1[j_next]])
+            j = j_next
 
     result = np.array(tris, dtype=np.float64).reshape(-1, 3)
 
