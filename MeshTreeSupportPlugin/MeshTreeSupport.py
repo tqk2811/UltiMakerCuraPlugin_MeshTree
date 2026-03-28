@@ -66,7 +66,7 @@ _DEFAULT_SETTINGS = {
     "max_polygon_area": 2.0,         # Diện tích tối đa đa giác (mm²)
     # --- Tip interface ---
     "tip_radius": 0.4,               # Bán kính tại Point A (mm)
-    "tip_height_factor": 0.1,        # Hệ số chiều cao tip
+    "tip_ring_thickness": 0.3,       # Khoảng cách giữa 2 ring (mm)
     # --- Nhánh cây (Space Colonization) ---
     "step_size": 2.0,                # Bước mô phỏng nhánh (mm)
     "merge_distance": 15.0,          # Khoảng cách gộp nhánh (mm)
