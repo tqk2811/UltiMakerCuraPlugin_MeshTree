@@ -208,14 +208,15 @@ def _connect_rings(ring0, ring1):
     tris = []
 
     if n0 != n1:
-        # Resample ring lớn về cùng số đỉnh với ring nhỏ
-        # Dùng interpolation dọc theo boundary để giữ hình dạng
-        if n0 > n1:
-            ring0 = _resample_ring(ring0, n1)
-            n0 = n1
+        # Resample ring nhỏ LÊN bằng ring lớn
+        # Giữ nguyên ring lớn (boundary_verts) để khớp với shell
+        target_n = max(n0, n1)
+        if n0 < n1:
+            ring0 = _resample_ring(ring0, target_n)
+            n0 = target_n
         else:
-            ring1 = _resample_ring(ring1, n0)
-            n1 = n0
+            ring1 = _resample_ring(ring1, target_n)
+            n1 = target_n
 
     # Quad strip: cả 2 ring cùng số đỉnh, cùng CCW
     for i in range(n0):
