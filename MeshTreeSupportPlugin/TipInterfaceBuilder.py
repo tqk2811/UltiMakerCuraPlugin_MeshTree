@@ -216,6 +216,8 @@ def _connect_rings(ring0, ring1):
         dist_flip = np.linalg.norm(ring1[1] - ring0[-1])
         if dist_flip < dist_same:
             ring1 = ring1[::-1]
+            # Sau khi reverse, vertex đã align (index 0) chạy về cuối → roll lại
+            ring1 = np.roll(ring1, 1, axis=0)
 
     # Advancing front: mỗi bước chọn tiến ring0 hay ring1
     # dựa trên đường chéo nào ngắn hơn → đúng 1 đỉnh có 3 cạnh nối
