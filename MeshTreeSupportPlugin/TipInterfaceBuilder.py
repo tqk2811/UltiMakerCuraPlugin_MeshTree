@@ -242,15 +242,27 @@ def _connect_rings(ring0, ring1):
     result = np.array(tris, dtype=np.float64).reshape(-1, 3)
 
     # Post-process: đảm bảo normals hướng ra ngoài
-    axis_center = 0.5 * (np.mean(ring0, axis=0) + np.mean(ring1, axis=0))
+    # Dùng trục (axis_dir) thay vì điểm axis_center để tính hướng radial chính xác
+    ring0_center = np.mean(ring0, axis=0)
+    ring1_center = np.mean(ring1, axis=0)
+    axis_vec = ring1_center - ring0_center
+    axis_len = np.linalg.norm(axis_vec)
+    if axis_len > 1e-10:
+        axis_dir = axis_vec / axis_len
+    else:
+        axis_dir = np.array([0.0, 0.0, 1.0])
+
     num_tris_out = len(result) // 3
     for t in range(num_tris_out):
         v0 = result[t * 3]
         v1 = result[t * 3 + 1]
         v2 = result[t * 3 + 2]
         face_normal = np.cross(v1 - v0, v2 - v0)
-        outward = (v0 + v1 + v2) / 3.0 - axis_center
-        if np.dot(face_normal, outward) < 0:
+        tri_center = (v0 + v1 + v2) / 3.0
+        # Hướng radial: loại bỏ thành phần dọc axis
+        radial = tri_center - ring0_center
+        radial = radial - np.dot(radial, axis_dir) * axis_dir
+        if np.dot(face_normal, radial) < 0:
             result[t * 3 + 1] = v2
             result[t * 3 + 2] = v1
 
