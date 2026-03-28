@@ -240,11 +240,11 @@ Window {
                         Label { text: "mm" }
 
                         Label {
-                            text: "Độ dày ring:"
+                            text: "Khoảng cách giữa 2 ring:"
                             Layout.preferredWidth: 180
                             ToolTip.visible: tipRingThickMA.containsMouse
                             ToolTip.delay: 500
-                            ToolTip.text: "Độ dày (chiều cao) của mỗi ring trong tip interface.\nPhạm vi: 0.1 - 5 mm"
+                            ToolTip.text: "Khoảng cách dọc theo hướng tip giữa 2 ring liền kề.\nPhạm vi: 0.1 - 5 mm"
                             MouseArea { id: tipRingThickMA; anchors.fill: parent; hoverEnabled: true }
                         }
                         TextField {
