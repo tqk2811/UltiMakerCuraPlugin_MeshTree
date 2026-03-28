@@ -23,7 +23,7 @@ Window {
     id: root
     title: "Mesh Tree Support - Cài đặt"
     width: 560
-    height: 960
+    height: 860
     minimumWidth: 500
     minimumHeight: 750
     transientParent: mainWindow

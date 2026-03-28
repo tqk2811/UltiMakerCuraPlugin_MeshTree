@@ -23,7 +23,8 @@ from collections import defaultdict
 class PolygonInfo:
     """Thông tin một đa giác đã xử lý (merge/split)."""
     __slots__ = ['centroid', 'area', 'normal', 'n_sides',
-                 'face_indices', 'outer_position', 'boundary_verts']
+                 'face_indices', 'outer_position', 'boundary_verts',
+                 'cap_triangles']
 
     def __init__(self, centroid, area, normal, n_sides, face_indices):
         self.centroid = centroid          # (3,) vị trí trọng tâm
@@ -33,6 +34,7 @@ class PolygonInfo:
         self.face_indices = face_indices  # list[int] chỉ số face gốc trong overhang
         self.outer_position = None        # (3,) sẽ tính sau = centroid + outward*(gap+thickness)
         self.boundary_verts = None        # (K, 3) đỉnh biên thực tế trên outer surface, theo thứ tự
+        self.cap_triangles = None         # (T*3, 3) triangle soup các mặt gốc trên outer surface
 
 
 def process_polygons(vertices, faces, overhang_mask, face_normals,
@@ -154,6 +156,15 @@ def process_polygons(vertices, faces, overhang_mask, face_normals,
         # Vị trí trên outer shell surface
         info.outer_position = weighted_centroid + outward_normal * offset_dist
         info.boundary_verts = boundary
+
+        # Tạo cap triangles từ các tam giác gốc trên outer surface
+        cap_faces = []
+        for m in members:
+            f = local_sub_faces[m]
+            cap_faces.append(outer_verts[f[0]])
+            cap_faces.append(outer_verts[f[1]])
+            cap_faces.append(outer_verts[f[2]])
+        info.cap_triangles = np.array(cap_faces, dtype=np.float64) if cap_faces else None
 
         result.append(info)
 

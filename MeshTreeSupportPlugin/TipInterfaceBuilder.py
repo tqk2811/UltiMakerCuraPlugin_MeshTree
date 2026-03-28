@@ -70,6 +70,8 @@ def build_tip_interfaces(polygons, tip_radius=0.4, height_factor=0.5):
         # Ring đầu tiên = boundary thực tế từ shell (đúng góc, đúng số cạnh)
         has_boundary = (poly.boundary_verts is not None and
                         len(poly.boundary_verts) >= 3)
+        has_cap = (poly.cap_triangles is not None and
+                   len(poly.cap_triangles) >= 3)
         if has_boundary:
             ring0_verts = poly.boundary_verts  # (N, 3) actual shape
             start_n = len(ring0_verts)
@@ -109,6 +111,9 @@ def build_tip_interfaces(polygons, tip_radius=0.4, height_factor=0.5):
             if step == 0 and has_boundary:
                 # Bước đầu: dùng boundary thực tế từ shell
                 ring = ring0_verts.copy()
+                # Thêm cap (mặt phẳng tiếp xúc shell) từ tam giác gốc
+                if has_cap:
+                    all_soup.append(poly.cap_triangles.copy())
             elif step == num_steps:
                 # Bước cuối: chính xác octagon target
                 ring = _make_ring(current_pos, tip_dir, 8, tip_radius)
