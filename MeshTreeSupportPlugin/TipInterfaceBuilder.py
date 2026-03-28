@@ -209,6 +209,14 @@ def _connect_rings(ring0, ring1):
     best_offset = int(np.argmin(dists))
     ring1 = np.roll(ring1, -best_offset, axis=0)
 
+    # Kiểm tra chiều đi: nếu ring1[1] gần ring0[-1] hơn ring0[1]
+    # → 2 ring đi ngược chiều → flip ring1
+    if n1 > 1 and n0 > 1:
+        dist_same = np.linalg.norm(ring1[1] - ring0[1 % n0])
+        dist_flip = np.linalg.norm(ring1[1] - ring0[-1])
+        if dist_flip < dist_same:
+            ring1 = ring1[::-1]
+
     # Advancing front: mỗi bước chọn tiến ring0 hay ring1
     # dựa trên đường chéo nào ngắn hơn → đúng 1 đỉnh có 3 cạnh nối
     # Chạy cho đến khi CẢ 2 ring đều đi hết một vòng
