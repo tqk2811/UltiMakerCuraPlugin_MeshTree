@@ -223,7 +223,7 @@ def _connect_rings(ring0, ring1):
             ring1 = _resample_ring(ring1, target_n)
             n1 = target_n
 
-    # Quad strip: cả 2 ring cùng số đỉnh, cùng CCW
+    # Quad strip: cả 2 ring cùng số đỉnh
     for i in range(n0):
         i_next = (i + 1) % n0
         tris.append([ring0[i], ring0[i_next], ring1[i]])
@@ -232,7 +232,24 @@ def _connect_rings(ring0, ring1):
     if not tris:
         return np.zeros((0, 3), dtype=np.float64)
 
-    return np.array(tris, dtype=np.float64).reshape(-1, 3)
+    result = np.array(tris, dtype=np.float64).reshape(-1, 3)
+
+    # Post-process: đảm bảo normals hướng ra ngoài (outward từ trục nối 2 ring)
+    axis_center = 0.5 * (np.mean(ring0, axis=0) + np.mean(ring1, axis=0))
+    num_tris_out = len(result) // 3
+    for t in range(num_tris_out):
+        v0 = result[t * 3]
+        v1 = result[t * 3 + 1]
+        v2 = result[t * 3 + 2]
+        tri_center = (v0 + v1 + v2) / 3.0
+        face_normal = np.cross(v1 - v0, v2 - v0)
+        outward = tri_center - axis_center
+        if np.dot(face_normal, outward) < 0:
+            # Flip winding: swap v1 và v2
+            result[t * 3 + 1] = v2
+            result[t * 3 + 2] = v1
+
+    return result
 
 
 def _resample_ring(ring, target_n):
