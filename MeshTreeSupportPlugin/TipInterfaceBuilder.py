@@ -211,25 +211,33 @@ def _connect_rings(ring0, ring1):
 
     # Advancing front: mỗi bước chọn tiến ring0 hay ring1
     # dựa trên đường chéo nào ngắn hơn → đúng 1 đỉnh có 3 cạnh nối
+    # Chạy cho đến khi CẢ 2 ring đều đi hết một vòng
     tris = []
     i, j = 0, 0
-    total = n0 + n1  # tổng số bước = n0 + n1 tam giác
+    steps_i, steps_j = 0, 0
 
-    for _ in range(total):
+    while steps_i < n0 or steps_j < n1:
         i_next = (i + 1) % n0
         j_next = (j + 1) % n1
 
-        # Đường chéo A: tiến i (tam giác ring0[i], ring0[i_next], ring1[j])
-        diag_a = np.linalg.norm(ring0[i_next] - ring1[j])
-        # Đường chéo B: tiến j (tam giác ring0[i], ring1[j], ring1[j_next])
-        diag_b = np.linalg.norm(ring0[i] - ring1[j_next])
+        can_i = steps_i < n0
+        can_j = steps_j < n1
 
-        if diag_a <= diag_b:
+        if can_i and can_j:
+            diag_a = np.linalg.norm(ring0[i_next] - ring1[j])
+            diag_b = np.linalg.norm(ring0[i] - ring1[j_next])
+            advance_i = diag_a <= diag_b
+        else:
+            advance_i = can_i
+
+        if advance_i:
             tris.append([ring0[i], ring0[i_next], ring1[j]])
             i = i_next
+            steps_i += 1
         else:
             tris.append([ring0[i], ring1[j], ring1[j_next]])
             j = j_next
+            steps_j += 1
 
     result = np.array(tris, dtype=np.float64).reshape(-1, 3)
 
