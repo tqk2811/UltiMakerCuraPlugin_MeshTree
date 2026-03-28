@@ -10,6 +10,7 @@
   "max_polygon_area": 2.0,
   "tip_radius": 0.4,
   "tip_height_factor": 0.1,
+  "tip_ring_thickness": 0.3,
   "step_size": 2.0,
   "merge_distance": 15.0,
   "max_merge_count": 5,

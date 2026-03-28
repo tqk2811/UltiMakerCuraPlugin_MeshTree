@@ -255,6 +255,23 @@ Window {
                             onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("tip_height_factor", v) }
                         }
                         Label { text: "" }
+
+                        Label {
+                            text: "Độ dày ring:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: tipRingThickMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Độ dày (chiều cao) của mỗi ring trong tip interface.\nPhạm vi: 0.1 - 5 mm"
+                            MouseArea { id: tipRingThickMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fTipRingThickness
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.1; top: 5; decimals: 2 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("tip_ring_thickness", v) }
+                        }
+                        Label { text: "mm" }
                     }
                 }
 
@@ -599,6 +616,7 @@ Window {
         fMaxPolyArea.text        = manager.getSetting("max_polygon_area").toFixed(1)
         fTipRadius.text          = manager.getSetting("tip_radius").toFixed(2)
         fTipHeightFactor.text    = manager.getSetting("tip_height_factor").toFixed(2)
+        fTipRingThickness.text   = manager.getSetting("tip_ring_thickness").toFixed(2)
         fStepSize.text           = manager.getSetting("step_size").toFixed(1)
         fMergeDist.text          = manager.getSetting("merge_distance").toFixed(1)
         fMaxMergeCount.text      = manager.getSetting("max_merge_count").toFixed(0)

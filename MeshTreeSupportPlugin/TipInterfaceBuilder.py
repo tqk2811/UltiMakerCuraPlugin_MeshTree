@@ -26,7 +26,7 @@ class PointA:
         self.polygon_index = polygon_index  # int, chỉ số polygon gốc
 
 
-def build_tip_interfaces(polygons, tip_radius=0.4, height_factor=0.5):
+def build_tip_interfaces(polygons, tip_radius=0.4, height_factor=0.5, ring_thickness=0.3):
     """
     Tạo tip interface mesh cho tất cả đa giác.
 
@@ -34,9 +34,10 @@ def build_tip_interfaces(polygons, tip_radius=0.4, height_factor=0.5):
     Chiều cao mỗi bước tỷ lệ diện tích: step_height = area_at_step × height_factor.
 
     Tham số:
-        polygons      : list[PolygonInfo] từ PolygonProcessor
-        tip_radius    : float - bán kính tại Point A (mm)
-        height_factor : float - hệ số chiều cao tip (mm/mm²)
+        polygons       : list[PolygonInfo] từ PolygonProcessor
+        tip_radius     : float - bán kính tại Point A (mm)
+        height_factor  : float - hệ số chiều cao tip (mm/mm²)
+        ring_thickness : float - độ dày cố định mỗi ring (mm)
 
     Trả về:
         tip_verts   : numpy array (V, 3) float32 - triangle soup
@@ -134,8 +135,11 @@ def build_tip_interfaces(polygons, tip_radius=0.4, height_factor=0.5):
             prev_ring = ring
 
             if step < num_steps:
-                # Chiều cao bước tỷ lệ diện tích hiện tại
-                step_h = max(current_area * height_factor, 0.2)
+                # Dùng ring_thickness nếu > 0, ngược lại dùng height_factor * area
+                if ring_thickness > 0:
+                    step_h = ring_thickness
+                else:
+                    step_h = max(current_area * height_factor, 0.2)
                 current_pos = current_pos + tip_dir * step_h
                 current_area *= shrink_factor
 

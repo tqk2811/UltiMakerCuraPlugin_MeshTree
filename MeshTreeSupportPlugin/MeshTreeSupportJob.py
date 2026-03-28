@@ -187,7 +187,8 @@ class MeshTreeSupportJob(Job):
         tip_verts, tip_normals, points_a = build_tip_interfaces(
             polygons,
             tip_radius=float(s.get("tip_radius", 0.4)),
-            height_factor=float(s.get("tip_height_factor", 0.5))
+            height_factor=float(s.get("tip_height_factor", 0.5)),
+            ring_thickness=float(s.get("tip_ring_thickness", 0.3))
         )
 
         Logger.log("i", "  -> Tip interface: %d dinh, %d Point A",
