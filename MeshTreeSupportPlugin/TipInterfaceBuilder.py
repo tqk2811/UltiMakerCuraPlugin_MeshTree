@@ -206,19 +206,14 @@ def _make_ring(center, axis, n_sides, radius):
 
 def _connect_rings(ring0, ring1):
     """
-    Nối 2 ring (n0 và n1 đỉnh) bằng triangle strip.
-    Xử lý trường hợp n0 ≠ n1.
+    Nối 2 ring bằng triangle strip, căn chỉnh theo đỉnh gần nhất.
 
     Trả về: numpy array (T*3, 3) triangle soup
     """
     n0 = len(ring0)
     n1 = len(ring1)
 
-    tris = []
-
     if n0 != n1:
-        # Resample ring nhỏ LÊN bằng ring lớn
-        # Giữ nguyên ring lớn (boundary_verts) để khớp với shell
         target_n = max(n0, n1)
         if n0 < n1:
             ring0 = _resample_ring(ring0, target_n)
@@ -227,29 +222,30 @@ def _connect_rings(ring0, ring1):
             ring1 = _resample_ring(ring1, target_n)
             n1 = target_n
 
-    # Quad strip: cả 2 ring cùng số đỉnh
+    # Tìm offset tốt nhất: ring1[offset] gần ring0[0] nhất
+    dists = np.linalg.norm(ring1 - ring0[0], axis=1)
+    best_offset = int(np.argmin(dists))
+    ring1 = np.roll(ring1, -best_offset, axis=0)
+
+    # Quad strip
+    tris = []
     for i in range(n0):
         i_next = (i + 1) % n0
         tris.append([ring0[i], ring0[i_next], ring1[i]])
         tris.append([ring0[i_next], ring1[i_next], ring1[i]])
 
-    if not tris:
-        return np.zeros((0, 3), dtype=np.float64)
-
     result = np.array(tris, dtype=np.float64).reshape(-1, 3)
 
-    # Post-process: đảm bảo normals hướng ra ngoài (outward từ trục nối 2 ring)
+    # Post-process: đảm bảo normals hướng ra ngoài
     axis_center = 0.5 * (np.mean(ring0, axis=0) + np.mean(ring1, axis=0))
     num_tris_out = len(result) // 3
     for t in range(num_tris_out):
         v0 = result[t * 3]
         v1 = result[t * 3 + 1]
         v2 = result[t * 3 + 2]
-        tri_center = (v0 + v1 + v2) / 3.0
         face_normal = np.cross(v1 - v0, v2 - v0)
-        outward = tri_center - axis_center
+        outward = (v0 + v1 + v2) / 3.0 - axis_center
         if np.dot(face_normal, outward) < 0:
-            # Flip winding: swap v1 và v2
             result[t * 3 + 1] = v2
             result[t * 3 + 2] = v1
 
