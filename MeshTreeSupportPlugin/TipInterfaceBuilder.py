@@ -91,46 +91,41 @@ def build_tip_interfaces(polygons, tip_radius=0.4, height_factor=0.5):
             points_a.append(pt)
             continue
 
-        # --- Morphing: lerp từ ring 0 (boundary) → ring cuối (octagon) ---
-        num_steps = max(3, min(start_n, 10))  # 3..10 bước morphing
-
-        # Ring 0: boundary thực tế hoặc fallback regular polygon
-        if has_boundary:
-            ring_start = ring0_verts.copy()
+        # --- Tính các bước morphing ---
+        # Số bước dựa trên khoảng cách giữa start_n và 8
+        if start_n <= 8:
+            num_steps = max(8 - start_n, 1)
         else:
-            r0 = _radius_from_area(start_area, start_n)
-            ring_start = _make_ring(start_pos, tip_dir, start_n, r0)
+            # Đa giác > 8 cạnh: giảm dần về 8
+            num_steps = max(start_n - 8, 1)
 
-        # Tính tổng chiều cao tip
-        total_height = 0.0
-        current_area_tmp = start_area
+        # Hệ số co diện tích mỗi bước
         shrink_factor = (target_area / start_area) ** (1.0 / num_steps)
-        for s in range(num_steps):
-            total_height += max(current_area_tmp * height_factor, 0.2)
-            current_area_tmp *= shrink_factor
 
-        # Ring cuối: octagon tại vị trí cuối
-        end_pos = start_pos + tip_dir * total_height
-        ring_end = _make_ring(end_pos, tip_dir, 8, tip_radius)
-
-        # Resample cả 2 ring về cùng số đỉnh (lấy max)
-        n_verts = max(len(ring_start), len(ring_end))
-        ring_start_rs = _resample_ring(ring_start, n_verts)
-        ring_end_rs = _resample_ring(ring_end, n_verts)
-
-        # Thêm cap triangles (mặt tiếp xúc shell)
-        if has_cap:
-            all_soup.append(poly.cap_triangles.copy())
-
-        # Tạo các ring trung gian bằng lerp + di chuyển dọc tip_dir
+        # --- Tạo rings và nối mesh ---
         current_pos = start_pos.copy()
         current_area = start_area
         prev_ring = None
 
         for step in range(num_steps + 1):
-            t = step / num_steps  # 0.0 → 1.0
-            # Lerp giữa ring_start và ring_end theo t
-            ring = ring_start_rs * (1.0 - t) + ring_end_rs * t
+            if step == 0 and has_boundary:
+                # Bước đầu: dùng boundary thực tế từ shell
+                ring = ring0_verts.copy()
+                # Thêm cap (mặt phẳng tiếp xúc shell) từ tam giác gốc
+                if has_cap:
+                    all_soup.append(poly.cap_triangles.copy())
+            elif step == num_steps:
+                # Bước cuối: chính xác octagon target
+                ring = _make_ring(current_pos, tip_dir, 8, tip_radius)
+            else:
+                # Bước trung gian: regular polygon
+                if start_n <= 8:
+                    n = min(start_n + step, 8)
+                else:
+                    n = max(start_n - step, 8)
+                a = current_area
+                r = _radius_from_area(a, n)
+                ring = _make_ring(current_pos, tip_dir, n, r)
 
             if prev_ring is not None:
                 tris = _connect_rings(prev_ring, ring)
@@ -139,6 +134,7 @@ def build_tip_interfaces(polygons, tip_radius=0.4, height_factor=0.5):
             prev_ring = ring
 
             if step < num_steps:
+                # Chiều cao bước tỷ lệ diện tích hiện tại
                 step_h = max(current_area * height_factor, 0.2)
                 current_pos = current_pos + tip_dir * step_h
                 current_area *= shrink_factor
