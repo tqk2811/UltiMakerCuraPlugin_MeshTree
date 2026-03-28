@@ -245,14 +245,14 @@ def _connect_rings(ring0, ring1):
             i = i_next
             steps_i += 1
         else:
-            tris.append([ring0[i], ring1[j], ring1[j_next]])
+            tris.append([ring0[i], ring1[j_next], ring1[j]])
             j = j_next
             steps_j += 1
 
     result = np.array(tris, dtype=np.float64).reshape(-1, 3)
 
-    # Post-process: đảm bảo normals hướng ra ngoài
-    # Dùng trục (axis_dir) thay vì điểm axis_center để tính hướng radial chính xác
+    # Post-process: advancing front tạo winding nhất quán → chỉ cần check
+    # 1 tam giác đầu, nếu sai thì flip TẤT CẢ (không flip từng cái riêng lẻ)
     ring0_center = np.mean(ring0, axis=0)
     ring1_center = np.mean(ring1, axis=0)
     axis_vec = ring1_center - ring0_center
@@ -263,18 +263,21 @@ def _connect_rings(ring0, ring1):
         axis_dir = np.array([0.0, 0.0, 1.0])
 
     num_tris_out = len(result) // 3
-    for t in range(num_tris_out):
-        v0 = result[t * 3]
-        v1 = result[t * 3 + 1]
-        v2 = result[t * 3 + 2]
+    if num_tris_out > 0:
+        # Kiểm tra tam giác đầu tiên
+        v0 = result[0]
+        v1 = result[1]
+        v2 = result[2]
         face_normal = np.cross(v1 - v0, v2 - v0)
         tri_center = (v0 + v1 + v2) / 3.0
-        # Hướng radial: loại bỏ thành phần dọc axis
         radial = tri_center - ring0_center
         radial = radial - np.dot(radial, axis_dir) * axis_dir
         if np.dot(face_normal, radial) < 0:
-            result[t * 3 + 1] = v2
-            result[t * 3 + 2] = v1
+            # Flip tất cả tam giác: swap vertex 1 và 2
+            for t in range(num_tris_out):
+                tmp = result[t * 3 + 1].copy()
+                result[t * 3 + 1] = result[t * 3 + 2]
+                result[t * 3 + 2] = tmp
 
     return result
 
