@@ -27,7 +27,7 @@ class PointA:
         self.polygon_index = polygon_index  # int, chỉ số polygon gốc
 
 
-def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3):
+def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3, overhang_angle=45.0, max_area_change_pct=10.0):
     """
     Tạo tip interface mesh cho tất cả đa giác.
 
@@ -49,6 +49,9 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3):
     all_soup = []
     points_a = []
 
+    # Cos của góc overhang tối đa (dùng cho _connect_rings)
+    max_overhang_cos = np.cos(np.radians(overhang_angle))
+
     # Diện tích octagon: A = 2√2 × r²
     target_area = 2.0 * np.sqrt(2.0) * tip_radius ** 2
 
@@ -57,13 +60,8 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3):
         start_pos = poly.outer_position
         direction = poly.normal.copy()
 
-        # Hướng tip: gravity-biased (nghiêng về phía -Z)
-        tip_dir = direction * 0.5 + np.array([0.0, 0.0, -1.0]) * 0.5
-        tip_len = np.linalg.norm(tip_dir)
-        if tip_len > 1e-10:
-            tip_dir /= tip_len
-        else:
-            tip_dir = np.array([0.0, 0.0, -1.0])
+        # Hướng tip: thẳng xuống theo trục Z
+        tip_dir = np.array([0.0, 0.0, -1.0])
 
         # Ring đầu tiên = boundary thực tế từ shell (đúng góc, đúng số cạnh)
         has_boundary = (poly.boundary_verts is not None and
@@ -89,86 +87,154 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3):
             points_a.append(pt)
             continue
 
-        # --- Tính các bước morphing ---
-        # Số bước dựa trên khoảng cách giữa start_n và 8
-        if start_n <= 8:
-            num_steps = max(8 - start_n, 1)
-        else:
-            # Đa giác > 8 cạnh: giảm dần về 8
-            num_steps = max(start_n - 8, 1)
-
-        # Hệ số co diện tích mỗi bước
-        shrink_factor = (target_area / start_area) ** (1.0 / num_steps)
-
         # --- Tạo rings và nối mesh ---
-        # Dùng center thực tế của ring0 (boundary_verts) thay vì outer_position
-        # để tránh lệch giữa ring0 và ring1
         if has_boundary:
             current_pos = np.mean(ring0_verts, axis=0)
         else:
             current_pos = start_pos.copy()
-        current_area = start_area
-        prev_ring = None
 
-        for step in range(num_steps + 1):
-            if step == 0 and has_boundary:
-                # Bước đầu: dùng boundary thực tế từ shell
-                ring = ring0_verts.copy()
-                # Thêm cap (mặt phẳng tiếp xúc shell) từ tam giác gốc
-                if has_cap:
-                    all_soup.append(poly.cap_triangles.copy())
-            elif step == num_steps:
-                # Bước cuối: chính xác octagon target
-                ring = _make_ring(current_pos, tip_dir, 8, tip_radius)
-            else:
-                # Bước trung gian: regular polygon
-                if start_n <= 8:
-                    n = min(start_n + step, 8)
-                else:
-                    n = max(start_n - step, 8)
-                a = current_area
-                r = _radius_from_area(a, n)
-                regular_ring = _make_ring(current_pos, tip_dir, n, r)
+        # === Khối bám shell ===
+        # Gồm 3 phần:
+        #   - cap_triangles: mặt tiếp xúc shell (trên cùng)
+        #   - side faces: vertical quads nối boundary → đáy
+        #   - ring0: đáy phẳng (tất cả đỉnh cùng Z = min_z của boundary)
+        if has_boundary:
+            shell_boundary = ring0_verts.copy()
+            if has_cap:
+                cap_arr = poly.cap_triangles.copy()
+                n_cap_tris = len(cap_arr) // 3
+                cap_up = 0
+                cap_down = 0
+                for ct in range(n_cap_tris):
+                    cv0 = cap_arr[ct * 3]
+                    cv1 = cap_arr[ct * 3 + 1]
+                    cv2 = cap_arr[ct * 3 + 2]
+                    cfn = np.cross(cv1 - cv0, cv2 - cv0)
+                    if cfn[2] >= 0:
+                        cap_up += 1
+                    else:
+                        cap_down += 1
+                Logger.log("d", "  Cap faces: %d tris, UP(Z+)=%d, DOWN(Z-)=%d", n_cap_tris, cap_up, cap_down)
+                all_soup.append(cap_arr)
 
-                # Blend: step đầu tiên (step=1) gần ring0 hơn để giảm overhang
-                # t=0 → giống ring0, t=1 → regular polygon hoàn toàn
-                if has_boundary and step <= 2:
-                    resampled = _resample_ring(
-                        ring0_verts + (current_pos - np.mean(ring0_verts, axis=0)),
-                        n)
-                    # Scale resampled về đúng radius
-                    res_center = np.mean(resampled, axis=0)
-                    res_radii = np.linalg.norm(resampled - res_center, axis=1, keepdims=True)
-                    avg_res_r = np.mean(res_radii)
-                    if avg_res_r > 1e-10:
-                        resampled = res_center + (resampled - res_center) * (r / avg_res_r)
-                    blend_t = step / min(3, num_steps)  # blend dần qua 3 steps
-                    ring = resampled * (1.0 - blend_t) + regular_ring * blend_t
-                else:
-                    ring = regular_ring
+            min_z = np.min(shell_boundary[:, 2])
+            ring0 = shell_boundary.copy()
+            ring0[:, 2] = min_z
 
-            if prev_ring is not None:
-                tris = _connect_rings(prev_ring, ring)
-                # Debug: log ring0→ring1 connection
-                num_t = len(tris) // 3
-                areas = []
-                for tt in range(num_t):
-                    tv0, tv1, tv2 = tris[tt*3], tris[tt*3+1], tris[tt*3+2]
-                    area = np.linalg.norm(np.cross(tv1 - tv0, tv2 - tv0)) * 0.5
-                    areas.append(area)
-                areas = np.array(areas)
-                degen = np.sum(areas < 1e-6)
-                Logger.log("d", f"TipInterface poly={pi} step={step}: "
-                           f"ring0={len(prev_ring)} ring1={len(ring)} "
-                           f"tris={num_t} degen={degen} "
-                           f"area_min={areas.min():.6f} area_max={areas.max():.6f}")
-                all_soup.append(tris)
+            # Side faces: vertical quads nối shell_boundary → ring0
+            side_verts = []
+            nv = len(shell_boundary)
+            for k in range(nv):
+                k_next = (k + 1) % nv
+                top0 = shell_boundary[k]
+                top1 = shell_boundary[k_next]
+                bot0 = ring0[k]
+                bot1 = ring0[k_next]
+                side_verts.extend([top0, bot0, top1])
+                side_verts.extend([top1, bot0, bot1])
+            if side_verts:
+                side_arr = np.array(side_verts, dtype=np.float64)
+                # Debug: check side face winding
+                n_side_tris = len(side_arr) // 3
+                side_center = np.mean(shell_boundary, axis=0)
+                side_out = 0
+                side_in = 0
+                for st in range(n_side_tris):
+                    sv0 = side_arr[st * 3]
+                    sv1 = side_arr[st * 3 + 1]
+                    sv2 = side_arr[st * 3 + 2]
+                    sfn = np.cross(sv1 - sv0, sv2 - sv0)
+                    stc = (sv0 + sv1 + sv2) / 3.0
+                    srad = stc - side_center
+                    if np.dot(sfn, srad) >= 0:
+                        side_out += 1
+                    else:
+                        side_in += 1
+                Logger.log("d", "  Side faces: %d tris, OUT=%d, IN=%d", n_side_tris, side_out, side_in)
+                if side_in > side_out:
+                    Logger.log("d", "  Side faces: majority IN → flipping all")
+                    for st in range(n_side_tris):
+                        side_arr[st * 3 + 1], side_arr[st * 3 + 2] = side_arr[st * 3 + 2].copy(), side_arr[st * 3 + 1].copy()
+                all_soup.append(side_arr)
 
+            # Cập nhật start_area = diện tích thực của ring0 (sau project)
+            start_area = _polygon_area_3d(ring0)
+            if start_area < 1e-10:
+                start_area = poly.area  # fallback
+
+            prev_ring = ring0
+            current_pos[2] = min_z
+
+            # DEBUG: log ring0
+            Logger.log("d", "  Ring0: n=%d, area=%.3f, center=(%.2f,%.2f,%.2f), Z_range=[%.3f,%.3f]",
+                       len(ring0), start_area,
+                       np.mean(ring0, axis=0)[0], np.mean(ring0, axis=0)[1], np.mean(ring0, axis=0)[2],
+                       np.min(ring0[:, 2]), np.max(ring0[:, 2]))
+            for vi in range(len(ring0)):
+                Logger.log("d", "    v%d: (%.3f, %.3f, %.3f)", vi,
+                           ring0[vi][0], ring0[vi][1], ring0[vi][2])
+        else:
+            prev_ring = _make_ring(current_pos, tip_dir, start_n,
+                                   _radius_from_area(start_area, start_n))
+            prev_ring[:, 2] = current_pos[2]
+
+        # === Số ring: tính từ max_area_change_pct ===
+        # Mỗi ring thay đổi tối đa max_area_change_pct% diện tích
+        max_change_frac = max_area_change_pct / 100.0
+        if max_change_frac > 0 and abs(start_area - target_area) > 1e-10:
+            # Số ring tối thiểu để không vượt quá max_change_frac mỗi bước
+            min_rings_by_area = int(np.ceil(
+                abs(start_area - target_area) / (start_area * max_change_frac)
+            ))
+            num_rings = max(3, min(min_rings_by_area, 30))
+        else:
+            num_rings = max(3, min(abs(start_n - 8) + 1, 8))
+
+        # === Ring 1..num_rings: lerp đều từ start → target, clamp mỗi bước ===
+        prev_area = start_area
+        for ri in range(1, num_rings + 1):
+            t = ri / num_rings  # 0 < t <= 1.0
+
+            n = max(round(start_n + (8 - start_n) * t), 3)
+            a = start_area + (target_area - start_area) * t
+
+            # Clamp: diện tích chỉ thay đổi tối đa max_area_change_pct% so với ring trước
+            max_delta = prev_area * max_change_frac
+            a = np.clip(a, prev_area - max_delta, prev_area + max_delta)
+            prev_area = a
+
+            r = _radius_from_area(a, n)
+
+            current_pos = current_pos + tip_dir * ring_thickness
+            ring = _make_ring(current_pos, tip_dir, n, r)
+            ring[:, 2] = current_pos[2]
+
+            # DEBUG: log ring info
+            ring_area_actual = _polygon_area_3d(ring)
+            ring_center = np.mean(ring, axis=0)
+            Logger.log("d", "  Ring %d: n=%d, target_a=%.3f, actual_a=%.3f, r=%.3f, "
+                       "center=(%.2f,%.2f,%.2f), Z_range=[%.3f,%.3f], blend=%s",
+                       ri, n, a, ring_area_actual, r,
+                       ring_center[0], ring_center[1], ring_center[2],
+                       np.min(ring[:, 2]), np.max(ring[:, 2]),
+                       "no")
+            if ri <= 2:
+                for vi in range(len(ring)):
+                    Logger.log("d", "    v%d: (%.3f, %.3f, %.3f)", vi,
+                               ring[vi][0], ring[vi][1], ring[vi][2])
+
+            # Đảm bảo ring_thickness trên trục Z
+            prev_min_z = np.min(prev_ring[:, 2])
+            ring_max_z = np.max(ring[:, 2])
+            z_gap = prev_min_z - ring_max_z
+            if z_gap < ring_thickness:
+                dz = ring_thickness - z_gap
+                ring[:, 2] -= dz
+                current_pos[2] -= dz
+
+            tris = _connect_rings(prev_ring, ring, max_overhang_cos)
+            all_soup.append(tris)
             prev_ring = ring
-
-            if step < num_steps:
-                current_pos = current_pos + tip_dir * ring_thickness
-                current_area *= shrink_factor
 
         # Point A = vị trí cuối tip
         pt = PointA(
@@ -190,6 +256,32 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3):
     tip_verts, tip_normals = _compute_soup_normals(all_verts)
 
     return tip_verts, tip_normals, points_a
+
+
+def _align_ring(ring, target):
+    """Xoay vòng (cyclic shift) ring sao cho tổng khoảng cách đỉnh-đỉnh tới target nhỏ nhất."""
+    n = len(ring)
+    if n != len(target):
+        return ring
+    best_shift = 0
+    best_dist = np.inf
+    for shift in range(n):
+        d = np.sum(np.linalg.norm(np.roll(ring, shift, axis=0) - target, axis=1))
+        if d < best_dist:
+            best_dist = d
+            best_shift = shift
+    return np.roll(ring, best_shift, axis=0)
+
+
+def _polygon_area_3d(ring):
+    """Tính diện tích polygon 3D bằng Shoelace (cross product sum)."""
+    n = len(ring)
+    if n < 3:
+        return 0.0
+    total = np.zeros(3)
+    for i in range(n):
+        total += np.cross(ring[i], ring[(i + 1) % n])
+    return 0.5 * np.linalg.norm(total)
 
 
 def _radius_from_area(area, n):
@@ -231,10 +323,13 @@ def _make_ring(center, axis, n_sides, radius):
     return ring
 
 
-def _connect_rings(ring0, ring1):
+def _connect_rings(ring0, ring1, max_overhang_cos=0.7071):
     """
     Nối 2 ring bằng triangle strip, căn chỉnh theo đỉnh gần nhất.
     Đảm bảo cả 2 ring đi cùng chiều (CCW nhìn từ ngoài) trước khi nối.
+    Ưu tiên chọn tam giác có góc normal với Z trong giới hạn overhang.
+
+    max_overhang_cos: cos(overhang_angle), mặc định cos(45°) ≈ 0.7071
 
     Trả về: numpy array (T*3, 3) triangle soup
     """
@@ -243,21 +338,17 @@ def _connect_rings(ring0, ring1):
 
     ring0_center = np.mean(ring0, axis=0)
     ring1_center = np.mean(ring1, axis=0)
+    axis_mid = (ring0_center + ring1_center) * 0.5
     axis_vec = ring1_center - ring0_center
     axis_len = np.linalg.norm(axis_vec)
-    if axis_len > 1e-10:
-        axis_dir = axis_vec / axis_len
-    else:
-        axis_dir = np.array([0.0, 0.0, 1.0])
+    axis_dir = axis_vec / axis_len if axis_len > 1e-10 else np.array([0.0, 0.0, -1.0])
 
-    # Đảm bảo ring0 đi CCW khi nhìn từ phía axis_dir
-    # Signed area projected lên axis: dương = CCW
+    # Đảm bảo cả 2 ring cùng chiều (CCW nhìn từ axis_dir)
     def _signed_area_on_axis(ring, center, axis):
         total = 0.0
-        n = len(ring)
-        for k in range(n):
+        for k in range(len(ring)):
             v0 = ring[k] - center
-            v1 = ring[(k + 1) % n] - center
+            v1 = ring[(k + 1) % len(ring)] - center
             total += np.dot(np.cross(v0, v1), axis)
         return total
 
@@ -266,68 +357,58 @@ def _connect_rings(ring0, ring1):
     if _signed_area_on_axis(ring1, ring1_center, axis_dir) < 0:
         ring1 = ring1[::-1].copy()
 
-    # Căn chỉnh điểm bắt đầu: ring1[j] gần ring0[0] nhất
+    # Tìm ring1 vertex gần ring0[0] nhất (3D) → starting index
     dists = np.linalg.norm(ring1 - ring0[0], axis=1)
-    best_offset = int(np.argmin(dists))
-    ring1 = np.roll(ring1, -best_offset, axis=0)
+    idx = int(np.argmin(dists))
 
-    # Advancing front
+    # Zipper: bước qua cả 2 ring theo tỷ lệ
+    # Mỗi bước tạo 2 triangle (1 quad) giữa ring0[i]→ring0[i+1] và ring1[j]→ring1[j+1]
     tris = []
-    i, j = 0, 0
-    steps_i, steps_j = 0, 0
+    n_max = max(n0, n1)
+    for step in range(n_max):
+        i0 = step * n0 // n_max
+        i0_next = ((step + 1) * n0 // n_max) % n0
+        j1 = (idx + step * n1 // n_max) % n1
+        j1_next = (idx + (step + 1) * n1 // n_max) % n1
 
-    while steps_i < n0 or steps_j < n1:
-        i_next = (i + 1) % n0
-        j_next = (j + 1) % n1
-
-        can_i = steps_i < n0
-        can_j = steps_j < n1
-
-        if can_i and can_j:
-            diag_a = np.linalg.norm(ring0[i_next] - ring1[j])
-            diag_b = np.linalg.norm(ring0[i] - ring1[j_next])
-            advance_i = diag_a <= diag_b
-        else:
-            advance_i = can_i
-
-        if advance_i:
-            tris.append([ring0[i], ring0[i_next], ring1[j]])
-            i = i_next
-            steps_i += 1
-        else:
-            tris.append([ring0[i], ring1[j_next], ring1[j]])
-            j = j_next
-            steps_j += 1
+        # Triangle 1: ring0[i0], ring1[j1], ring0[i0_next]
+        tris.append([ring0[i0], ring1[j1], ring0[i0_next]])
+        # Triangle 2: ring0[i0_next], ring1[j1], ring1[j1_next]
+        tris.append([ring0[i0_next], ring1[j1], ring1[j1_next]])
 
     result = np.array(tris, dtype=np.float64).reshape(-1, 3)
 
-    # Post-process: cả 2 ring đã CCW → winding nhất quán
-    # Chỉ cần check 1 tam giác, nếu sai thì flip TẤT CẢ
+    # Post-process: check winding bằng majority vote, flip tất cả nếu sai
     num_tris_out = len(result) // 3
     if num_tris_out > 0:
-        # Dùng majority vote từ vài tam giác để tránh sai do 1 tam giác degenerate
-        mid_center = (ring0_center + ring1_center) * 0.5
         vote = 0
-        check_count = min(num_tris_out, 5)
-        step = max(1, num_tris_out // check_count)
-        for t in range(0, num_tris_out, step):
-            if t >= num_tris_out:
-                break
+        tri_info = []
+        for t in range(num_tris_out):
             v0 = result[t * 3]
             v1 = result[t * 3 + 1]
             v2 = result[t * 3 + 2]
             fn = np.cross(v1 - v0, v2 - v0)
+            fn_len = np.linalg.norm(fn)
+            fn_unit = fn / fn_len if fn_len > 1e-10 else np.array([0.0, 0.0, 0.0])
             tc = (v0 + v1 + v2) / 3.0
-            if np.dot(fn, tc - mid_center) >= 0:
+            radial = tc - axis_mid
+            dot_val = np.dot(fn, radial)
+            tri_info.append((t, fn_unit, fn_len, dot_val))
+            if dot_val >= 0:
                 vote += 1
             else:
                 vote -= 1
-        Logger.log("d", f"_connect_rings: n0={n0} n1={n1} tris={num_tris_out} vote={vote}")
+
+        Logger.log("d", "[_connect_rings] vote=%d, axis_mid=%s, axis_dir=%s", vote, axis_mid, axis_dir)
+        for t, fn_unit, fn_len, dot_val in tri_info:
+            Logger.log("d", "  tri[%d]: normal=(%.3f,%.3f,%.3f) area=%.4f radial_dot=%.4f %s",
+                        t, fn_unit[0], fn_unit[1], fn_unit[2], fn_len * 0.5, dot_val,
+                        "OUT" if dot_val >= 0 else "IN")
+
         if vote < 0:
+            Logger.log("d", "[_connect_rings] flipping all triangles (vote < 0)")
             for t in range(num_tris_out):
-                tmp = result[t * 3 + 1].copy()
-                result[t * 3 + 1] = result[t * 3 + 2]
-                result[t * 3 + 2] = tmp
+                result[t * 3 + 1], result[t * 3 + 2] = result[t * 3 + 2].copy(), result[t * 3 + 1].copy()
 
     return result
 

@@ -243,6 +243,23 @@ Window {
                             onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("tip_ring_thickness", v) }
                         }
                         Label { text: "mm" }
+
+                        Label {
+                            text: "Thay đổi diện tích tối đa/ring:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: tipMaxAreaChgMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Diện tích mỗi ring chỉ thay đổi tối đa bao nhiêu % so với ring trước.\nPhạm vi: 1 - 50 %"
+                            MouseArea { id: tipMaxAreaChgMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fTipMaxAreaChangePct
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 1; top: 50; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("tip_max_area_change_pct", v) }
+                        }
+                        Label { text: "%" }
                     }
                 }
 
@@ -587,6 +604,7 @@ Window {
         fMaxPolyArea.text        = manager.getSetting("max_polygon_area").toFixed(1)
         fTipRadius.text          = manager.getSetting("tip_radius").toFixed(2)
         fTipRingThickness.text   = manager.getSetting("tip_ring_thickness").toFixed(2)
+        fTipMaxAreaChangePct.text = manager.getSetting("tip_max_area_change_pct").toFixed(1)
         fStepSize.text           = manager.getSetting("step_size").toFixed(1)
         fMergeDist.text          = manager.getSetting("merge_distance").toFixed(1)
         fMaxMergeCount.text      = manager.getSetting("max_merge_count").toFixed(0)
