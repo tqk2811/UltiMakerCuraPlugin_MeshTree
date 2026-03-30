@@ -280,14 +280,16 @@ class MeshTreeSupport(QObject, Extension):
         """
         Logger.log("i", "MeshTreeSupport: Bat dau sinh cay support...")
 
-        # Xoá cây support cũ nếu có
+        # Xoá cây support cũ và shell cũ nếu có
         scene = CuraApplication.getInstance().getController().getScene()
+        nodes_to_remove = []
         for node in DepthFirstIterator(scene.getRoot()):
-            if node.getName() == "MeshTreeSupport":
-                op = RemoveSceneNodeOperation(node)
-                op.push()
-                Logger.log("i", "MeshTreeSupport: Da xoa cay support cu.")
-                break
+            if node.getName() in ("MeshTreeSupport", "MeshTreeSupport_Shell"):
+                nodes_to_remove.append(node)
+        for node in nodes_to_remove:
+            op = RemoveSceneNodeOperation(node)
+            op.push()
+            Logger.log("i", "MeshTreeSupport: Da xoa node cu: %s", node.getName())
 
         # Cập nhật UI: đang chạy
         self._is_running = True
