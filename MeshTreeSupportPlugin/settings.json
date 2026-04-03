@@ -6,9 +6,10 @@
   "min_clearance": 2.0,
   "sdf_resolution": 3.0,
   "sdf_padding": 10.0,
-  "min_polygon_area": 0.5,
-  "max_polygon_area": 2.0,
-  "tip_radius": 0.4,
+  "min_polygon_area": 2.0,
+  "max_polygon_area": 4.0,
+  "tip_radius": 0.5,
+  "tip_height": 10.0,
   "tip_ring_thickness": 0.3,
   "tip_max_area_change_pct": 5.0,
   "step_size": 2.0,
@@ -22,6 +23,6 @@
   "cylinder_segments": 8,
   "base_brim_multiplier": 3.0,
   "base_brim_height": 0.5,
-  "_win_x": 0.0,
-  "_win_y": 0.0
+  "_win_x": 574.0,
+  "_win_y": 91.0
 }

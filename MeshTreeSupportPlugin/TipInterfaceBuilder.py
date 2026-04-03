@@ -1,14 +1,19 @@
 # ==============================================================================
-# Module: Tạo Tip Interface (Tip Interface Builder)
+# Module: Tao Tip Interface (Tip Interface Builder)
 #
-# Tạo mesh chuyển tiếp từ đa giác shell → octagon r=tip_radius (Point A).
-# Morphing: tăng số cạnh dần (n → 8), giảm diện tích theo hệ số.
-# Chiều cao mỗi bước tỷ lệ với diện tích tại bước đó.
+# Thuat toan:
+#   1. Giu nguyen co che gop/chia tam giac (PolygonProcessor)
+#   2. Chieu boundary xuong Z=min_z, lap day khoi tu shell xuong mat chieu
+#   3. Bien da giac lom -> loi (convex hull)
+#   4. Tim trong tam, chieu xuong Z theo tip_height
+#   5. Ve hinh tron tai dau tip (ban kinh tip_radius, so canh cylinder_segments)
+#   6. Ve duong cong Bezier tu vien da giac loi -> vien hinh tron,
+#      tuan thu overhang_angle. Lap day nhua cho khoi nay.
 #
-# Đầu vào: list[PolygonInfo] từ PolygonProcessor
-# Đầu ra: tip mesh (triangle soup) + danh sách Point A
+# Dau vao: list[PolygonInfo] tu PolygonProcessor
+# Dau ra: tip mesh (triangle soup) + danh sach Point A
 #
-# Luồng thực thi: worker thread (trong Job.run())
+# Luong thuc thi: worker thread (trong Job.run())
 # ==============================================================================
 
 import numpy as np
@@ -16,30 +21,36 @@ from UM.Logger import Logger
 
 
 class PointA:
-    """Thông tin một điểm A (đầu ra tip interface, đầu vào branch router)."""
+    """Thong tin mot diem A (dau ra tip interface, dau vao branch router)."""
     __slots__ = ['position', 'radius', 'area', 'direction', 'polygon_index']
 
     def __init__(self, position, radius, area, direction, polygon_index):
-        self.position = position      # (3,) tọa độ Point A
-        self.radius = radius          # float, bán kính octagon
-        self.area = area              # float, diện tích cross-section tại Point A
-        self.direction = direction    # (3,) hướng đi ban đầu (outward, gravity-biased)
-        self.polygon_index = polygon_index  # int, chỉ số polygon gốc
+        self.position = position      # (3,) toa do Point A
+        self.radius = radius          # float, ban kinh octagon
+        self.area = area              # float, dien tich cross-section tai Point A
+        self.direction = direction    # (3,) huong di ban dau (outward, gravity-biased)
+        self.polygon_index = polygon_index  # int, chi so polygon goc
 
 
-def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3, overhang_angle=45.0, max_area_change_pct=10.0):
+def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
+                         overhang_angle=45.0, max_area_change_pct=10.0,
+                         tip_height=10.0, cylinder_segments=8):
     """
-    Tạo tip interface mesh cho tất cả đa giác.
+    Tao tip interface mesh cho tat ca da giac.
 
-    Tham số:
-        polygons       : list[PolygonInfo] từ PolygonProcessor
-        tip_radius     : float - bán kính tại Point A (mm)
-        ring_thickness : float - độ dày mỗi ring (mm)
+    Tham so:
+        polygons          : list[PolygonInfo] tu PolygonProcessor
+        tip_radius        : float - ban kinh hinh tron dau tip (mm)
+        ring_thickness    : float - khoang cach Z giua cac ring trung gian (mm)
+        overhang_angle    : float - goc overhang toi da (do)
+        max_area_change_pct : float - (khong dung trong thuat toan moi, giu de tuong thich)
+        tip_height        : float - chieu cao tip tu shell xuong hinh tron (mm)
+        cylinder_segments : int - so canh hinh tron dau tip
 
-    Trả về:
+    Tra ve:
         tip_verts   : numpy array (V, 3) float32 - triangle soup
         tip_normals : numpy array (V, 3) float32 - triangle soup normals
-        points_a    : list[PointA] - danh sách Point A cho branch routing
+        points_a    : list[PointA] - danh sach Point A cho branch routing
     """
     if not polygons:
         return (np.zeros((0, 3), dtype=np.float32),
@@ -49,36 +60,20 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3, overhang_
     all_soup = []
     points_a = []
 
-    # Cos của góc overhang tối đa (dùng cho _connect_rings)
-    max_overhang_cos = np.cos(np.radians(overhang_angle))
-
-    # Diện tích octagon: A = 2√2 × r²
     target_area = 2.0 * np.sqrt(2.0) * tip_radius ** 2
+    tip_dir = np.array([0.0, 0.0, -1.0])
+    tan_overhang = np.tan(np.radians(overhang_angle))
 
     for pi, poly in enumerate(polygons):
-        start_area = poly.area
-        start_pos = poly.outer_position
-        direction = poly.normal.copy()
-
-        # Hướng tip: thẳng xuống theo trục Z
-        tip_dir = np.array([0.0, 0.0, -1.0])
-
-        # Ring đầu tiên = boundary thực tế từ shell (đúng góc, đúng số cạnh)
         has_boundary = (poly.boundary_verts is not None and
                         len(poly.boundary_verts) >= 3)
         has_cap = (poly.cap_triangles is not None and
                    len(poly.cap_triangles) >= 3)
-        if has_boundary:
-            ring0_verts = poly.boundary_verts  # (N, 3) actual shape
-            start_n = len(ring0_verts)
-        else:
-            start_n = min(poly.n_sides, 8)
-            ring0_verts = None  # sẽ dùng _make_ring fallback
 
-        # Nếu diện tích bắt đầu nhỏ hơn hoặc bằng target → tip tối giản
-        if start_area <= target_area * 1.1:
+        # Da giac qua nho: bo qua tip interface, chi tao PointA
+        if poly.area <= target_area * 1.1 or not has_boundary:
             pt = PointA(
-                position=start_pos.copy(),
+                position=poly.outer_position.copy(),
                 radius=tip_radius,
                 area=target_area,
                 direction=tip_dir.copy(),
@@ -87,158 +82,87 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3, overhang_
             points_a.append(pt)
             continue
 
-        # --- Tạo rings và nối mesh ---
-        if has_boundary:
-            current_pos = np.mean(ring0_verts, axis=0)
+        shell_boundary = poly.boundary_verts.copy()
+        min_z = float(np.min(shell_boundary[:, 2]))
+
+        # =================================================================
+        # BUOC 2: Lap day khoi tu shell xuong mat chieu Z=min_z
+        # =================================================================
+
+        # (a) Cap triangles - mat tren (mat tiep xuc shell)
+        if has_cap:
+            all_soup.append(poly.cap_triangles.copy())
+
+        # (b) Chieu boundary xuong Z=min_z
+        projected = shell_boundary.copy()
+        projected[:, 2] = min_z
+
+        # (c) Side walls: thanh ben tu shell_boundary xuong projected
+        sides = _make_side_walls(shell_boundary, projected)
+        if sides is not None and len(sides) > 0:
+            all_soup.append(sides)
+
+        # (d) Bottom face: chieu cap_triangles xuong Z=min_z, lat winding
+        if has_cap:
+            bottom = poly.cap_triangles.copy()
+            bottom[:, 2] = min_z
+            n_bt = len(bottom) // 3
+            for bt in range(n_bt):
+                i1, i2 = bt * 3 + 1, bt * 3 + 2
+                bottom[i1], bottom[i2] = bottom[i2].copy(), bottom[i1].copy()
+            all_soup.append(bottom)
+
+        # =================================================================
+        # BUOC 3: Convex hull - bien da giac lom thanh loi
+        # =================================================================
+        convex = _make_convex_polygon(projected)
+        if len(convex) < 3:
+            convex = projected.copy()
+
+        Logger.log("d", "  Polygon %d: boundary=%d verts, convex=%d verts, "
+                   "min_z=%.2f", pi, len(projected), len(convex), min_z)
+
+        # =================================================================
+        # BUOC 4-5: Tim trong tam, tao hinh tron tai dau tip
+        # =================================================================
+        centroid = np.mean(convex, axis=0)
+
+        # Khoang cach ngang lon nhat tu trong tam toi dinh da giac loi
+        d_horiz_arr = np.linalg.norm(convex[:, :2] - centroid[:2], axis=1)
+        max_d_horiz = float(np.max(d_horiz_arr))
+
+        # Dieu chinh chieu cao tip de dam bao overhang constraint
+        # Tai t=0.5 cua Bezier: horizontal_speed = 1.5 * d_horiz,
+        #                        vertical_speed = effective_height
+        # Rang buoc: 1.5 * d_horiz / effective_height < tan(overhang)
+        if tan_overhang > 1e-10:
+            min_required_height = 1.5 * max_d_horiz / tan_overhang
         else:
-            current_pos = start_pos.copy()
+            min_required_height = max_d_horiz * 100.0
+        effective_height = max(tip_height, min_required_height * 1.1)
 
-        # === Khối bám shell ===
-        # Gồm 3 phần:
-        #   - cap_triangles: mặt tiếp xúc shell (trên cùng)
-        #   - side faces: vertical quads nối boundary → đáy
-        #   - ring0: đáy phẳng (tất cả đỉnh cùng Z = min_z của boundary)
-        if has_boundary:
-            shell_boundary = ring0_verts.copy()
-            if has_cap:
-                cap_arr = poly.cap_triangles.copy()
-                n_cap_tris = len(cap_arr) // 3
-                cap_up = 0
-                cap_down = 0
-                for ct in range(n_cap_tris):
-                    cv0 = cap_arr[ct * 3]
-                    cv1 = cap_arr[ct * 3 + 1]
-                    cv2 = cap_arr[ct * 3 + 2]
-                    cfn = np.cross(cv1 - cv0, cv2 - cv0)
-                    if cfn[2] >= 0:
-                        cap_up += 1
-                    else:
-                        cap_down += 1
-                Logger.log("d", "  Cap faces: %d tris, UP(Z+)=%d, DOWN(Z-)=%d", n_cap_tris, cap_up, cap_down)
-                all_soup.append(cap_arr)
+        circle_center = np.array([centroid[0], centroid[1],
+                                  min_z - effective_height])
+        circle = _make_ring(circle_center, tip_dir, cylinder_segments,
+                            tip_radius)
 
-            min_z = np.min(shell_boundary[:, 2])
-            ring0 = shell_boundary.copy()
-            ring0[:, 2] = min_z
+        Logger.log("d", "  Circle: center=(%.2f,%.2f,%.2f), r=%.2f, "
+                   "effective_h=%.2f, max_d_horiz=%.2f",
+                   circle_center[0], circle_center[1], circle_center[2],
+                   tip_radius, effective_height, max_d_horiz)
 
-            # Side faces: vertical quads nối shell_boundary → ring0
-            side_verts = []
-            nv = len(shell_boundary)
-            for k in range(nv):
-                k_next = (k + 1) % nv
-                top0 = shell_boundary[k]
-                top1 = shell_boundary[k_next]
-                bot0 = ring0[k]
-                bot1 = ring0[k_next]
-                side_verts.extend([top0, bot0, top1])
-                side_verts.extend([top1, bot0, bot1])
-            if side_verts:
-                side_arr = np.array(side_verts, dtype=np.float64)
-                # Debug: check side face winding
-                n_side_tris = len(side_arr) // 3
-                side_center = np.mean(shell_boundary, axis=0)
-                side_out = 0
-                side_in = 0
-                for st in range(n_side_tris):
-                    sv0 = side_arr[st * 3]
-                    sv1 = side_arr[st * 3 + 1]
-                    sv2 = side_arr[st * 3 + 2]
-                    sfn = np.cross(sv1 - sv0, sv2 - sv0)
-                    stc = (sv0 + sv1 + sv2) / 3.0
-                    srad = stc - side_center
-                    if np.dot(sfn, srad) >= 0:
-                        side_out += 1
-                    else:
-                        side_in += 1
-                Logger.log("d", "  Side faces: %d tris, OUT=%d, IN=%d", n_side_tris, side_out, side_in)
-                if side_in > side_out:
-                    Logger.log("d", "  Side faces: majority IN → flipping all")
-                    for st in range(n_side_tris):
-                        side_arr[st * 3 + 1], side_arr[st * 3 + 2] = side_arr[st * 3 + 2].copy(), side_arr[st * 3 + 1].copy()
-                all_soup.append(side_arr)
+        # =================================================================
+        # BUOC 6: Be mat Bezier tu da giac loi -> hinh tron
+        # =================================================================
+        n_levels = max(8, min(int(effective_height / ring_thickness), 40))
+        surface = _build_bezier_surface(convex, circle_center, tip_radius,
+                                        effective_height, n_levels)
+        if surface is not None and len(surface) > 0:
+            all_soup.append(surface)
 
-            # Cập nhật start_area = diện tích thực của ring0 (sau project)
-            start_area = _polygon_area_3d(ring0)
-            if start_area < 1e-10:
-                start_area = poly.area  # fallback
-
-            prev_ring = ring0
-            current_pos[2] = min_z
-
-            # DEBUG: log ring0
-            Logger.log("d", "  Ring0: n=%d, area=%.3f, center=(%.2f,%.2f,%.2f), Z_range=[%.3f,%.3f]",
-                       len(ring0), start_area,
-                       np.mean(ring0, axis=0)[0], np.mean(ring0, axis=0)[1], np.mean(ring0, axis=0)[2],
-                       np.min(ring0[:, 2]), np.max(ring0[:, 2]))
-            for vi in range(len(ring0)):
-                Logger.log("d", "    v%d: (%.3f, %.3f, %.3f)", vi,
-                           ring0[vi][0], ring0[vi][1], ring0[vi][2])
-        else:
-            prev_ring = _make_ring(current_pos, tip_dir, start_n,
-                                   _radius_from_area(start_area, start_n))
-            prev_ring[:, 2] = current_pos[2]
-
-        # === Số ring: tính từ max_area_change_pct ===
-        # Mỗi ring thay đổi tối đa max_area_change_pct% diện tích
-        max_change_frac = max_area_change_pct / 100.0
-        if max_change_frac > 0 and abs(start_area - target_area) > 1e-10:
-            # Số ring tối thiểu để không vượt quá max_change_frac mỗi bước
-            min_rings_by_area = int(np.ceil(
-                abs(start_area - target_area) / (start_area * max_change_frac)
-            ))
-            num_rings = max(3, min(min_rings_by_area, 30))
-        else:
-            num_rings = max(3, min(abs(start_n - 8) + 1, 8))
-
-        # === Ring 1..num_rings: lerp đều từ start → target, clamp mỗi bước ===
-        prev_area = start_area
-        for ri in range(1, num_rings + 1):
-            t = ri / num_rings  # 0 < t <= 1.0
-
-            n = max(round(start_n + (8 - start_n) * t), 3)
-            a = start_area + (target_area - start_area) * t
-
-            # Clamp: diện tích chỉ thay đổi tối đa max_area_change_pct% so với ring trước
-            max_delta = prev_area * max_change_frac
-            a = np.clip(a, prev_area - max_delta, prev_area + max_delta)
-            prev_area = a
-
-            r = _radius_from_area(a, n)
-
-            current_pos = current_pos + tip_dir * ring_thickness
-            ring = _make_ring(current_pos, tip_dir, n, r)
-            ring[:, 2] = current_pos[2]
-
-            # DEBUG: log ring info
-            ring_area_actual = _polygon_area_3d(ring)
-            ring_center = np.mean(ring, axis=0)
-            Logger.log("d", "  Ring %d: n=%d, target_a=%.3f, actual_a=%.3f, r=%.3f, "
-                       "center=(%.2f,%.2f,%.2f), Z_range=[%.3f,%.3f], blend=%s",
-                       ri, n, a, ring_area_actual, r,
-                       ring_center[0], ring_center[1], ring_center[2],
-                       np.min(ring[:, 2]), np.max(ring[:, 2]),
-                       "no")
-            if ri <= 2:
-                for vi in range(len(ring)):
-                    Logger.log("d", "    v%d: (%.3f, %.3f, %.3f)", vi,
-                               ring[vi][0], ring[vi][1], ring[vi][2])
-
-            # Đảm bảo ring_thickness trên trục Z
-            prev_min_z = np.min(prev_ring[:, 2])
-            ring_max_z = np.max(ring[:, 2])
-            z_gap = prev_min_z - ring_max_z
-            if z_gap < ring_thickness:
-                dz = ring_thickness - z_gap
-                ring[:, 2] -= dz
-                current_pos[2] -= dz
-
-            tris = _connect_rings(prev_ring, ring, max_overhang_cos)
-            all_soup.append(tris)
-            prev_ring = ring
-
-        # Point A = vị trí cuối tip
+        # PointA tai tam hinh tron
         pt = PointA(
-            position=current_pos.copy(),
+            position=circle_center.copy(),
             radius=tip_radius,
             area=target_area,
             direction=tip_dir.copy(),
@@ -246,65 +170,128 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3, overhang_
         )
         points_a.append(pt)
 
-    # --- Ghép tất cả mesh ---
+    # --- Ghep tat ca mesh ---
     if all_soup:
         all_verts = np.concatenate(all_soup, axis=0)
     else:
         all_verts = np.zeros((0, 3), dtype=np.float64)
 
-    # Tính normals
     tip_verts, tip_normals = _compute_soup_normals(all_verts)
-
     return tip_verts, tip_normals, points_a
 
 
-def _align_ring(ring, target):
-    """Xoay vòng (cyclic shift) ring sao cho tổng khoảng cách đỉnh-đỉnh tới target nhỏ nhất."""
-    n = len(ring)
-    if n != len(target):
-        return ring
-    best_shift = 0
-    best_dist = np.inf
-    for shift in range(n):
-        d = np.sum(np.linalg.norm(np.roll(ring, shift, axis=0) - target, axis=1))
-        if d < best_dist:
-            best_dist = d
-            best_shift = shift
-    return np.roll(ring, best_shift, axis=0)
+# ==============================================================================
+# HELPER FUNCTIONS
+# ==============================================================================
+
+def _make_side_walls(ring_top, ring_bottom):
+    """
+    Tao cac tam giac thanh ben (side walls) giua 2 ring co cung so dinh.
+    ring_top: (N, 3) dinh tren (shell boundary, Z khac nhau)
+    ring_bottom: (N, 3) dinh duoi (projected, cung Z)
+    """
+    n = len(ring_top)
+    if n < 3 or len(ring_bottom) != n:
+        return None
+
+    tris = []
+    for k in range(n):
+        k_next = (k + 1) % n
+        t0, t1 = ring_top[k], ring_top[k_next]
+        b0, b1 = ring_bottom[k], ring_bottom[k_next]
+        tris.append([t0, b0, t1])
+        tris.append([t1, b0, b1])
+
+    result = np.array(tris, dtype=np.float64).reshape(-1, 3)
+
+    # Fix winding: majority vote - mat huong ra ngoai
+    center = np.mean(ring_top, axis=0)
+    n_tris = len(result) // 3
+    vote = 0
+    for t in range(n_tris):
+        v0, v1, v2 = result[t * 3], result[t * 3 + 1], result[t * 3 + 2]
+        fn = np.cross(v1 - v0, v2 - v0)
+        tc = (v0 + v1 + v2) / 3.0
+        radial = tc - center
+        if np.dot(fn, radial) >= 0:
+            vote += 1
+        else:
+            vote -= 1
+
+    if vote < 0:
+        for t in range(n_tris):
+            result[t * 3 + 1], result[t * 3 + 2] = \
+                result[t * 3 + 2].copy(), result[t * 3 + 1].copy()
+
+    return result
 
 
-def _polygon_area_3d(ring):
-    """Tính diện tích polygon 3D bằng Shoelace (cross product sum)."""
-    n = len(ring)
+def _convex_hull_2d(points_2d):
+    """
+    Andrew's monotone chain algorithm cho 2D convex hull.
+    Tra ve danh sach chi so dinh theo thu tu CCW.
+    """
+    n = len(points_2d)
     if n < 3:
-        return 0.0
-    total = np.zeros(3)
-    for i in range(n):
-        total += np.cross(ring[i], ring[(i + 1) % n])
-    return 0.5 * np.linalg.norm(total)
+        return list(range(n))
+
+    indices = sorted(range(n),
+                     key=lambda i: (float(points_2d[i][0]),
+                                    float(points_2d[i][1])))
+
+    def cross(o, a, b):
+        return ((float(points_2d[a][0]) - float(points_2d[o][0])) *
+                (float(points_2d[b][1]) - float(points_2d[o][1])) -
+                (float(points_2d[a][1]) - float(points_2d[o][1])) *
+                (float(points_2d[b][0]) - float(points_2d[o][0])))
+
+    # Lower hull
+    lower = []
+    for i in indices:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], i) <= 0:
+            lower.pop()
+        lower.append(i)
+
+    # Upper hull
+    upper = []
+    for i in reversed(indices):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], i) <= 0:
+            upper.pop()
+        upper.append(i)
+
+    return lower[:-1] + upper[:-1]
 
 
-def _radius_from_area(area, n):
-    """Tính bán kính regular n-gon từ diện tích. A = (n/2) × r² × sin(2π/n)."""
-    if n < 3 or area <= 0:
-        return 0.001
-    denom = 0.5 * n * np.sin(2.0 * np.pi / n)
-    if denom < 1e-10:
-        return 0.001
-    return np.sqrt(area / denom)
+def _make_convex_polygon(ring_3d):
+    """
+    Tinh convex hull cua da giac 3D (chieu xuong XY).
+    Tra ve da giac loi 3D tai cung Z.
+    """
+    if len(ring_3d) < 3:
+        return ring_3d.copy()
+
+    z = float(ring_3d[0, 2])
+    pts_2d = ring_3d[:, :2]
+
+    hull_indices = _convex_hull_2d(pts_2d)
+    if len(hull_indices) < 3:
+        return ring_3d.copy()
+
+    result = np.zeros((len(hull_indices), 3), dtype=np.float64)
+    for i, hi in enumerate(hull_indices):
+        result[i, :2] = pts_2d[hi]
+        result[i, 2] = z
+
+    return result
 
 
 def _make_ring(center, axis, n_sides, radius):
     """
-    Tạo ring (vòng đỉnh) regular n-gon tại vị trí center,
-    vuông góc với axis, bán kính radius.
-
-    Trả về: numpy array (n_sides, 3)
+    Tao ring (vong dinh) regular n-gon tai vi tri center,
+    vuong goc voi axis, ban kinh radius.
     """
-    # Tìm 2 vector vuông góc với axis
     axis = axis / (np.linalg.norm(axis) + 1e-10)
 
-    # Chọn vector tham chiếu không song song axis
     if abs(axis[0]) < 0.9:
         ref = np.array([1.0, 0.0, 0.0])
     else:
@@ -323,148 +310,129 @@ def _make_ring(center, axis, n_sides, radius):
     return ring
 
 
-def _connect_rings(ring0, ring1, max_overhang_cos=0.7071):
+def _eval_cubic_bezier(P0, P1, P2, P3, t):
+    """Tinh gia tri duong cong Bezier bac 3 tai tham so t."""
+    s = 1.0 - t
+    return s * s * s * P0 + 3 * s * s * t * P1 + \
+           3 * s * t * t * P2 + t * t * t * P3
+
+
+def _build_bezier_surface(convex_ring, circle_center, tip_radius,
+                          effective_height, n_levels):
     """
-    Nối 2 ring bằng triangle strip, căn chỉnh theo đỉnh gần nhất.
-    Đảm bảo cả 2 ring đi cùng chiều (CCW nhìn từ ngoài) trước khi nối.
-    Ưu tiên chọn tam giác có góc normal với Z trong giới hạn overhang.
+    Tao be mat Bezier tu da giac loi (tren) xuong hinh tron (duoi).
 
-    max_overhang_cos: cos(overhang_angle), mặc định cos(45°) ≈ 0.7071
+    Voi moi dinh cua da giac loi:
+    - Tao mat phang qua dinh do va tam hinh tron, song song truc Z
+    - Tim giao diem mat phang voi hinh tron -> diem cuoi duong cong
+    - Ve duong cong Bezier voi tiep tuyen thang dung tai 2 dau
 
-    Trả về: numpy array (T*3, 3) triangle soup
+    Tham so:
+        convex_ring     : (K, 3) dinh da giac loi tai Z=z_top
+        circle_center   : (3,) tam hinh tron tai Z=z_top - effective_height
+        tip_radius      : float - ban kinh hinh tron
+        effective_height: float - chieu cao tu da giac xuong hinh tron
+        n_levels        : int - so ring trung gian
     """
-    n0 = len(ring0)
-    n1 = len(ring1)
+    K = len(convex_ring)
+    if K < 3:
+        return None
 
-    ring0_center = np.mean(ring0, axis=0)
-    ring1_center = np.mean(ring1, axis=0)
-    axis_mid = (ring0_center + ring1_center) * 0.5
-    axis_vec = ring1_center - ring0_center
-    axis_len = np.linalg.norm(axis_vec)
-    axis_dir = axis_vec / axis_len if axis_len > 1e-10 else np.array([0.0, 0.0, -1.0])
+    cx, cy, cz = circle_center[0], circle_center[1], circle_center[2]
 
-    # Đảm bảo cả 2 ring cùng chiều (CCW nhìn từ axis_dir)
-    def _signed_area_on_axis(ring, center, axis):
-        total = 0.0
-        for k in range(len(ring)):
-            v0 = ring[k] - center
-            v1 = ring[(k + 1) % len(ring)] - center
-            total += np.dot(np.cross(v0, v1), axis)
-        return total
+    # Bezier control point: alpha = beta = effective_height / 3
+    # Dam bao tiep tuyen thang dung tai 2 dau
+    alpha = effective_height / 3.0
+    beta = effective_height / 3.0
 
-    if _signed_area_on_axis(ring0, ring0_center, axis_dir) < 0:
-        ring0 = ring0[::-1].copy()
-    if _signed_area_on_axis(ring1, ring1_center, axis_dir) < 0:
-        ring1 = ring1[::-1].copy()
-
-    # Tìm ring1 vertex gần ring0[0] nhất (3D) → starting index
-    dists = np.linalg.norm(ring1 - ring0[0], axis=1)
-    idx = int(np.argmin(dists))
-
-    # Zipper: bước qua cả 2 ring theo tỷ lệ
-    # Mỗi bước tạo 2 triangle (1 quad) giữa ring0[i]→ring0[i+1] và ring1[j]→ring1[j+1]
-    tris = []
-    n_max = max(n0, n1)
-    for step in range(n_max):
-        i0 = step * n0 // n_max
-        i0_next = ((step + 1) * n0 // n_max) % n0
-        j1 = (idx + step * n1 // n_max) % n1
-        j1_next = (idx + (step + 1) * n1 // n_max) % n1
-
-        # Triangle 1: ring0[i0], ring1[j1], ring0[i0_next]
-        tris.append([ring0[i0], ring1[j1], ring0[i0_next]])
-        # Triangle 2: ring0[i0_next], ring1[j1], ring1[j1_next]
-        tris.append([ring0[i0_next], ring1[j1], ring1[j1_next]])
-
-    result = np.array(tris, dtype=np.float64).reshape(-1, 3)
-
-    # Post-process: check winding bằng majority vote, flip tất cả nếu sai
-    num_tris_out = len(result) // 3
-    if num_tris_out > 0:
-        vote = 0
-        tri_info = []
-        for t in range(num_tris_out):
-            v0 = result[t * 3]
-            v1 = result[t * 3 + 1]
-            v2 = result[t * 3 + 2]
-            fn = np.cross(v1 - v0, v2 - v0)
-            fn_len = np.linalg.norm(fn)
-            fn_unit = fn / fn_len if fn_len > 1e-10 else np.array([0.0, 0.0, 0.0])
-            tc = (v0 + v1 + v2) / 3.0
-            radial = tc - axis_mid
-            dot_val = np.dot(fn, radial)
-            tri_info.append((t, fn_unit, fn_len, dot_val))
-            if dot_val >= 0:
-                vote += 1
-            else:
-                vote -= 1
-
-        Logger.log("d", "[_connect_rings] vote=%d, axis_mid=%s, axis_dir=%s", vote, axis_mid, axis_dir)
-        for t, fn_unit, fn_len, dot_val in tri_info:
-            Logger.log("d", "  tri[%d]: normal=(%.3f,%.3f,%.3f) area=%.4f radial_dot=%.4f %s",
-                        t, fn_unit[0], fn_unit[1], fn_unit[2], fn_len * 0.5, dot_val,
-                        "OUT" if dot_val >= 0 else "IN")
-
-        if vote < 0:
-            Logger.log("d", "[_connect_rings] flipping all triangles (vote < 0)")
-            for t in range(num_tris_out):
-                result[t * 3 + 1], result[t * 3 + 2] = result[t * 3 + 2].copy(), result[t * 3 + 1].copy()
-
-    return result
-
-
-def _resample_ring(ring, target_n):
-    """
-    Resample ring (M đỉnh) thành target_n đỉnh bằng interpolation dọc boundary.
-    Giữ hình dạng ring, chỉ thay đổi số đỉnh.
-    """
-    m = len(ring)
-    if m == target_n:
-        return ring.copy()
-
-    # Tính cumulative arc length dọc ring (closed loop)
-    diffs = np.diff(ring, axis=0, append=ring[:1])  # wrap around
-    seg_lengths = np.linalg.norm(diffs, axis=1)
-    cum_len = np.cumsum(seg_lengths)
-    total_len = cum_len[-1]
-
-    if total_len < 1e-10:
-        return np.tile(ring[0], (target_n, 1))
-
-    cum_len_normalized = cum_len / total_len  # [0..1], cum_len_normalized[-1] = 1.0
-
-    # Tạo target_n điểm phân bố đều trên [0, 1)
-    target_params = np.linspace(0, 1, target_n, endpoint=False)
-
-    result = np.zeros((target_n, 3), dtype=np.float64)
-    for i, t in enumerate(target_params):
-        # Tìm segment chứa t
-        # cum_len_normalized[j-1] <= t < cum_len_normalized[j]
-        idx = np.searchsorted(cum_len_normalized, t, side='right')
-        idx = idx % m
-
-        prev_cum = cum_len_normalized[idx - 1] if idx > 0 else 0.0
-        next_cum = cum_len_normalized[idx]
-        seg_range = next_cum - prev_cum
-        if seg_range < 1e-10:
-            frac = 0.0
+    # Voi moi dinh da giac loi, tim diem tuong ung tren hinh tron
+    # Mat phang qua dinh va tam, song song Z -> giao voi hinh tron
+    circle_points = np.zeros((K, 3), dtype=np.float64)
+    for i in range(K):
+        vx, vy = convex_ring[i, 0], convex_ring[i, 1]
+        dx, dy = vx - cx, vy - cy
+        d_len = np.sqrt(dx * dx + dy * dy)
+        if d_len > 1e-10:
+            dx_hat, dy_hat = dx / d_len, dy / d_len
         else:
-            frac = (t - prev_cum) / seg_range
+            # Dinh trung voi tam: chon huong bat ky
+            angle = 2.0 * np.pi * i / K
+            dx_hat, dy_hat = np.cos(angle), np.sin(angle)
 
-        p0 = ring[idx]
-        p1 = ring[(idx + 1) % m]
-        result[i] = p0 + frac * (p1 - p0)
+        circle_points[i] = [cx + tip_radius * dx_hat,
+                            cy + tip_radius * dy_hat,
+                            cz]
+
+    # Tao cac ring trung gian bang cach lay mau duong Bezier
+    rings = []
+    for level in range(n_levels + 1):
+        t = level / n_levels
+        ring = np.zeros((K, 3), dtype=np.float64)
+        for i in range(K):
+            P0 = convex_ring[i]
+            P3 = circle_points[i]
+            P1 = P0.copy()
+            P1[2] -= alpha
+            P2 = P3.copy()
+            P2[2] += beta
+            ring[i] = _eval_cubic_bezier(P0, P1, P2, P3, t)
+        rings.append(ring)
+
+    # Noi cac ring lien tiep bang triangle strip
+    all_tris = []
+    for level in range(n_levels):
+        r0 = rings[level]
+        r1 = rings[level + 1]
+        for i in range(K):
+            i_next = (i + 1) % K
+            all_tris.append([r0[i], r1[i], r0[i_next]])
+            all_tris.append([r0[i_next], r1[i], r1[i_next]])
+
+    if not all_tris:
+        return None
+
+    result = np.array(all_tris, dtype=np.float64).reshape(-1, 3)
+
+    # Fix winding: mat huong ra ngoai (xa truc trung tam)
+    axis_mid = (np.mean(convex_ring, axis=0) + circle_center) / 2.0
+    n_tris = len(result) // 3
+    vote = 0
+    for t in range(n_tris):
+        v0, v1, v2 = result[t * 3], result[t * 3 + 1], result[t * 3 + 2]
+        fn = np.cross(v1 - v0, v2 - v0)
+        tc = (v0 + v1 + v2) / 3.0
+        radial = tc - axis_mid
+        if np.dot(fn, radial) >= 0:
+            vote += 1
+        else:
+            vote -= 1
+
+    if vote < 0:
+        Logger.log("d", "  Bezier surface: flipping winding (vote=%d)", vote)
+        for t in range(n_tris):
+            result[t * 3 + 1], result[t * 3 + 2] = \
+                result[t * 3 + 2].copy(), result[t * 3 + 1].copy()
 
     return result
+
+
+def _polygon_area_3d(ring):
+    """Tinh dien tich polygon 3D bang Shoelace (cross product sum)."""
+    n = len(ring)
+    if n < 3:
+        return 0.0
+    total = np.zeros(3)
+    for i in range(n):
+        total += np.cross(ring[i], ring[(i + 1) % n])
+    return 0.5 * np.linalg.norm(total)
 
 
 def _compute_soup_normals(all_verts):
-    """Tính face normals cho triangle soup."""
+    """Tinh face normals cho triangle soup."""
     if len(all_verts) == 0:
         return (np.zeros((0, 3), dtype=np.float32),
                 np.zeros((0, 3), dtype=np.float32))
 
-    num_tris = len(all_verts) // 3
     sv0 = all_verts[0::3]
     sv1 = all_verts[1::3]
     sv2 = all_verts[2::3]
