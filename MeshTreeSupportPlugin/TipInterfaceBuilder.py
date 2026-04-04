@@ -143,6 +143,9 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
 
         circle_center = np.array([centroid[0], centroid[1],
                                   min_z - effective_height])
+        # Resample convex polygon ve dung cylinder_segments dinh
+        convex_resampled = _resample_ring(convex, cylinder_segments)
+
         circle = _make_ring(circle_center, tip_dir, cylinder_segments,
                             tip_radius)
 
@@ -155,7 +158,7 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
         # BUOC 6: Be mat Bezier tu da giac loi -> hinh tron
         # =================================================================
         n_levels = max(8, min(int(effective_height / ring_thickness), 40))
-        surface = _build_bezier_surface(convex, circle_center, tip_radius,
+        surface = _build_bezier_surface(convex_resampled, circle,
                                         effective_height, n_levels)
         if surface is not None and len(surface) > 0:
             all_soup.append(surface)
@@ -317,51 +320,66 @@ def _eval_cubic_bezier(P0, P1, P2, P3, t):
            3 * s * t * t * P2 + t * t * t * P3
 
 
-def _build_bezier_surface(convex_ring, circle_center, tip_radius,
-                          effective_height, n_levels):
+def _resample_ring(ring, n_out):
+    """
+    Resample ring (K, 3) thanh ring moi co n_out dinh,
+    bang noi suy tuyen tinh theo chieu dai cung.
+    """
+    K = len(ring)
+    if K == n_out:
+        return ring.copy()
+
+    # Tinh chieu dai tich luy
+    segs = np.linalg.norm(np.diff(ring, axis=0, append=ring[:1]), axis=1)
+    total = np.sum(segs)
+    if total < 1e-10:
+        # Tat ca dinh trung nhau: chia deu theo chi so
+        result = np.zeros((n_out, 3), dtype=np.float64)
+        for i in range(n_out):
+            result[i] = ring[int(round(i * K / n_out)) % K]
+        return result
+
+    cum = np.concatenate([[0.0], np.cumsum(segs)])
+
+    result = np.zeros((n_out, 3), dtype=np.float64)
+    for i in range(n_out):
+        t_target = total * i / n_out
+        # Tim doan chua t_target
+        for j in range(K):
+            if cum[j] <= t_target <= cum[j + 1]:
+                seg_len = cum[j + 1] - cum[j]
+                if seg_len < 1e-10:
+                    result[i] = ring[j]
+                else:
+                    frac = (t_target - cum[j]) / seg_len
+                    result[i] = ring[j] + frac * (ring[(j + 1) % K] - ring[j])
+                break
+        else:
+            result[i] = ring[-1]
+
+    return result
+
+
+def _build_bezier_surface(convex_ring, circle_ring, effective_height, n_levels):
     """
     Tao be mat Bezier tu da giac loi (tren) xuong hinh tron (duoi).
 
-    Voi moi dinh cua da giac loi:
-    - Tao mat phang qua dinh do va tam hinh tron, song song truc Z
-    - Tim giao diem mat phang voi hinh tron -> diem cuoi duong cong
-    - Ve duong cong Bezier voi tiep tuyen thang dung tai 2 dau
-
     Tham so:
-        convex_ring     : (K, 3) dinh da giac loi tai Z=z_top
-        circle_center   : (3,) tam hinh tron tai Z=z_top - effective_height
-        tip_radius      : float - ban kinh hinh tron
+        convex_ring     : (N, 3) dinh da giac loi tai Z=z_top (da resample ve N)
+        circle_ring     : (N, 3) dinh hinh tron dau tip tai Z=z_bot (N = cylinder_segments)
         effective_height: float - chieu cao tu da giac xuong hinh tron
         n_levels        : int - so ring trung gian
     """
     K = len(convex_ring)
-    if K < 3:
+    if K < 3 or len(circle_ring) != K:
         return None
-
-    cx, cy, cz = circle_center[0], circle_center[1], circle_center[2]
 
     # Bezier control point: alpha = beta = effective_height / 3
     # Dam bao tiep tuyen thang dung tai 2 dau
     alpha = effective_height / 3.0
     beta = effective_height / 3.0
 
-    # Voi moi dinh da giac loi, tim diem tuong ung tren hinh tron
-    # Mat phang qua dinh va tam, song song Z -> giao voi hinh tron
-    circle_points = np.zeros((K, 3), dtype=np.float64)
-    for i in range(K):
-        vx, vy = convex_ring[i, 0], convex_ring[i, 1]
-        dx, dy = vx - cx, vy - cy
-        d_len = np.sqrt(dx * dx + dy * dy)
-        if d_len > 1e-10:
-            dx_hat, dy_hat = dx / d_len, dy / d_len
-        else:
-            # Dinh trung voi tam: chon huong bat ky
-            angle = 2.0 * np.pi * i / K
-            dx_hat, dy_hat = np.cos(angle), np.sin(angle)
-
-        circle_points[i] = [cx + tip_radius * dx_hat,
-                            cy + tip_radius * dy_hat,
-                            cz]
+    circle_points = circle_ring  # (N, 3) - da la hinh tron dung cylinder_segments canh
 
     # Tao cac ring trung gian bang cach lay mau duong Bezier
     rings = []
@@ -394,7 +412,7 @@ def _build_bezier_surface(convex_ring, circle_center, tip_radius,
     result = np.array(all_tris, dtype=np.float64).reshape(-1, 3)
 
     # Fix winding: mat huong ra ngoai (xa truc trung tam)
-    axis_mid = (np.mean(convex_ring, axis=0) + circle_center) / 2.0
+    axis_mid = (np.mean(convex_ring, axis=0) + np.mean(circle_points, axis=0)) / 2.0
     n_tris = len(result) // 3
     vote = 0
     for t in range(n_tris):
