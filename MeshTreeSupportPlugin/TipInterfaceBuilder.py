@@ -131,42 +131,44 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
 
         circle_center = np.array([centroid[0], centroid[1],
                                   min_z - effective_height])
-        # Resample convex polygon ve dung cylinder_segments dinh
-        # (phai tinh truoc skirt de dung lam outer ring chung)
-        convex_resampled = _resample_ring(convex, cylinder_segments)
+        N = len(convex)
 
-        # (c) Cap tai Z=min_z: lap day toan bo convex_resampled, face down (-Z)
-        # Fan triangulation don gian, khong co lo, dong kin dau tren Bezier tube
-        cap_bottom = _triangulate_convex(convex_resampled, face_down=True)
+        # (c) Skirt: lap vung annular giua projected (lom) va convex (loi), face up
+        skirt = _fill_ring(projected, convex)
+        if skirt is not None and len(skirt) > 0:
+            all_soup.append(skirt)
+
+        # (d) Cap tai Z=min_z: lap day toan bo convex, face down (-Z)
+        cap_bottom = _triangulate_convex(convex, face_down=True)
         if cap_bottom is not None and len(cap_bottom) > 0:
             all_soup.append(cap_bottom)
 
-        # Tao circle ring bang radial projection tu convex_resampled
-        # Dam bao vertex i cua convex <-> vertex i cua circle (can chinh 1-1)
+        # Tao circle ring (N dinh) bang radial projection tu convex
+        # Bezier dung N dinh xuyen suot, khong resample som
         cx, cy, cz = circle_center
-        circle = np.zeros((cylinder_segments, 3), dtype=np.float64)
-        for ci in range(cylinder_segments):
-            vx, vy = convex_resampled[ci, 0], convex_resampled[ci, 1]
+        circle = np.zeros((N, 3), dtype=np.float64)
+        for ci in range(N):
+            vx, vy = convex[ci, 0], convex[ci, 1]
             dx, dy = vx - cx, vy - cy
             d_len = np.sqrt(dx * dx + dy * dy)
             if d_len > 1e-10:
                 dx_hat, dy_hat = dx / d_len, dy / d_len
             else:
-                angle = 2.0 * np.pi * ci / cylinder_segments
+                angle = 2.0 * np.pi * ci / N
                 dx_hat, dy_hat = np.cos(angle), np.sin(angle)
             circle[ci] = [cx + tip_radius * dx_hat,
                           cy + tip_radius * dy_hat, cz]
 
         Logger.log("d", "  Circle: center=(%.2f,%.2f,%.2f), r=%.2f, "
-                   "effective_h=%.2f, max_d_horiz=%.2f",
+                   "effective_h=%.2f, max_d_horiz=%.2f, N=%d",
                    circle_center[0], circle_center[1], circle_center[2],
-                   tip_radius, effective_height, max_d_horiz)
+                   tip_radius, effective_height, max_d_horiz, N)
 
         # =================================================================
-        # BUOC 6: Be mat Bezier tu da giac loi -> hinh tron
+        # BUOC 6: Be mat Bezier tu da giac loi (N dinh) -> hinh tron (N dinh)
         # =================================================================
         n_levels = max(8, min(int(effective_height / ring_thickness), 40))
-        surface = _build_bezier_surface(convex_resampled, circle,
+        surface = _build_bezier_surface(convex, circle,
                                         effective_height, n_levels)
         if surface is not None and len(surface) > 0:
             all_soup.append(surface)
@@ -308,22 +310,14 @@ def _make_side_walls(ring_top, ring_bottom):
 
     result = np.array(tris, dtype=np.float64).reshape(-1, 3)
 
-    # Fix winding: majority vote - mat huong ra ngoai
+    # Per-triangle fix: normal phai huong ra ngoai (xa tam)
     center = np.mean(ring_top, axis=0)
     n_tris = len(result) // 3
-    vote = 0
     for t in range(n_tris):
         v0, v1, v2 = result[t * 3], result[t * 3 + 1], result[t * 3 + 2]
         fn = np.cross(v1 - v0, v2 - v0)
         tc = (v0 + v1 + v2) / 3.0
-        radial = tc - center
-        if np.dot(fn, radial) >= 0:
-            vote += 1
-        else:
-            vote -= 1
-
-    if vote < 0:
-        for t in range(n_tris):
+        if np.dot(fn, tc - center) < 0:
             result[t * 3 + 1], result[t * 3 + 2] = \
                 result[t * 3 + 2].copy(), result[t * 3 + 1].copy()
 
@@ -512,23 +506,17 @@ def _build_bezier_surface(convex_ring, circle_ring, effective_height, n_levels):
 
     result = np.array(all_tris, dtype=np.float64).reshape(-1, 3)
 
-    # Fix winding: mat huong ra ngoai (xa truc trung tam)
-    axis_mid = (np.mean(convex_ring, axis=0) + np.mean(circle_points, axis=0)) / 2.0
+    # Per-triangle fix: normal phai huong ra ngoai (xa truc)
+    # Dung axis tai cung Z voi tam giac (khong dung axis_mid chung)
+    center_xy = (np.mean(convex_ring[:, :2], axis=0) +
+                 np.mean(circle_points[:, :2], axis=0)) / 2.0
     n_tris = len(result) // 3
-    vote = 0
     for t in range(n_tris):
         v0, v1, v2 = result[t * 3], result[t * 3 + 1], result[t * 3 + 2]
         fn = np.cross(v1 - v0, v2 - v0)
         tc = (v0 + v1 + v2) / 3.0
-        radial = tc - axis_mid
-        if np.dot(fn, radial) >= 0:
-            vote += 1
-        else:
-            vote -= 1
-
-    if vote < 0:
-        Logger.log("d", "  Bezier surface: flipping winding (vote=%d)", vote)
-        for t in range(n_tris):
+        radial = np.array([tc[0] - center_xy[0], tc[1] - center_xy[1], 0.0])
+        if np.dot(fn, radial) < 0:
             result[t * 3 + 1], result[t * 3 + 2] = \
                 result[t * 3 + 2].copy(), result[t * 3 + 1].copy()
 
