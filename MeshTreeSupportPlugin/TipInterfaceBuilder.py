@@ -135,11 +135,11 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
         # (phai tinh truoc skirt de dung lam outer ring chung)
         convex_resampled = _resample_ring(convex, cylinder_segments)
 
-        # (c) Skirt tai Z=min_z: lap vung tu projected (lom) ra convex_resampled (loi), face up
-        # Dung convex_resampled (khong phai convex) de khop voi ring dau Bezier
-        skirt = _fill_ring(projected, convex_resampled)
-        if skirt is not None and len(skirt) > 0:
-            all_soup.append(skirt)
+        # (c) Cap tai Z=min_z: lap day toan bo convex_resampled, face down (-Z)
+        # Fan triangulation don gian, khong co lo, dong kin dau tren Bezier tube
+        cap_bottom = _triangulate_convex(convex_resampled, face_down=True)
+        if cap_bottom is not None and len(cap_bottom) > 0:
+            all_soup.append(cap_bottom)
 
         # Tao circle ring bang radial projection tu convex_resampled
         # Dam bao vertex i cua convex <-> vertex i cua circle (can chinh 1-1)
