@@ -110,11 +110,6 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
         if sides is not None and len(sides) > 0:
             all_soup.append(sides)
 
-        # (c) Skirt tai Z=min_z: lap vung tu projected (lom) ra convex (loi), face up
-        skirt = _fill_ring(projected, convex)
-        if skirt is not None and len(skirt) > 0:
-            all_soup.append(skirt)
-
         # =================================================================
         # BUOC 4-5: Tim trong tam, tao hinh tron tai dau tip
         # =================================================================
@@ -137,7 +132,14 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
         circle_center = np.array([centroid[0], centroid[1],
                                   min_z - effective_height])
         # Resample convex polygon ve dung cylinder_segments dinh
+        # (phai tinh truoc skirt de dung lam outer ring chung)
         convex_resampled = _resample_ring(convex, cylinder_segments)
+
+        # (c) Skirt tai Z=min_z: lap vung tu projected (lom) ra convex_resampled (loi), face up
+        # Dung convex_resampled (khong phai convex) de khop voi ring dau Bezier
+        skirt = _fill_ring(projected, convex_resampled)
+        if skirt is not None and len(skirt) > 0:
+            all_soup.append(skirt)
 
         # Tao circle ring bang radial projection tu convex_resampled
         # Dam bao vertex i cua convex <-> vertex i cua circle (can chinh 1-1)
@@ -250,19 +252,14 @@ def _fill_ring(inner_ring, outer_ring):
 
     result = np.array(tris, dtype=np.float64).reshape(-1, 3)
 
-    # Majority vote fix winding: face up (+Z)
+    # Per-triangle winding correction: skirt la mat phang Z=min_z,
+    # moi tam giac phai co normal +Z. Sua tung tam giac rieng le
+    # (majority vote khong du khi inner CW va outer CCW tao mix winding)
     n_tris = len(result) // 3
-    vote = 0
     for t in range(n_tris):
         v0, v1, v2 = result[t * 3], result[t * 3 + 1], result[t * 3 + 2]
         fn = np.cross(v1 - v0, v2 - v0)
-        if fn[2] >= 0:
-            vote += 1
-        else:
-            vote -= 1
-
-    if vote < 0:
-        for t in range(n_tris):
+        if fn[2] < 0:
             result[t * 3 + 1], result[t * 3 + 2] = \
                 result[t * 3 + 2].copy(), result[t * 3 + 1].copy()
 
