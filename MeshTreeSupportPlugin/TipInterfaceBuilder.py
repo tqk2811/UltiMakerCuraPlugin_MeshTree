@@ -33,8 +33,8 @@ class PointA:
 
 
 def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
-                         overhang_angle=45.0, max_area_change_pct=10.0,
-                         tip_height=10.0, cylinder_segments=8):
+                         overhang_angle=45.0, tip_height=10.0,
+                         cylinder_segments=8):
     """
     Tao tip interface mesh cho tat ca da giac.
 
@@ -43,7 +43,6 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
         tip_radius        : float - ban kinh hinh tron dau tip (mm)
         ring_thickness    : float - khoang cach Z giua cac ring trung gian (mm)
         overhang_angle    : float - goc overhang toi da (do)
-        max_area_change_pct : float - (khong dung trong thuat toan moi, giu de tuong thich)
         tip_height        : float - chieu cao tip tu shell xuong hinh tron (mm)
         cylinder_segments : int - so canh hinh tron dau tip
 
@@ -86,41 +85,35 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
         min_z = float(np.min(shell_boundary[:, 2]))
 
         # =================================================================
-        # BUOC 2: Lap day khoi tu shell xuong mat chieu Z=min_z
+        # BUOC 2: Convex hull - bien da giac lom thanh loi
         # =================================================================
-
-        # (a) Cap triangles - mat tren (mat tiep xuc shell)
-        if has_cap:
-            all_soup.append(poly.cap_triangles.copy())
-
-        # (b) Chieu boundary xuong Z=min_z
         projected = shell_boundary.copy()
         projected[:, 2] = min_z
 
-        # (c) Side walls: thanh ben tu shell_boundary xuong projected
-        sides = _make_side_walls(shell_boundary, projected)
-        if sides is not None and len(sides) > 0:
-            all_soup.append(sides)
-
-        # (d) Bottom face: chieu cap_triangles xuong Z=min_z, lat winding
-        if has_cap:
-            bottom = poly.cap_triangles.copy()
-            bottom[:, 2] = min_z
-            n_bt = len(bottom) // 3
-            for bt in range(n_bt):
-                i1, i2 = bt * 3 + 1, bt * 3 + 2
-                bottom[i1], bottom[i2] = bottom[i2].copy(), bottom[i1].copy()
-            all_soup.append(bottom)
-
-        # =================================================================
-        # BUOC 3: Convex hull - bien da giac lom thanh loi
-        # =================================================================
         convex = _make_convex_polygon(projected)
         if len(convex) < 3:
             convex = projected.copy()
 
         Logger.log("d", "  Polygon %d: boundary=%d verts, convex=%d verts, "
                    "min_z=%.2f", pi, len(projected), len(convex), min_z)
+
+        # =================================================================
+        # BUOC 3: Lap day khoi tu shell xuong convex hull tai Z=min_z
+        # =================================================================
+
+        # (a) Cap triangles - mat tren (mat tiep xuc shell)
+        if has_cap:
+            all_soup.append(poly.cap_triangles.copy())
+
+        # (b) Side walls: thanh ben tu shell_boundary xuong projected (cung so dinh, cung thu tu)
+        sides = _make_side_walls(shell_boundary, projected)
+        if sides is not None and len(sides) > 0:
+            all_soup.append(sides)
+
+        # (c) Skirt tai Z=min_z: lap vung tu projected (lom) ra convex (loi), face up
+        skirt = _fill_ring(projected, convex)
+        if skirt is not None and len(skirt) > 0:
+            all_soup.append(skirt)
 
         # =================================================================
         # BUOC 4-5: Tim trong tam, tao hinh tron tai dau tip
@@ -199,6 +192,101 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
 # ==============================================================================
 # HELPER FUNCTIONS
 # ==============================================================================
+
+def _fill_ring(inner_ring, outer_ring):
+    """
+    Lap day vung giua 2 boundary (inner va outer) tai cung Z.
+    inner_ring: (M, 3) - boundary trong (co the lom)
+    outer_ring: (N, 3) - boundary ngoai (convex hull)
+    Tra ve triangle soup, face up (+Z).
+
+    Thuat toan: zipper - di dong dong thoi tren 2 ring,
+    chon canh ngan nhat de tao tam giac tiep theo.
+    """
+    M = len(inner_ring)
+    N = len(outer_ring)
+    if M < 3 or N < 3:
+        return None
+
+    # Tim diem bat dau: dinh inner gan nhat voi outer[0]
+    dists = np.linalg.norm(inner_ring[:, :2] - outer_ring[0, :2], axis=1)
+    i_start = int(np.argmin(dists))
+
+    tris = []
+    i = i_start
+    j = 0
+    steps = 0
+    max_steps = M + N + 2
+
+    while steps < max_steps:
+        i_next = (i + 1) % M
+        j_next = (j + 1) % N
+
+        # Da di het ca 2 ring
+        if steps > 0 and i == i_start and j == 0:
+            break
+
+        # Chon: tien inner hay tien outer?
+        # So sanh khoang cach cheo
+        d_advance_i = np.linalg.norm(inner_ring[i_next, :2] - outer_ring[j, :2])
+        d_advance_j = np.linalg.norm(outer_ring[j_next, :2] - inner_ring[i, :2])
+
+        if d_advance_i <= d_advance_j:
+            # Tam giac: inner[i], inner[i_next], outer[j] - CCW nhin tu tren = face up
+            tris.append([inner_ring[i], inner_ring[i_next], outer_ring[j]])
+            i = i_next
+        else:
+            # Tam giac: inner[i], outer[j], outer[j_next] - CCW nhin tu tren = face up
+            tris.append([inner_ring[i], outer_ring[j], outer_ring[j_next]])
+            j = j_next
+
+        steps += 1
+
+    if not tris:
+        return None
+
+    result = np.array(tris, dtype=np.float64).reshape(-1, 3)
+
+    # Majority vote fix winding: face up (+Z)
+    n_tris = len(result) // 3
+    vote = 0
+    for t in range(n_tris):
+        v0, v1, v2 = result[t * 3], result[t * 3 + 1], result[t * 3 + 2]
+        fn = np.cross(v1 - v0, v2 - v0)
+        if fn[2] >= 0:
+            vote += 1
+        else:
+            vote -= 1
+
+    if vote < 0:
+        for t in range(n_tris):
+            result[t * 3 + 1], result[t * 3 + 2] = \
+                result[t * 3 + 2].copy(), result[t * 3 + 1].copy()
+
+    return result
+
+
+def _triangulate_convex(convex_ring, face_down=False):
+    """
+    Tam giac hoa da giac loi bang fan triangulation.
+    face_down=True: normal huong xuong (-Z), face_down=False: normal huong len (+Z).
+    Convex hull thu tu CCW nhin tu tren.
+    """
+    n = len(convex_ring)
+    if n < 3:
+        return None
+
+    tris = []
+    for i in range(1, n - 1):
+        if face_down:
+            # CW nhin tu tren -> normal -Z
+            tris.append([convex_ring[0], convex_ring[i + 1], convex_ring[i]])
+        else:
+            # CCW nhin tu tren -> normal +Z
+            tris.append([convex_ring[0], convex_ring[i], convex_ring[i + 1]])
+
+    return np.array(tris, dtype=np.float64).reshape(-1, 3)
+
 
 def _make_side_walls(ring_top, ring_bottom):
     """
