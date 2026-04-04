@@ -212,35 +212,38 @@ def _fill_ring(inner_ring, outer_ring):
     dists = np.linalg.norm(inner_ring[:, :2] - outer_ring[0, :2], axis=1)
     i_start = int(np.argmin(dists))
 
+    # Tong so tam giac = M + N - 2 (zipper M+N dinh, 2 dau noi vong)
+    # Moi buoc tien 1 dinh tren inner hoac outer, tong cong M+N lan tien
     tris = []
     i = i_start
     j = 0
-    steps = 0
-    max_steps = M + N + 2
+    i_count = 0  # so lan da tien tren inner
+    j_count = 0  # so lan da tien tren outer
 
-    while steps < max_steps:
+    for _ in range(M + N):
         i_next = (i + 1) % M
         j_next = (j + 1) % N
 
-        # Da di het ca 2 ring
-        if steps > 0 and i == i_start and j == 0:
-            break
+        can_advance_i = i_count < M
+        can_advance_j = j_count < N
 
-        # Chon: tien inner hay tien outer?
-        # So sanh khoang cach cheo
-        d_advance_i = np.linalg.norm(inner_ring[i_next, :2] - outer_ring[j, :2])
-        d_advance_j = np.linalg.norm(outer_ring[j_next, :2] - inner_ring[i, :2])
+        if can_advance_i and can_advance_j:
+            d_advance_i = np.linalg.norm(inner_ring[i_next, :2] - outer_ring[j, :2])
+            d_advance_j = np.linalg.norm(outer_ring[j_next, :2] - inner_ring[i, :2])
+            advance_i = d_advance_i <= d_advance_j
+        elif can_advance_i:
+            advance_i = True
+        else:
+            advance_i = False
 
-        if d_advance_i <= d_advance_j:
-            # Tam giac: inner[i], inner[i_next], outer[j] - CCW nhin tu tren = face up
+        if advance_i:
             tris.append([inner_ring[i], inner_ring[i_next], outer_ring[j]])
             i = i_next
+            i_count += 1
         else:
-            # Tam giac: inner[i], outer[j], outer[j_next] - CCW nhin tu tren = face up
             tris.append([inner_ring[i], outer_ring[j], outer_ring[j_next]])
             j = j_next
-
-        steps += 1
+            j_count += 1
 
     if not tris:
         return None
