@@ -22,7 +22,5 @@
   "departure_straight_down": 0.0,
   "cylinder_segments": 8,
   "base_brim_multiplier": 3.0,
-  "base_brim_height": 0.5,
-  "_win_x": 3032.0,
-  "_win_y": 572.0
+  "base_brim_height": 0.5
 }
