@@ -82,6 +82,9 @@ _DEFAULT_SETTINGS = {
     "cylinder_segments": 8,          # Số cạnh mặt cắt ngang (bát giác)
     "base_brim_multiplier": 3.0,     # Hệ số mở rộng đế
     "base_brim_height": 0.5,         # Chiều cao đế (mm)
+    # --- Vị trí cửa sổ (lưu tự động) ---
+    "_win_x": -1.0,
+    "_win_y": -1.0,
 }
 
 # Các key là integer (không phải float)

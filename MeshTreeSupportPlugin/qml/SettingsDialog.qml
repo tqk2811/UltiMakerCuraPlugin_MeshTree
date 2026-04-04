@@ -18,7 +18,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
-import Qt.labs.settings 1.0
 
 Window {
     id: root
@@ -31,22 +30,15 @@ Window {
     modality: Qt.NonModal
     color: "#f5f5f5"
 
-    // Lưu vị trí cửa sổ riêng (không trộn vào settings thuật toán)
-    Settings {
-        id: winPos
-        category: "MeshTreeSupportDialog"
-        property real savedX: -1
-        property real savedY: -1
-    }
-
-    onXChanged: Qt.callLater(function() { winPos.savedX = x })
-    onYChanged: Qt.callLater(function() { winPos.savedY = y })
+    // Lưu vị trí cửa sổ vào settings.json (_win_x / _win_y)
+    onXChanged: Qt.callLater(function() { manager.updateSetting("_win_x", x) })
+    onYChanged: Qt.callLater(function() { manager.updateSetting("_win_y", y) })
 
     Component.onCompleted: {
+        var wx = manager.getSetting("_win_x")
+        var wy = manager.getSetting("_win_y")
         var centered = false
-        if (winPos.savedX >= 0 && mainWindow) {
-            var wx = winPos.savedX, wy = winPos.savedY
-            // Kiểm tra cửa sổ có nằm trong vùng cửa sổ cha không
+        if (wx >= 0 && mainWindow) {
             var insideX = wx + width  > mainWindow.x && wx < mainWindow.x + mainWindow.width
             var insideY = wy + height > mainWindow.y && wy < mainWindow.y + mainWindow.height
             if (insideX && insideY) {
@@ -55,7 +47,6 @@ Window {
             }
         }
         if (!centered && mainWindow) {
-            // Căn giữa cửa sổ cha
             x = mainWindow.x + (mainWindow.width  - width)  / 2
             y = mainWindow.y + (mainWindow.height - height) / 2
         }
