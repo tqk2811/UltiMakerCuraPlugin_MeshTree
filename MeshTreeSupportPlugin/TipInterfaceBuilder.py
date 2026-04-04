@@ -146,8 +146,21 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
         # Resample convex polygon ve dung cylinder_segments dinh
         convex_resampled = _resample_ring(convex, cylinder_segments)
 
-        circle = _make_ring(circle_center, tip_dir, cylinder_segments,
-                            tip_radius)
+        # Tao circle ring bang radial projection tu convex_resampled
+        # Dam bao vertex i cua convex <-> vertex i cua circle (can chinh 1-1)
+        cx, cy, cz = circle_center
+        circle = np.zeros((cylinder_segments, 3), dtype=np.float64)
+        for ci in range(cylinder_segments):
+            vx, vy = convex_resampled[ci, 0], convex_resampled[ci, 1]
+            dx, dy = vx - cx, vy - cy
+            d_len = np.sqrt(dx * dx + dy * dy)
+            if d_len > 1e-10:
+                dx_hat, dy_hat = dx / d_len, dy / d_len
+            else:
+                angle = 2.0 * np.pi * ci / cylinder_segments
+                dx_hat, dy_hat = np.cos(angle), np.sin(angle)
+            circle[ci] = [cx + tip_radius * dx_hat,
+                          cy + tip_radius * dy_hat, cz]
 
         Logger.log("d", "  Circle: center=(%.2f,%.2f,%.2f), r=%.2f, "
                    "effective_h=%.2f, max_d_horiz=%.2f",
