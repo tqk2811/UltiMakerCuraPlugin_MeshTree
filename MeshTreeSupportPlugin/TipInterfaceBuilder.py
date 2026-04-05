@@ -131,7 +131,6 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
 
         circle_center = np.array([centroid[0], centroid[1],
                                   min_z - effective_height])
-        N = len(convex)
 
         # (c) Skirt: lap vung annular giua projected (lom) va convex (loi), face up
         skirt = _fill_ring(projected, convex)
@@ -143,33 +142,20 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
         if cap_bottom is not None and len(cap_bottom) > 0:
             all_soup.append(cap_bottom)
 
-        # Tao circle ring (N dinh) bang radial projection tu convex
-        # Bezier dung N dinh xuyen suot, khong resample som
-        cx, cy, cz = circle_center
-        circle = np.zeros((N, 3), dtype=np.float64)
-        for ci in range(N):
-            vx, vy = convex[ci, 0], convex[ci, 1]
-            dx, dy = vx - cx, vy - cy
-            d_len = np.sqrt(dx * dx + dy * dy)
-            if d_len > 1e-10:
-                dx_hat, dy_hat = dx / d_len, dy / d_len
-            else:
-                angle = 2.0 * np.pi * ci / N
-                dx_hat, dy_hat = np.cos(angle), np.sin(angle)
-            circle[ci] = [cx + tip_radius * dx_hat,
-                          cy + tip_radius * dy_hat, cz]
-
         Logger.log("d", "  Circle: center=(%.2f,%.2f,%.2f), r=%.2f, "
                    "effective_h=%.2f, max_d_horiz=%.2f, N=%d",
                    circle_center[0], circle_center[1], circle_center[2],
-                   tip_radius, effective_height, max_d_horiz, N)
+                   tip_radius, effective_height, max_d_horiz, len(convex))
 
         # =================================================================
-        # BUOC 6: Be mat Bezier tu da giac loi (N dinh) -> hinh tron (N dinh)
+        # BUOC 6: Be mat Bezier tu convex (N dinh) -> hinh tron (cylinder_segments dinh)
+        # So dinh tang dan deu theo chieu cao
         # =================================================================
         n_levels = max(8, min(int(effective_height / ring_thickness), 40))
-        surface = _build_bezier_surface(convex, circle,
-                                        effective_height, n_levels)
+        surface = _build_bezier_surface(convex, circle_center, tip_radius,
+                                        effective_height, n_levels,
+                                        cylinder_segments,
+                                        tan_overhang=tan_overhang)
         if surface is not None and len(surface) > 0:
             all_soup.append(surface)
 
@@ -455,70 +441,160 @@ def _resample_ring(ring, n_out):
     return result
 
 
-def _build_bezier_surface(convex_ring, circle_ring, effective_height, n_levels):
+def _build_bezier_surface(convex_ring, circle_center, tip_radius,
+                          effective_height, n_levels, n_target,
+                          tan_overhang=1.0):
     """
-    Tao be mat Bezier tu da giac loi (tren) xuong hinh tron (duoi).
+    Tao be mat Bezier tu da giac loi (N dinh, tren) xuong hinh tron (n_target dinh, duoi).
 
-    Tham so:
-        convex_ring     : (N, 3) dinh da giac loi tai Z=z_top (da resample ve N)
-        circle_ring     : (N, 3) dinh hinh tron dau tip tai Z=z_bot (N = cylinder_segments)
-        effective_height: float - chieu cao tu da giac xuong hinh tron
-        n_levels        : int - so ring trung gian
+    Thuat toan:
+    1. Z cua tung ring duoc co dinh truoc bang Bezier cubic (tiep tuyen thang dung 2 dau).
+    2. XY cua tung ring duoc tinh bang forward greedy: moi ring tien toi da
+       |delta_z| * tan_overhang ve phia hinh tron, dam bao goc overhang.
+    3. So dinh tang dan deu tu N_start -> n_target.
     """
-    K = len(convex_ring)
-    if K < 3 or len(circle_ring) != K:
+    N_start = len(convex_ring)
+    if N_start < 3:
         return None
 
-    # Bezier control point: alpha = beta = effective_height / 3
-    # Dam bao tiep tuyen thang dung tai 2 dau
+    cx, cy, cz = circle_center
+    top_z = float(convex_ring[0, 2])  # Z cua ring tren cung (=min_z)
     alpha = effective_height / 3.0
-    beta = effective_height / 3.0
+    beta  = effective_height / 3.0
+    P1z = top_z - alpha
+    P2z = cz + beta
 
-    circle_points = circle_ring  # (N, 3) - da la hinh tron dung cylinder_segments canh
+    def bezier_z(t):
+        """Z theo Bezier cubic: tiep tuyen thang dung tai t=0 va t=1."""
+        s = 1.0 - t
+        return s*s*s*top_z + 3*s*s*t*P1z + 3*s*t*t*P2z + t*t*t*cz
 
-    # Tao cac ring trung gian bang cach lay mau duong Bezier
-    rings = []
+    # Goc bat dau cua circle: tinh mot lan duy nhat tu huong convex_ring[0]
+    _dx0 = convex_ring[0, 0] - cx
+    _dy0 = convex_ring[0, 1] - cy
+    _d0 = np.sqrt(_dx0 * _dx0 + _dy0 * _dy0)
+    global_start_angle = np.arctan2(_dy0, _dx0) if _d0 > 1e-10 else 0.0
+
+    def make_circle_xy(count):
+        """Tao circle XY count dinh: cach deu theo goc, but dau tu convex_ring[0]."""
+        xy = np.zeros((count, 2), dtype=np.float64)
+        for ci in range(count):
+            a = global_start_angle + 2.0 * np.pi * ci / count
+            xy[ci] = [cx + tip_radius * np.cos(a), cy + tip_radius * np.sin(a)]
+        return xy
+
+    # --- Buoc 1: Tinh Z cho tung ring ---
+    z_levels = [bezier_z(level / n_levels) for level in range(n_levels + 1)]
+
+    # --- Buoc 2: Tinh count cho tung ring ---
+    level_counts = []
     for level in range(n_levels + 1):
         t = level / n_levels
-        ring = np.zeros((K, 3), dtype=np.float64)
-        for i in range(K):
-            P0 = convex_ring[i]
-            P3 = circle_points[i]
-            P1 = P0.copy()
-            P1[2] -= alpha
-            P2 = P3.copy()
-            P2[2] += beta
-            ring[i] = _eval_cubic_bezier(P0, P1, P2, P3, t)
-        rings.append(ring)
+        count = max(N_start, min(n_target, int(round(
+            N_start + t * (n_target - N_start)))))
+        level_counts.append(count)
 
-    # Noi cac ring lien tiep bang triangle strip
+    # --- Buoc 3: Tinh XY theo forward greedy (ràng buộc overhang) ---
+    # Ring 0: chinh la convex ring (resampled thanh N_start)
+    level_xy = []  # list of (count, xy_array (count, 2))
+
+    xy0 = _resample_ring(convex_ring, N_start)[:, :2].copy()
+    level_xy.append((N_start, xy0))
+
+    for level in range(1, n_levels + 1):
+        count = level_counts[level]
+        dz = abs(z_levels[level] - z_levels[level - 1])
+        max_step = dz * tan_overhang  # buoc XY toi da trong 1 ring
+
+        prev_count, prev_xy = level_xy[-1]
+
+        # Resample prev_xy sang count diem neu count thay doi
+        if count != prev_count:
+            tmp_3d = np.zeros((prev_count, 3), dtype=np.float64)
+            tmp_3d[:, :2] = prev_xy
+            tmp_3d[:, 2] = z_levels[level - 1]
+            resampled = _resample_ring(tmp_3d, count)
+            curr_xy = resampled[:, :2].copy()
+        else:
+            curr_xy = prev_xy.copy()
+
+        # Target XY: circle deu count dinh, huong co dinh tu convex_ring[0]
+        target_xy = make_circle_xy(count)
+
+        # Tien toi target_xy, buoc toi da max_step
+        new_xy = np.zeros((count, 2), dtype=np.float64)
+        for i in range(count):
+            direction = target_xy[i] - curr_xy[i]
+            d = np.linalg.norm(direction)
+            if d <= max_step or d < 1e-10:
+                new_xy[i] = target_xy[i]
+            else:
+                new_xy[i] = curr_xy[i] + direction / d * max_step
+
+        level_xy.append((count, new_xy))
+
+    # --- Ghep XY va Z thanh rings 3D ---
+    rings = []
+    counts = []
+    for level in range(n_levels + 1):
+        count, xy = level_xy[level]
+        ring = np.zeros((count, 3), dtype=np.float64)
+        ring[:, :2] = xy
+        ring[:, 2] = z_levels[level]
+        rings.append(ring)
+        counts.append(count)
+
+    # Noi cac ring lien tiep
     all_tris = []
     for level in range(n_levels):
-        r0 = rings[level]
-        r1 = rings[level + 1]
-        for i in range(K):
-            i_next = (i + 1) % K
-            all_tris.append([r0[i], r1[i], r0[i_next]])
-            all_tris.append([r0[i_next], r1[i], r1[i_next]])
+        r0, r1 = rings[level], rings[level + 1]
+        M, N = counts[level], counts[level + 1]
+
+        if M == N:
+            for i in range(M):
+                i_next = (i + 1) % M
+                all_tris.append([r0[i],      r1[i],      r0[i_next]])
+                all_tris.append([r0[i_next], r1[i],      r1[i_next]])
+        else:
+            # Zipper cho truong hop M != N (tang/giam 1 dinh)
+            dists = np.linalg.norm(r0[:, :2] - r1[0, :2], axis=1)
+            i, j = int(np.argmin(dists)), 0
+            i_count = j_count = 0
+            for _ in range(M + N):
+                i_next = (i + 1) % M
+                j_next = (j + 1) % N
+                can_i = i_count < M
+                can_j = j_count < N
+                if can_i and can_j:
+                    d_i = np.linalg.norm(r0[i_next, :2] - r1[j, :2])
+                    d_j = np.linalg.norm(r1[j_next, :2] - r0[i, :2])
+                    adv_i = d_i <= d_j
+                elif can_i:
+                    adv_i = True
+                else:
+                    adv_i = False
+                if adv_i:
+                    all_tris.append([r0[i], r0[i_next], r1[j]])
+                    i = i_next; i_count += 1
+                else:
+                    all_tris.append([r0[i], r1[j], r1[j_next]])
+                    j = j_next; j_count += 1
 
     if not all_tris:
         return None
 
     result = np.array(all_tris, dtype=np.float64).reshape(-1, 3)
 
-    # Per-triangle fix: normal phai huong ra ngoai (xa truc)
-    # Dung axis tai cung Z voi tam giac (khong dung axis_mid chung)
-    center_xy = (np.mean(convex_ring[:, :2], axis=0) +
-                 np.mean(circle_points[:, :2], axis=0)) / 2.0
+    # Per-triangle outward winding fix (3D outward tu circle_center)
+    circle_c = np.array([cx, cy, cz])
     n_tris = len(result) // 3
     for t in range(n_tris):
-        v0, v1, v2 = result[t * 3], result[t * 3 + 1], result[t * 3 + 2]
+        v0, v1, v2 = result[t*3], result[t*3+1], result[t*3+2]
         fn = np.cross(v1 - v0, v2 - v0)
         tc = (v0 + v1 + v2) / 3.0
-        radial = np.array([tc[0] - center_xy[0], tc[1] - center_xy[1], 0.0])
-        if np.dot(fn, radial) < 0:
-            result[t * 3 + 1], result[t * 3 + 2] = \
-                result[t * 3 + 2].copy(), result[t * 3 + 1].copy()
+        outward = tc - circle_c  # huong ra ngoai tinh tu tam circle (dau tip)
+        if np.dot(fn, outward) < 0:
+            result[t*3+1], result[t*3+2] = result[t*3+2].copy(), result[t*3+1].copy()
 
     return result
 
