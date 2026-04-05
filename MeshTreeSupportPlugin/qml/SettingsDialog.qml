@@ -253,6 +253,23 @@ Window {
                         Label { text: "mm" }
 
                         Label {
+                            text: "Độ cong blend:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: tipShapePowerMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Điều chỉnh tốc độ chuyển hình đa giác → tròn.\n1.0 = đều đặn, >1 = giữ đa giác lâu hơn, <1 = tròn sớm hơn.\nPhạm vi: 0.2 - 5.0"
+                            MouseArea { id: tipShapePowerMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fTipShapePower
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.2; top: 5.0; decimals: 2 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("tip_shape_power", v) }
+                        }
+                        Label { text: "" }
+
+                        Label {
                             text: "Chiều cao tip:"
                             Layout.preferredWidth: 180
                             ToolTip.visible: tipHeightMA.containsMouse
@@ -612,6 +629,7 @@ Window {
         fMaxPolyArea.text        = manager.getSetting("max_polygon_area").toFixed(1)
         fTipRadius.text          = manager.getSetting("tip_radius").toFixed(2)
         fTipRingThickness.text   = manager.getSetting("tip_ring_thickness").toFixed(2)
+        fTipShapePower.text      = manager.getSetting("tip_shape_power").toFixed(2)
         fTipHeight.text           = manager.getSetting("tip_height").toFixed(1)
         fStepSize.text           = manager.getSetting("step_size").toFixed(1)
         fMergeDist.text          = manager.getSetting("merge_distance").toFixed(1)

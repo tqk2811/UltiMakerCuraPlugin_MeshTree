@@ -190,7 +190,8 @@ class MeshTreeSupportJob(Job):
             ring_thickness=float(s.get("tip_ring_thickness", 0.3)),
             overhang_angle=float(s.get("overhang_angle", 45.0)),
             tip_height=float(s.get("tip_height", 10.0)),
-            cylinder_segments=int(s.get("cylinder_segments", 8))
+            cylinder_segments=int(s.get("cylinder_segments", 8)),
+            shape_power=float(s.get("tip_shape_power", 1.0))
         )
 
         Logger.log("i", "  -> Tip interface: %d dinh, %d Point A",

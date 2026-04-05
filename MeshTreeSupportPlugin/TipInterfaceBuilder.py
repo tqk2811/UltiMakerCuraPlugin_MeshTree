@@ -34,7 +34,7 @@ class PointA:
 
 def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
                          overhang_angle=45.0, tip_height=10.0,
-                         cylinder_segments=8):
+                         cylinder_segments=8, shape_power=1.0):
     """
     Tao tip interface mesh cho tat ca da giac.
 
@@ -155,7 +155,8 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
         surface = _build_bezier_surface(convex, circle_center, tip_radius,
                                         effective_height, n_levels,
                                         cylinder_segments,
-                                        tan_overhang=tan_overhang)
+                                        tan_overhang=tan_overhang,
+                                        shape_power=shape_power)
         if surface is not None and len(surface) > 0:
             all_soup.append(surface)
 
@@ -443,7 +444,7 @@ def _resample_ring(ring, n_out):
 
 def _build_bezier_surface(convex_ring, circle_center, tip_radius,
                           effective_height, n_levels, n_target,
-                          tan_overhang=1.0):
+                          tan_overhang=1.0, shape_power=1.0):
     """
     Tao be mat Bezier tu da giac loi (N dinh, tren) xuong hinh tron (n_target dinh, duoi).
 
@@ -514,7 +515,7 @@ def _build_bezier_surface(convex_ring, circle_center, tip_radius,
 
     # (b) Tinh XY cho tung main ring
     def xy_at_level(lv, count):
-        t = lv / n_levels
+        t = (lv / n_levels) ** shape_power
         convex_r = _resample_ring(convex_ring, count)
         convex_xy = convex_r[:, :2]
         target_xy = make_circle_xy(count)

@@ -68,6 +68,7 @@ _DEFAULT_SETTINGS = {
     "tip_radius": 0.4,               # Bán kính tại Point A (mm)
     "tip_height": 10.0,              # Chiều cao tip interface (mm)
     "tip_ring_thickness": 0.3,       # Khoảng cách giữa 2 ring (mm)
+    "tip_shape_power": 1.0,          # Độ cong blend hình đa giác→tròn (1=đều, >1=giữ đa giác lâu hơn)
     "tip_max_area_change_pct": 10.0, # Thay đổi diện tích tối đa mỗi ring (%)
     # --- Nhánh cây (Space Colonization) ---
     "step_size": 2.0,                # Bước mô phỏng nhánh (mm)

@@ -11,6 +11,7 @@
   "tip_radius": 0.5,
   "tip_height": 10.0,
   "tip_ring_thickness": 0.3,
+  "tip_shape_power": 1.1,
   "tip_max_area_change_pct": 10.0,
   "step_size": 2.0,
   "merge_distance": 15.0,
@@ -22,5 +23,7 @@
   "departure_straight_down": 0.0,
   "cylinder_segments": 8,
   "base_brim_multiplier": 3.0,
-  "base_brim_height": 0.5
+  "base_brim_height": 0.5,
+  "_win_x": 28.0,
+  "_win_y": 118.0
 }
