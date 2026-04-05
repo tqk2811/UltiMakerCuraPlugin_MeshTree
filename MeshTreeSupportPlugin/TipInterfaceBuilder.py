@@ -494,44 +494,67 @@ def _build_bezier_surface(convex_ring, circle_center, tip_radius,
             N_start + t * (n_target - N_start)))))
         level_counts.append(count)
 
-    # --- Buoc 3: Tinh XY theo forward greedy (ràng buộc overhang) ---
-    # Ring 0: chinh la convex ring (resampled thanh N_start)
-    level_xy = []  # list of (count, xy_array (count, 2))
+    # --- Buoc 3: Tinh XY ---
+    # Moi ring dung XY tu convex -> circle theo t toan cuc (linear).
+    # Nhung de moi sub ring thay doi RO RANG, ta tinh XY cua cac "main ring"
+    # (ring dau/cuoi + ring thay doi count) truoc, roi noi suy cuc bo giua chung.
+    #
+    # Thuat toan:
+    #   a) Tim cac main ring indices (level 0, cac level co count thay doi, level n_levels)
+    #   b) Tinh XY chinh xac cho tung main ring (linear blend convex->circle theo t toan cuc)
+    #   c) Sub ring giua 2 main ring: noi suy tuyen tinh LOCAL giua 2 XY main ring lien ke
 
-    xy0 = _resample_ring(convex_ring, N_start)[:, :2].copy()
-    level_xy.append((N_start, xy0))
+    # (a) Tim main ring indices
+    main_levels = [0]
+    for lv in range(1, n_levels + 1):
+        if level_counts[lv] != level_counts[lv - 1]:
+            main_levels.append(lv)
+    if main_levels[-1] != n_levels:
+        main_levels.append(n_levels)
 
-    for level in range(1, n_levels + 1):
-        count = level_counts[level]
-        dz = abs(z_levels[level] - z_levels[level - 1])
-        max_step = dz * tan_overhang  # buoc XY toi da trong 1 ring
-
-        prev_count, prev_xy = level_xy[-1]
-
-        # Resample prev_xy sang count diem neu count thay doi
-        if count != prev_count:
-            tmp_3d = np.zeros((prev_count, 3), dtype=np.float64)
-            tmp_3d[:, :2] = prev_xy
-            tmp_3d[:, 2] = z_levels[level - 1]
-            resampled = _resample_ring(tmp_3d, count)
-            curr_xy = resampled[:, :2].copy()
-        else:
-            curr_xy = prev_xy.copy()
-
-        # Target XY: circle deu count dinh, huong co dinh tu convex_ring[0]
+    # (b) Tinh XY cho tung main ring
+    def xy_at_level(lv, count):
+        t = lv / n_levels
+        convex_r = _resample_ring(convex_ring, count)
+        convex_xy = convex_r[:, :2]
         target_xy = make_circle_xy(count)
+        return convex_xy * (1.0 - t) + target_xy * t
 
-        # Tien toi target_xy, buoc toi da max_step
-        new_xy = np.zeros((count, 2), dtype=np.float64)
-        for i in range(count):
-            direction = target_xy[i] - curr_xy[i]
-            d = np.linalg.norm(direction)
-            if d <= max_step or d < 1e-10:
-                new_xy[i] = target_xy[i]
-            else:
-                new_xy[i] = curr_xy[i] + direction / d * max_step
+    main_xy = {}  # level -> (count, xy_array)
+    for lv in main_levels:
+        count = level_counts[lv]
+        main_xy[lv] = (count, xy_at_level(lv, count))
 
-        level_xy.append((count, new_xy))
+    # (c) Noi suy cuc bo cho tung level
+    level_xy = []
+    for lv in range(n_levels + 1):
+        count = level_counts[lv]
+        if lv in main_xy:
+            level_xy.append(main_xy[lv])
+        else:
+            # Tim main ring truoc va sau
+            prev_main = max(m for m in main_levels if m <= lv)
+            next_main = min(m for m in main_levels if m >= lv)
+            if prev_main == next_main:
+                level_xy.append(main_xy[prev_main])
+                continue
+            local_t = (lv - prev_main) / (next_main - prev_main)
+            # XY cua 2 main ring (cung count vi sub ring)
+            _, xy_a = main_xy[prev_main]
+            _, xy_b = main_xy[next_main]
+            # Resample xy_a/xy_b sang count neu can (khi count thay doi tai next_main)
+            count_a = level_counts[prev_main]
+            count_b = level_counts[next_main]
+            if count_a != count:
+                tmp = np.zeros((count_a, 3), dtype=np.float64)
+                tmp[:, :2] = xy_a
+                xy_a = _resample_ring(tmp, count)[:, :2]
+            if count_b != count:
+                tmp = np.zeros((count_b, 3), dtype=np.float64)
+                tmp[:, :2] = xy_b
+                xy_b = _resample_ring(tmp, count)[:, :2]
+            new_xy = xy_a * (1.0 - local_t) + xy_b * local_t
+            level_xy.append((count, new_xy))
 
     # --- Ghep XY va Z thanh rings 3D ---
     rings = []
