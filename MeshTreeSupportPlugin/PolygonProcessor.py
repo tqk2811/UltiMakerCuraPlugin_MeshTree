@@ -108,14 +108,10 @@ def process_polygons(vertices, faces, overhang_mask, face_normals,
     _merge_small_polygons(groups, group_of, adjacency, areas, centroids,
                           sub_normals, min_area)
 
-    # --- Split: chia group lớn hơn max_area (multi-face spatial) ---
-    split_data = _split_large_polygons(groups, areas, centroids, sub_normals,
-                                       ext_vertices, sub_faces, max_area)
-
     # --- Tạo PolygonInfo cho mỗi group ---
     result = []
 
-    for gid, members in split_data.items():
+    for gid, members in groups.items():
         g_areas = areas[members]
         g_centroids = centroids[members]
         g_normals = sub_normals[members]
@@ -259,45 +255,6 @@ def _merge_small_polygons(groups, group_of, adjacency, areas, centroids,
             changed = True
 
 
-def _split_large_polygons(groups, areas, centroids, normals,
-                          vertices, sub_faces, max_area):
-    """
-    Chia group (sau merge) lớn hơn max_area bằng spatial median split.
-
-    Pre-subdivision đã đảm bảo mỗi face đơn lẻ <= max_area,
-    nên chỉ cần xử lý groups có nhiều face bị merge lại > max_area.
-
-    Trả về:
-        dict: group_id → list[face_local_idx]
-    """
-    result = {}
-    next_id = max(groups.keys()) + 1 if groups else 0
-
-    for gid, members in groups.items():
-        total_area = float(np.sum(areas[members]))
-
-        if total_area <= max_area:
-            result[gid] = members
-            continue
-
-        # Chia thành N phần để mỗi phần <= max_area
-        n_parts = max(2, int(np.ceil(total_area / max_area)))
-
-        if len(members) >= n_parts:
-            # Chia spatial bằng KD-split
-            member_centroids = centroids[members]
-            parts = _spatial_split(members, member_centroids, n_parts)
-            for part in parts:
-                result[next_id] = part
-                next_id += 1
-        else:
-            # Ít member hơn n_parts → mỗi member thành 1 group
-            for m in members:
-                result[next_id] = [m]
-                next_id += 1
-
-    return result
-
 
 def _extract_boundary_loop(members, local_faces, outer_verts):
     """
@@ -357,37 +314,6 @@ def _extract_boundary_loop(members, local_faces, outer_verts):
     # winding nhất quán. Không reverse vì ring0 và ring1 cần cùng chiều.
     return outer_verts[np.array(loop)].copy()
 
-
-def _spatial_split(members, member_centroids, n_parts):
-    """
-    Chia danh sách members thành n_parts phần bằng recursive median split.
-    """
-    if n_parts <= 1 or len(members) <= 1:
-        return [list(members)]
-
-    # Tìm trục có spread lớn nhất
-    spread = member_centroids.max(axis=0) - member_centroids.min(axis=0)
-    axis = int(np.argmax(spread))
-
-    # Sort theo trục
-    order = np.argsort(member_centroids[:, axis])
-    sorted_members = [members[i] for i in order]
-    sorted_centroids = member_centroids[order]
-
-    # Chia tại median
-    mid = len(sorted_members) // 2
-    left_members = sorted_members[:mid]
-    right_members = sorted_members[mid:]
-    left_centroids = sorted_centroids[:mid]
-    right_centroids = sorted_centroids[mid:]
-
-    n_left = n_parts // 2
-    n_right = n_parts - n_left
-
-    left_parts = _spatial_split(left_members, left_centroids, n_left)
-    right_parts = _spatial_split(right_members, right_centroids, n_right)
-
-    return left_parts + right_parts
 
 
 def _subdivide_large_faces(vertices, oh_faces, oh_normals, max_area):
