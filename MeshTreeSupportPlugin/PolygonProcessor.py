@@ -106,7 +106,7 @@ def process_polygons(vertices, faces, overhang_mask, face_normals,
 
     # --- Merge: gộp tam giác nhỏ hơn min_area ---
     _merge_small_polygons(groups, group_of, adjacency, areas, centroids,
-                          sub_normals, min_area)
+                          sub_normals, min_area, max_area)
 
     # --- Tạo PolygonInfo cho mỗi group ---
     result = []
@@ -208,9 +208,12 @@ def _build_adjacency(oh_faces, vertices, tol=0.01):
 
 
 def _merge_small_polygons(groups, group_of, adjacency, areas, centroids,
-                          normals, min_area):
+                          normals, min_area, max_area):
     """
-    Gộp tam giác nhỏ hơn min_area với hàng xóm nhỏ nhất sát bên cạnh.
+    Gộp tam giác nhỏ hơn min_area theo 2 pha:
+      Pha 1: ưu tiên merge với neighbor cũng < min_area (gộp nhỏ với nhỏ)
+      Pha 2: nếu vẫn < min_area, merge vào neighbor lớn hơn sao cho
+             min_area <= tổng <= max_area
     Lặp cho đến khi không còn group nào < min_area có thể merge.
     """
     changed = True
@@ -228,10 +231,11 @@ def _merge_small_polygons(groups, group_of, adjacency, areas, centroids,
         for gid in sorted_gids:
             if gid not in groups:
                 continue
-            if group_areas.get(gid, 0) >= min_area:
+            cur_area = group_areas.get(gid, 0)
+            if cur_area >= min_area:
                 continue
 
-            # Tìm group hàng xóm nhỏ nhất
+            # Tìm tất cả neighbor groups
             neighbor_gids = set()
             for member in groups[gid]:
                 for adj_face in adjacency.get(member, set()):
@@ -242,15 +246,28 @@ def _merge_small_polygons(groups, group_of, adjacency, areas, centroids,
             if not neighbor_gids:
                 continue
 
-            # Chọn hàng xóm nhỏ nhất
-            best_neighbor = min(neighbor_gids, key=lambda g: group_areas.get(g, 0))
+            # Pha 1: ưu tiên neighbor cũng < min_area (nhỏ nhất trước)
+            small_neighbors = [g for g in neighbor_gids
+                               if group_areas.get(g, 0) < min_area]
+            if small_neighbors:
+                best = min(small_neighbors,
+                           key=lambda g: group_areas.get(g, 0))
+            else:
+                # Pha 2: merge vào neighbor lớn hơn, nhưng tổng <= max_area
+                valid_neighbors = [g for g in neighbor_gids
+                                   if cur_area + group_areas.get(g, 0) <= max_area]
+                if valid_neighbors:
+                    # Chọn neighbor nhỏ nhất trong các neighbor hợp lệ
+                    best = min(valid_neighbors,
+                               key=lambda g: group_areas.get(g, 0))
+                else:
+                    continue
 
-            # Merge gid vào best_neighbor
+            # Merge gid vào best
             for member in groups[gid]:
-                group_of[member] = best_neighbor
-            groups[best_neighbor].extend(groups[gid])
-            group_areas[best_neighbor] = group_areas.get(best_neighbor, 0) + \
-                                          group_areas.get(gid, 0)
+                group_of[member] = best
+            groups[best].extend(groups[gid])
+            group_areas[best] = group_areas.get(best, 0) + cur_area
             del groups[gid]
             changed = True
 
