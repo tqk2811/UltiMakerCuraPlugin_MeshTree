@@ -64,6 +64,7 @@ _DEFAULT_SETTINGS = {
     # --- Đa giác ---
     "min_polygon_area": 0.5,         # Diện tích tối thiểu đa giác (mm²)
     "max_polygon_area": 2.0,         # Diện tích tối đa đa giác (mm²)
+    "polygon_merge_max_dist": 5.0,   # Khoảng cách trọng tâm tối đa để merge (mm)
     # --- Tip interface ---
     "tip_radius": 0.4,               # Bán kính tại Point A (mm)
     "tip_height": 10.0,              # Chiều cao tip interface (mm)

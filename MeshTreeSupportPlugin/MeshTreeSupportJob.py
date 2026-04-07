@@ -164,7 +164,8 @@ class MeshTreeSupportJob(Job):
             min_area=float(s.get("min_polygon_area", 0.5)),
             max_area=float(s.get("max_polygon_area", 10.0)),
             gap=shell_gap,
-            thickness=shell_thickness
+            thickness=shell_thickness,
+            merge_max_dist=float(s.get("polygon_merge_max_dist", 5.0))
         )
 
         Logger.log("i", "  -> %d da giac sau xu ly", len(polygons))

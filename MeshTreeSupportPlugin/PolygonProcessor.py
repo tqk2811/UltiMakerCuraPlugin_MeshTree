@@ -5,10 +5,11 @@
 # trước khi tạo tip interface.
 #
 # Thuật toán:
-#   1. Xây adjacency graph giữa các tam giác overhang (tolerance-based)
-#   2. Merge: gộp tam giác < min_area với hàng xóm nhỏ nhất sát bên
-#   3. Split: chia tam giác > max_area qua trung tuyến (median)
-#   4. Output: danh sách polygon, mỗi cái có centroid, area, normal, n_sides
+#   1. Pre-subdivide: chia tam giác > max_area tại cạnh dài nhất
+#   2. Merge (distance-based): gộp tam giác < min_area với tam giác gần nhất
+#      theo khoảng cách trọng tâm XYZ (trong bán kính merge_max_dist),
+#      sao cho diện tích chiếu Z nằm trong [min_area, max_area]
+#   3. Output: danh sách polygon, mỗi cái có centroid, area, normal, n_sides
 #
 # Đầu vào: vertices, faces, overhang_mask, face_normals, min/max_area
 # Đầu ra: list[PolygonInfo] — thông tin mỗi đa giác đã chuẩn hóa
@@ -38,7 +39,8 @@ class PolygonInfo:
 
 
 def process_polygons(vertices, faces, overhang_mask, face_normals,
-                     min_area=0.5, max_area=10.0, gap=0.1, thickness=0.5):
+                     min_area=0.5, max_area=10.0, gap=0.1, thickness=0.5,
+                     merge_max_dist=5.0):
     """
     Xử lý đa giác overhang: merge nhỏ, split lớn, chuẩn hóa.
 
@@ -51,6 +53,7 @@ def process_polygons(vertices, faces, overhang_mask, face_normals,
         max_area      : float - diện tích tối đa (mm²)
         gap           : float - khoảng cách shell gap (mm)
         thickness     : float - độ dày shell (mm)
+        merge_max_dist: float - khoảng cách trọng tâm tối đa để merge (mm)
 
     Trả về:
         list[PolygonInfo] — mỗi đa giác đã chuẩn hóa
@@ -97,16 +100,13 @@ def process_polygons(vertices, faces, overhang_mask, face_normals,
     offset_dist = gap + thickness
     outer_verts = vert_pos + outward * offset_dist
 
-    # --- Xây adjacency graph (tolerance-based) ---
-    adjacency = _build_adjacency(sub_faces, ext_vertices, tol=0.01)
-
     # --- Khởi tạo groups: mỗi tam giác subdivision là 1 group ---
     group_of = list(range(num_sub))
     groups = {i: [i] for i in range(num_sub)}
 
-    # --- Merge: gộp tam giác nhỏ hơn min_area ---
-    _merge_small_polygons(groups, group_of, adjacency, areas, centroids,
-                          sub_normals, min_area, max_area)
+    # --- Merge: gộp tam giác nhỏ hơn min_area (distance-based) ---
+    _merge_small_polygons(groups, group_of, areas, centroids,
+                          sub_normals, min_area, max_area, merge_max_dist)
 
     # --- Tạo PolygonInfo cho mỗi group ---
     result = []
@@ -167,109 +167,113 @@ def process_polygons(vertices, faces, overhang_mask, face_normals,
     return result
 
 
-def _build_adjacency(oh_faces, vertices, tol=0.01):
+
+def _merge_small_polygons(groups, group_of, areas, centroids,
+                          normals, min_area, max_area, merge_max_dist):
     """
-    Xây adjacency graph giữa các tam giác overhang.
-    Hai tam giác kề nhau nếu chia chung cạnh (tolerance-based vertex matching).
+    Gộp tam giác nhỏ hơn min_area dựa trên khoảng cách trọng tâm XYZ.
 
-    Trả về:
-        dict: face_local_idx → set[face_local_idx] — danh sách hàng xóm
+    Thuật toán:
+      1. Tính trọng tâm tất cả tam giác
+      2. Sắp xếp tam giác theo diện tích tăng dần
+      3. Với mỗi tam giác nhỏ nhất (chưa merge, area < min_area):
+         - Tìm các tam giác khác trong bán kính merge_max_dist (XYZ)
+         - Gộp từ gần nhất đến xa nhất
+         - Dừng khi diện tích chiếu lên mặt Z >= min_area hoặc > max_area
     """
-    num_faces = len(oh_faces)
-    adjacency = defaultdict(set)
+    num_faces = len(areas)
+    if num_faces == 0:
+        return
 
-    # Lấy tọa độ và quantize để tolerance matching
-    inv_tol = 1.0 / tol
-    edge_map = defaultdict(list)  # quantized_edge → [(face_idx, v_a, v_b)]
+    # Sắp xếp tất cả faces theo diện tích tăng dần
+    sorted_faces = sorted(range(num_faces), key=lambda i: areas[i])
 
-    for fi in range(num_faces):
-        f = oh_faces[fi]
-        for i in range(3):
-            va_idx, vb_idx = int(f[i]), int(f[(i + 1) % 3])
-            va = vertices[va_idx]
-            vb = vertices[vb_idx]
+    # Duyệt từ nhỏ nhất
+    for fi in sorted_faces:
+        gid = group_of[fi]
 
-            # Quantize vertex positions
-            qa = tuple(np.round(va * inv_tol).astype(np.int64))
-            qb = tuple(np.round(vb * inv_tol).astype(np.int64))
+        # Bỏ qua nếu group đã bị xoá (face đã merge vào group khác)
+        if gid not in groups:
+            continue
 
-            # Sorted key để 2 face cùng cạnh match
-            key = tuple(sorted([qa, qb]))
-            edge_map[key].append(fi)
+        # Tính diện tích chiếu Z hiện tại của group
+        cur_proj_area = _projected_z_area(groups[gid], centroids, areas, normals)
+        if cur_proj_area >= min_area:
+            continue
 
-    # Xây adjacency từ shared edges
-    for key, face_list in edge_map.items():
-        for i in range(len(face_list)):
-            for j in range(i + 1, len(face_list)):
-                adjacency[face_list[i]].add(face_list[j])
-                adjacency[face_list[j]].add(face_list[i])
+        # Trọng tâm group hiện tại
+        g_members = groups[gid]
+        g_areas = areas[g_members]
+        total_a = float(np.sum(g_areas))
+        if total_a < 1e-12:
+            continue
+        g_centroid = np.sum(centroids[g_members] * (g_areas / total_a)[:, np.newaxis],
+                           axis=0)
 
-    return adjacency
-
-
-def _merge_small_polygons(groups, group_of, adjacency, areas, centroids,
-                          normals, min_area, max_area):
-    """
-    Gộp tam giác nhỏ hơn min_area theo 2 pha:
-      Pha 1: ưu tiên merge với neighbor cũng < min_area (gộp nhỏ với nhỏ)
-      Pha 2: nếu vẫn < min_area, merge vào neighbor lớn hơn sao cho
-             min_area <= tổng <= max_area
-    Lặp cho đến khi không còn group nào < min_area có thể merge.
-    """
-    changed = True
-    while changed:
-        changed = False
-
-        # Tính diện tích mỗi group
-        group_areas = {}
-        for gid, members in groups.items():
-            group_areas[gid] = float(np.sum(areas[members]))
-
-        # Sắp xếp groups theo diện tích tăng dần
-        sorted_gids = sorted(groups.keys(), key=lambda g: group_areas.get(g, 0))
-
-        for gid in sorted_gids:
-            if gid not in groups:
+        # Tìm tất cả group khác, tính khoảng cách trọng tâm XYZ
+        other_gids = []
+        other_centroids = []
+        for ogid, omembers in groups.items():
+            if ogid == gid:
                 continue
-            cur_area = group_areas.get(gid, 0)
-            if cur_area >= min_area:
+            oa = areas[omembers]
+            ot = float(np.sum(oa))
+            if ot < 1e-12:
                 continue
+            oc = np.sum(centroids[omembers] * (oa / ot)[:, np.newaxis], axis=0)
+            other_gids.append(ogid)
+            other_centroids.append(oc)
 
-            # Tìm tất cả neighbor groups
-            neighbor_gids = set()
-            for member in groups[gid]:
-                for adj_face in adjacency.get(member, set()):
-                    adj_gid = group_of[adj_face]
-                    if adj_gid != gid and adj_gid in groups:
-                        neighbor_gids.add(adj_gid)
+        if not other_gids:
+            continue
 
-            if not neighbor_gids:
+        other_centroids = np.array(other_centroids)
+        dists = np.linalg.norm(other_centroids - g_centroid, axis=1)
+
+        # Lọc trong bán kính merge_max_dist, sắp xếp gần → xa
+        within = np.where(dists <= merge_max_dist)[0]
+        if len(within) == 0:
+            continue
+        within = within[np.argsort(dists[within])]
+
+        # Gộp từ gần nhất đến xa nhất
+        for idx in within:
+            ogid = other_gids[idx]
+            if ogid not in groups:
                 continue
 
-            # Pha 1: ưu tiên neighbor cũng < min_area (nhỏ nhất trước)
-            small_neighbors = [g for g in neighbor_gids
-                               if group_areas.get(g, 0) < min_area]
-            if small_neighbors:
-                best = min(small_neighbors,
-                           key=lambda g: group_areas.get(g, 0))
-            else:
-                # Pha 2: merge vào neighbor lớn hơn, nhưng tổng <= max_area
-                valid_neighbors = [g for g in neighbor_gids
-                                   if cur_area + group_areas.get(g, 0) <= max_area]
-                if valid_neighbors:
-                    # Chọn neighbor nhỏ nhất trong các neighbor hợp lệ
-                    best = min(valid_neighbors,
-                               key=lambda g: group_areas.get(g, 0))
-                else:
-                    continue
+            # Kiểm tra: tổng diện tích chiếu Z sau merge <= max_area
+            merged_members = groups[gid] + groups[ogid]
+            merged_proj = _projected_z_area(merged_members, centroids, areas, normals)
 
-            # Merge gid vào best
-            for member in groups[gid]:
-                group_of[member] = best
-            groups[best].extend(groups[gid])
-            group_areas[best] = group_areas.get(best, 0) + cur_area
-            del groups[gid]
-            changed = True
+            if merged_proj > max_area:
+                continue
+
+            # Merge ogid vào gid
+            for member in groups[ogid]:
+                group_of[member] = gid
+            groups[gid] = merged_members
+            del groups[ogid]
+
+            if merged_proj >= min_area:
+                break
+
+
+def _projected_z_area(members, centroids, areas, normals):
+    """
+    Tính diện tích chiếu lên mặt phẳng Z của một nhóm tam giác.
+
+    Diện tích chiếu = Σ (area_i × |nz_i|)
+    trong đó nz_i là thành phần Z của normal (đã normalize).
+    """
+    g_areas = areas[members]
+    g_normals = normals[members]
+    # |nz| = |cos(góc giữa normal và trục Z)|
+    nz_abs = np.abs(g_normals[:, 2])
+    # Với normal đã normalize: projected_area = area * |nz|
+    nz_lens = np.linalg.norm(g_normals, axis=1)
+    nz_unit = np.where(nz_lens > 1e-10, nz_abs / nz_lens, nz_abs)
+    return float(np.sum(g_areas * nz_unit))
 
 
 

@@ -219,6 +219,23 @@ Window {
                         Label { text: "mm²" }
 
                         Label {
+                            text: "KC merge tối đa:"
+                            Layout.preferredWidth: 180
+                            ToolTip.visible: mergeMaxDistMA.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: "Khoảng cách trọng tâm XYZ tối đa giữa 2 tam giác để được gộp.\nGiá trị lớn → gộp xa hơn.\nPhạm vi: 1 - 20 mm"
+                            MouseArea { id: mergeMaxDistMA; anchors.fill: parent; hoverEnabled: true }
+                        }
+                        TextField {
+                            id: fMergeMaxDist
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 1; top: 20; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("polygon_merge_max_dist", v) }
+                        }
+                        Label { text: "mm" }
+
+                        Label {
                             text: "Bán kính tip:"
                             Layout.preferredWidth: 180
                             ToolTip.visible: tipRadiusMA.containsMouse
@@ -627,6 +644,7 @@ Window {
         fShellGap.text           = manager.getSetting("shell_gap").toFixed(1)
         fMinPolyArea.text        = manager.getSetting("min_polygon_area").toFixed(2)
         fMaxPolyArea.text        = manager.getSetting("max_polygon_area").toFixed(1)
+        fMergeMaxDist.text       = manager.getSetting("polygon_merge_max_dist").toFixed(1)
         fTipRadius.text          = manager.getSetting("tip_radius").toFixed(2)
         fTipRingThickness.text   = manager.getSetting("tip_ring_thickness").toFixed(2)
         fTipShapePower.text      = manager.getSetting("tip_shape_power").toFixed(2)
