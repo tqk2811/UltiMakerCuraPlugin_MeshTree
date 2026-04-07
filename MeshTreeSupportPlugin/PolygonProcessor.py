@@ -18,7 +18,6 @@
 # ==============================================================================
 
 import numpy as np
-from collections import defaultdict
 
 
 class PolygonInfo:
@@ -279,10 +278,9 @@ def _projected_z_area(members, centroids, areas, normals):
 
 def _extract_boundary_loop(members, local_faces, outer_verts):
     """
-    Trích xuất vòng biên (boundary loop) của một nhóm tam giác trên outer surface.
+    Trích xuất vòng biên (convex hull) của một nhóm tam giác trên outer surface.
 
-    Tìm các cạnh chỉ thuộc 1 tam giác trong nhóm (boundary edges),
-    rồi nối chúng thành vòng đỉnh có thứ tự.
+    Lấy tất cả đỉnh của nhóm, chiếu xuống Z = min_z, tính convex hull 2D.
 
     Tham số:
         members     : list[int] - chỉ số face cục bộ trong nhóm
@@ -290,51 +288,73 @@ def _extract_boundary_loop(members, local_faces, outer_verts):
         outer_verts : (U, 3) - tọa độ đỉnh trên outer surface
 
     Trả về:
-        numpy array (N, 3) - đỉnh biên theo thứ tự, hoặc None nếu thất bại
+        numpy array (N, 3) - đỉnh convex hull tại Z=min_z, hoặc None nếu thất bại
     """
-    # Đếm số lần mỗi cạnh (undirected) xuất hiện trong nhóm
-    edge_face_count = defaultdict(int)
-    edge_directed = defaultdict(list)
-
+    # Thu thập tất cả đỉnh unique của nhóm
+    vert_set = set()
     for m in members:
         f = local_faces[m]
-        for i in range(3):
-            a, b = int(f[i]), int(f[(i + 1) % 3])
-            key = (min(a, b), max(a, b))
-            edge_face_count[key] += 1
-            edge_directed[key].append((a, b))
+        vert_set.add(int(f[0]))
+        vert_set.add(int(f[1]))
+        vert_set.add(int(f[2]))
 
-    # Cạnh biên = xuất hiện đúng 1 lần
-    boundary_edges = []
-    for key, count in edge_face_count.items():
-        if count == 1:
-            boundary_edges.append(edge_directed[key][0])
-
-    if len(boundary_edges) < 3:
+    if len(vert_set) < 3:
         return None
 
-    # Xây map: vertex → vertex tiếp theo
-    next_map = {}
-    for a, b in boundary_edges:
-        next_map[a] = b
+    vert_indices = np.array(sorted(vert_set))
+    pts = outer_verts[vert_indices]  # (K, 3)
 
-    # Đi vòng theo thứ tự
-    start = boundary_edges[0][0]
-    loop = [start]
-    current = next_map.get(start)
-    for _ in range(len(boundary_edges)):
-        if current is None or current == start:
-            break
-        loop.append(current)
-        current = next_map.get(current)
+    # Z = min_z của nhóm
+    min_z = float(np.min(pts[:, 2]))
 
-    if len(loop) < 3:
+    # Convex hull 2D trên XY
+    pts_2d = pts[:, :2]
+    hull_idx = _convex_hull_2d(pts_2d)
+    if len(hull_idx) < 3:
         return None
 
-    # Giữ nguyên thứ tự CCW (khớp với _make_ring) để _connect_rings tạo
-    # winding nhất quán. Không reverse vì ring0 và ring1 cần cùng chiều.
-    return outer_verts[np.array(loop)].copy()
+    # Tạo polygon lồi 3D tại Z = min_z
+    result = np.zeros((len(hull_idx), 3), dtype=np.float64)
+    for i, hi in enumerate(hull_idx):
+        result[i, :2] = pts_2d[hi]
+        result[i, 2] = min_z
 
+    return result
+
+
+
+def _convex_hull_2d(points_2d):
+    """
+    Andrew's monotone chain algorithm cho 2D convex hull.
+    Trả về danh sách chỉ số đỉnh theo thứ tự CCW.
+    """
+    n = len(points_2d)
+    if n < 3:
+        return list(range(n))
+
+    indices = sorted(range(n),
+                     key=lambda i: (float(points_2d[i][0]),
+                                    float(points_2d[i][1])))
+
+    def cross(o, a, b):
+        return ((float(points_2d[a][0]) - float(points_2d[o][0])) *
+                (float(points_2d[b][1]) - float(points_2d[o][1])) -
+                (float(points_2d[a][1]) - float(points_2d[o][1])) *
+                (float(points_2d[b][0]) - float(points_2d[o][0])))
+
+    lower = []
+    for i in indices:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], i) <= 0:
+            lower.pop()
+        lower.append(i)
+
+    upper = []
+    for i in reversed(indices):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], i) <= 0:
+            upper.pop()
+        upper.append(i)
+
+    return lower[:-1] + upper[:-1]
 
 
 def _subdivide_large_faces(vertices, oh_faces, oh_normals, max_area):

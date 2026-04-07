@@ -81,21 +81,12 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
             points_a.append(pt)
             continue
 
-        shell_boundary = poly.boundary_verts.copy()
-        min_z = float(np.min(shell_boundary[:, 2]))
+        # boundary_verts = convex hull tai Z=min_z (tu PolygonProcessor)
+        convex = poly.boundary_verts.copy()
+        min_z = float(convex[0, 2])  # tat ca dinh da o cung Z=min_z
 
-        # =================================================================
-        # BUOC 2: Convex hull - bien da giac lom thanh loi
-        # =================================================================
-        projected = shell_boundary.copy()
-        projected[:, 2] = min_z
-
-        convex = _make_convex_polygon(projected)
-        if len(convex) < 3:
-            convex = projected.copy()
-
-        Logger.log("d", "  Polygon %d: boundary=%d verts, convex=%d verts, "
-                   "min_z=%.2f", pi, len(projected), len(convex), min_z)
+        Logger.log("d", "  Polygon %d: convex=%d verts, min_z=%.2f",
+                   pi, len(convex), min_z)
 
         # =================================================================
         # BUOC 3: Lap day khoi tu shell xuong convex hull tai Z=min_z
@@ -105,10 +96,12 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
         if has_cap:
             all_soup.append(poly.cap_triangles.copy())
 
-        # (b) Side walls: thanh ben tu shell_boundary xuong projected (cung so dinh, cung thu tu)
-        sides = _make_side_walls(shell_boundary, projected)
-        if sides is not None and len(sides) > 0:
-            all_soup.append(sides)
+        # (b) Side walls: trich boundary edges tu cap_triangles,
+        #     project xuong Z=min_z, tao thanh ben
+        if has_cap:
+            sides = _make_cap_side_walls(poly.cap_triangles, min_z)
+            if sides is not None and len(sides) > 0:
+                all_soup.append(sides)
 
         # =================================================================
         # BUOC 4-5: Tim trong tam, tao hinh tron tai dau tip
@@ -120,9 +113,6 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
         max_d_horiz = float(np.max(d_horiz_arr))
 
         # Dieu chinh chieu cao tip de dam bao overhang constraint
-        # Tai t=0.5 cua Bezier: horizontal_speed = 1.5 * d_horiz,
-        #                        vertical_speed = effective_height
-        # Rang buoc: 1.5 * d_horiz / effective_height < tan(overhang)
         if tan_overhang > 1e-10:
             min_required_height = 1.5 * max_d_horiz / tan_overhang
         else:
@@ -132,12 +122,7 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
         circle_center = np.array([centroid[0], centroid[1],
                                   min_z - effective_height])
 
-        # (c) Skirt: lap vung annular giua projected (lom) va convex (loi), face up
-        skirt = _fill_ring(projected, convex)
-        if skirt is not None and len(skirt) > 0:
-            all_soup.append(skirt)
-
-        # (d) Cap tai Z=min_z: lap day toan bo convex, face down (-Z)
+        # (c) Cap tai Z=min_z: lap day toan bo convex, face down (-Z)
         cap_bottom = _triangulate_convex(convex, face_down=True)
         if cap_bottom is not None and len(cap_bottom) > 0:
             all_soup.append(cap_bottom)
@@ -183,6 +168,70 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
 # ==============================================================================
 # HELPER FUNCTIONS
 # ==============================================================================
+
+def _make_cap_side_walls(cap_triangles, min_z):
+    """
+    Trich boundary edges tu cap_triangles (triangle soup),
+    project xuong Z=min_z, tao side walls.
+
+    cap_triangles: (N*3, 3) triangle soup - moi 3 dong la 1 tam giac
+    min_z: float - Z cua mat duoi
+
+    Tra ve: triangle soup (M, 3) hoac None
+    """
+    n_tris = len(cap_triangles) // 3
+    if n_tris == 0:
+        return None
+
+    # Quantize vertices de tim shared edges
+    # Dung precision 1e-6 de so sanh toa do float
+    scale = 1e4
+    edge_count = {}  # (quantized_a, quantized_b) -> count
+    edge_verts = {}  # (quantized_a, quantized_b) -> (v_a, v_b)
+
+    for t in range(n_tris):
+        v = [cap_triangles[t * 3 + k] for k in range(3)]
+        for k in range(3):
+            a, b = v[k], v[(k + 1) % 3]
+            qa = (round(a[0] * scale), round(a[1] * scale), round(a[2] * scale))
+            qb = (round(b[0] * scale), round(b[1] * scale), round(b[2] * scale))
+            key = (min(qa, qb), max(qa, qb))
+            edge_count[key] = edge_count.get(key, 0) + 1
+            if key not in edge_verts:
+                edge_verts[key] = (a.copy(), b.copy())
+
+    # Boundary edges = xuat hien dung 1 lan
+    tris = []
+    for key, count in edge_count.items():
+        if count != 1:
+            continue
+        va, vb = edge_verts[key]
+        # Project xuong Z=min_z
+        va_proj = va.copy(); va_proj[2] = min_z
+        vb_proj = vb.copy(); vb_proj[2] = min_z
+        # 2 tam giac cho side wall
+        tris.append([va, va_proj, vb])
+        tris.append([vb, va_proj, vb_proj])
+
+    if not tris:
+        return None
+
+    result = np.array(tris, dtype=np.float64).reshape(-1, 3)
+
+    # Fix winding: normal huong ra ngoai (xa tam)
+    all_cap_verts = cap_triangles.reshape(-1, 3)
+    center = np.mean(all_cap_verts, axis=0)
+    n_t = len(result) // 3
+    for t in range(n_t):
+        v0, v1, v2 = result[t * 3], result[t * 3 + 1], result[t * 3 + 2]
+        fn = np.cross(v1 - v0, v2 - v0)
+        tc = (v0 + v1 + v2) / 3.0
+        if np.dot(fn, tc - center) < 0:
+            result[t * 3 + 1], result[t * 3 + 2] = \
+                result[t * 3 + 2].copy(), result[t * 3 + 1].copy()
+
+    return result
+
 
 def _fill_ring(inner_ring, outer_ring):
     """
