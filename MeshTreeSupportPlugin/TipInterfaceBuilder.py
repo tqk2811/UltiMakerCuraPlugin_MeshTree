@@ -103,6 +103,17 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
             if sides is not None and len(sides) > 0:
                 all_soup.append(sides)
 
+        # (b2) Fill ring face-up giua cap boundary (projected) va convex hull
+        #      tai Z=min_z, de khong bi thieu mat phang
+        if has_cap:
+            cap_boundary = _extract_ordered_boundary(poly.cap_triangles)
+            if cap_boundary is not None and len(cap_boundary) >= 3:
+                cap_boundary_proj = cap_boundary.copy()
+                cap_boundary_proj[:, 2] = min_z
+                fill = _fill_ring(cap_boundary_proj, convex)
+                if fill is not None and len(fill) > 0:
+                    all_soup.append(fill)
+
         # =================================================================
         # BUOC 4-5: Tim trong tam, tao hinh tron tai dau tip
         # =================================================================
@@ -121,11 +132,6 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
 
         circle_center = np.array([centroid[0], centroid[1],
                                   min_z - effective_height])
-
-        # (c) Cap tai Z=min_z: lap day toan bo convex, face down (-Z)
-        cap_bottom = _triangulate_convex(convex, face_down=True)
-        if cap_bottom is not None and len(cap_bottom) > 0:
-            all_soup.append(cap_bottom)
 
         Logger.log("d", "  Circle: center=(%.2f,%.2f,%.2f), r=%.2f, "
                    "effective_h=%.2f, max_d_horiz=%.2f, N=%d",
@@ -168,6 +174,79 @@ def build_tip_interfaces(polygons, tip_radius=0.4, ring_thickness=0.3,
 # ==============================================================================
 # HELPER FUNCTIONS
 # ==============================================================================
+
+
+def _extract_ordered_boundary(cap_triangles):
+    """
+    Trich boundary edges tu triangle soup va noi thanh ordered ring.
+    Tra ve (K, 3) array cac dinh theo thu tu, hoac None.
+    """
+    n_tris = len(cap_triangles) // 3
+    if n_tris == 0:
+        return None
+
+    scale = 1e4
+    edge_count = {}
+    edge_verts = {}
+
+    for t in range(n_tris):
+        v = [cap_triangles[t * 3 + k] for k in range(3)]
+        for k in range(3):
+            a, b = v[k], v[(k + 1) % 3]
+            qa = (round(a[0] * scale), round(a[1] * scale), round(a[2] * scale))
+            qb = (round(b[0] * scale), round(b[1] * scale), round(b[2] * scale))
+            key = (min(qa, qb), max(qa, qb))
+            edge_count[key] = edge_count.get(key, 0) + 1
+            if key not in edge_verts:
+                edge_verts[key] = (a.copy(), b.copy())
+
+    # Boundary edges: xuat hien dung 1 lan
+    # Xay adjacency: quantized_vertex -> list of (other_quantized_vertex, actual_other_vertex)
+    adj = {}
+    for key, count in edge_count.items():
+        if count != 1:
+            continue
+        qa, qb = key
+        va, vb = edge_verts[key]
+        adj.setdefault(qa, []).append((qb, vb))
+        adj.setdefault(qb, []).append((qa, va))
+
+    if not adj:
+        return None
+
+    # Chain edges into ordered ring
+    start = next(iter(adj))
+    chain = []
+    current = start
+    # Tim actual vertex cho start
+    first_neighbor = adj[start][0]
+    # Di nguoc: tim vertex thuc cua start tu edge (start, neighbor)
+    key0 = (min(start, first_neighbor[0]), max(start, first_neighbor[0]))
+    va0, vb0 = edge_verts[key0]
+    qa0 = (round(va0[0] * scale), round(va0[1] * scale), round(va0[2] * scale))
+    current_vert = va0 if qa0 == start else vb0
+
+    visited = set()
+    visited.add(current)
+    chain.append(current_vert)
+
+    for _ in range(len(adj)):
+        neighbors = adj.get(current, [])
+        found = False
+        for qn, vn in neighbors:
+            if qn not in visited:
+                visited.add(qn)
+                chain.append(vn)
+                current = qn
+                found = True
+                break
+        if not found:
+            break
+
+    if len(chain) < 3:
+        return None
+
+    return np.array(chain, dtype=np.float64)
 
 def _make_cap_side_walls(cap_triangles, min_z):
     """
