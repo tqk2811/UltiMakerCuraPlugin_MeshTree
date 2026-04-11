@@ -213,7 +213,7 @@ Window {
                             id: fMaxPolyArea
                             Layout.preferredWidth: 80
                             horizontalAlignment: TextInput.AlignHCenter
-                            validator: DoubleValidator { bottom: 2; top: 50; decimals: 1 }
+                            validator: DoubleValidator { bottom: 1; top: 50; decimals: 2 }
                             onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("max_polygon_area", v) }
                         }
                         Label { text: "mm²" }
@@ -561,6 +561,18 @@ Window {
                         }
                         Label { text: "mm" }
                     }
+
+                    RowLayout {
+                        Label { text: "Độ dài ring tối đa:" }
+                        TextField {
+                            id: fMaxRingLength
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: TextInput.AlignHCenter
+                            validator: DoubleValidator { bottom: 0.5; top: 20; decimals: 1 }
+                            onEditingFinished: { var v = parseFloat(text); if (!isNaN(v)) manager.updateSetting("max_ring_length", v) }
+                        }
+                        Label { text: "mm" }
+                    }
                 }
 
             }
@@ -662,5 +674,6 @@ Window {
         fCylSegments.text        = manager.getSetting("cylinder_segments").toFixed(0)
         fBrimMultiplier.text     = manager.getSetting("base_brim_multiplier").toFixed(1)
         fBrimHeight.text         = manager.getSetting("base_brim_height").toFixed(1)
+        fMaxRingLength.text      = manager.getSetting("max_ring_length").toFixed(1)
     }
 }

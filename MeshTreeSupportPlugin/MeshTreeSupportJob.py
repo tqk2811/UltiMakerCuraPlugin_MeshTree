@@ -258,6 +258,7 @@ class MeshTreeSupportJob(Job):
             segments=int(s.get("cylinder_segments", 8)),
             base_brim_multiplier=float(s.get("base_brim_multiplier", 3.0)),
             base_brim_height=float(s.get("base_brim_height", 0.5)),
+            max_ring_length=float(s.get("max_ring_length", 2.0)),
             cancel_check=self.isCancelled
         )
 
